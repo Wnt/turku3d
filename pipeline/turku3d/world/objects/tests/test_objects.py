@@ -149,3 +149,47 @@ def test_crossing_sign_on_a_give_way_post_faces_the_junction():
     assert plates["E1"].get("turn") == 180 and "turn" not in plates["B5"]
     alone = signpost._plates([dict(rows[1])])
     assert "turn" not in alone[0]
+
+
+def test_sign_face_picture_has_the_plate_shape_and_its_paints():
+    import numpy as np
+
+    drawn = signfaces.face("E1")
+    picture = np.asarray(signfaces.face_image(drawn, density=256))
+    width, height = drawn.size
+    assert picture.shape[:2] == (round(height * 256), round(width * 256))
+    alpha = picture[..., 3] > 127
+    assert alpha[picture.shape[0] // 2, picture.shape[1] // 2] and not alpha[0, 0]  # rounded corners are outside the plate
+    blue = (picture[..., 2] > 120) & (picture[..., 0] < 60) & alpha
+    assert 0.3 < blue.sum() / alpha.sum() < 0.9  # the blue panel around the white triangle
+    give_way = np.asarray(signfaces.face_image(signfaces.face("B5"), density=256))
+    assert give_way[4, give_way.shape[1] // 2, 3] > 127 and give_way[-4, 4, 3] == 0  # a triangle standing on its point
+
+
+def test_plate_front_is_the_face_picture_and_the_store_keeps_it(tmp_path):
+    import numpy as np
+
+    from turku3d.world import driver
+    from turku3d.world.api import Instances, Output
+    from turku3d.world.store import Store
+
+    parts = signpost.plate_asset("C32", "C32 Nopeusrajoitus (40km/h)", "", False)
+    image = signpost.plate_image("C32", "C32 Nopeusrajoitus (40km/h)", "", False)
+    front = next(part for part in parts if part.material.family == "sign")
+    assert front.material.params["atlas"] == image.url and image.data[:4] == b"\x89PNG"
+    assert front.colors is None and 0.0 <= front.uvs.min() and front.uvs.max() <= 1.0
+    assert len(front.triangles) < 200  # the outline only: the face is in the picture
+    top = front.uvs[np.argmax(front.positions[:, 1])]
+    assert top[1] < 0.01  # v runs down from the plate's top, as the picture's rows do
+
+    store = Store(tmp_path)
+    output = Output((0.0, 0.0, 0.0), [], [Instances(parts, np.array([[0, 2, 0, 0, 1, 1, 1.0]]))], images=[image])
+    driver.KINDS["test-plate"] = type("Plate", (), {"compile": staticmethod(lambda description: output)})()
+    try:
+        body = driver.compile_entity(store, "test-plate", {"id": "test-plate/a"})
+    finally:
+        del driver.KINDS["test-plate"]
+    assert [entry["url"] for entry in body["output"]["images"]] == [image.url]
+    assert (tmp_path / image.url).read_bytes() == image.data
+    row = driver.manifest_row({"id": "test-plate/a", "kind": "test-plate", "description": {"tier": "automatic"}, **body}, "target")
+    assert row["images"] == [image.url]

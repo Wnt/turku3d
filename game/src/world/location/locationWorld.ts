@@ -21,9 +21,10 @@ import type { PreparedWorld, PreparedWorldHost } from '../preparedWorld';
 import type { RoadGraphJson } from '../../gameplay/roadGraph';
 import type { PreparedLighting } from '../../render/lights/preparedLighting';
 import { readLocation, type LocationEntity, type LocationManifest } from './manifest';
-import { familyMaterial } from './materials';
+import { familyMaterial, storeRoot } from './materials';
 import './families/ground';
 import './families/building';
+import './families/objects';
 
 /** The store root as the dev server and a static host serve it. */
 const STORE = 'world/';
@@ -88,6 +89,7 @@ export class LocationWorld implements WorldSurface {
   private constructor(private host: PreparedWorldHost, public manifest: LocationManifest, private url: string) {
     this.lighting = { id: `world:${manifest.name}`, lamps: [], footprint: null };
     this.group.name = `world:${manifest.name}`;
+    storeRoot(new URL(STORE, host.pageUrl ?? location.href).href);
   }
 
   static async start(host: PreparedWorldHost, name: string): Promise<LocationWorld> {

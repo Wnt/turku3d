@@ -51,7 +51,7 @@ GREEN = painted_metal("#2f6b3c")
 ORANGE = Material("plastic", {"colour": "#e8641b"}, rgb_hex("#e8641b"), 0.6, 0.0)
 CREAM = Material("plastic", {"colour": "#e9e4d2"}, rgb_hex("#e9e4d2"), 0.6, 0.0)
 SCREEN = Material("plastic", {"colour": "#15181c"}, rgb_hex("#15181c"), 0.3, 0.0)
-WOOD = painted_wood("#8a6a45", "oiled")
+WOOD = painted_wood("#8a6a45", "weathered")
 
 
 def classify(row: dict) -> tuple[str | None, str]:

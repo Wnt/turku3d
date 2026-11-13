@@ -41,6 +41,10 @@
     "road_paint": { "owner": "w2-street", "params": { "colour": "colour", "wear": "number" } },
     "ground_far": { "owner": "w2-street", "params": {} },
 
+    "sign": { "owner": "w2-objects", "params": { "code": "id", "atlas": "id", "text": "id", "width": "number", "height": "number", "blue": "boolean" } },
+    "lens": { "owner": "w2-objects", "params": { "kind": ["street-light", "signal"], "colour": "colour" } },
+    "plastic": { "owner": "w2-objects", "params": { "colour": "colour" } },
+
     "foliage": { "owner": "w2-green", "params": { "atlas": ["nature"], "cell": "id" } },
     "bark": { "owner": "w2-green", "params": { "atlas": ["nature"], "slot": "id" } },
     "hedge": { "owner": "w2-green", "params": {} }

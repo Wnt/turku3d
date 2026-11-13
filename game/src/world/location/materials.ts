@@ -16,6 +16,29 @@ export function registerFamily(name: string, family: Family, kind?: string) {
   families.set(kind ? `${kind}/${name}` : name, family);
 }
 
+let store = '';
+const textures = new Map<string, THREE.Texture>();
+const pictures = new THREE.TextureLoader();
+
+/** Sets where the object store is served (the location loader does, before it loads a mesh). */
+export function storeRoot(href: string) {
+  store = href;
+}
+
+/** The picture a material names by its store url (`objects/<aa>/<sha256>.png`, from the pipeline's `Output.images`):
+ *  one texture per url, sRGB, rows from the top as glTF texture coordinates run (`flipY` false). */
+export function storeTexture(url: string): THREE.Texture {
+  let texture = textures.get(url);
+  if (!texture) {
+    texture = pictures.load(new URL(url, store || new URL('world/', location.href)).href);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.flipY = false;
+    texture.anisotropy = 16;
+    textures.set(url, texture);
+  }
+  return texture;
+}
+
 export function familyOf(material: THREE.Material): FamilyReference | null {
   const reference = (material.userData as { turku?: FamilyReference }).turku;
   return reference && typeof reference.family === 'string' ? reference : null;

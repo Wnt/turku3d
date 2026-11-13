@@ -43,9 +43,10 @@ OWN_STOP = 30.0  # m: a crossing with a stop position this near leaves the vehic
 VEHICLE_Y, PEDESTRIAN_Y = 2.95, 2.2  # m: centre of a head on the post
 FORWARD = 0.2  # m: a head's body stands this far in front of the post axis
 
-RED = Material("lens", {"kind": "signal", "colour": "#d8261c"}, srgb(150, 32, 26), 0.3, 0.0)
-AMBER = Material("lens", {"kind": "signal", "colour": "#f2a516"}, srgb(150, 104, 24), 0.3, 0.0)
-GREEN = Material("lens", {"kind": "signal", "colour": "#2fd67a"}, srgb(34, 128, 78), 0.3, 0.0)
+# A still shows a signal at red: the red lens emits, the other two are dark glass.
+RED = Material("lens", {"kind": "signal", "colour": "#d8261c"}, srgb(216, 38, 28), 0.3, 0.0, emissive=(0.9, 0.05, 0.03))
+AMBER = Material("lens", {"kind": "signal", "colour": "#f2a516"}, srgb(70, 50, 16), 0.3, 0.0)
+GREEN = Material("lens", {"kind": "signal", "colour": "#2fd67a"}, srgb(18, 60, 38), 0.3, 0.0)
 
 
 @lru_cache(maxsize=1)

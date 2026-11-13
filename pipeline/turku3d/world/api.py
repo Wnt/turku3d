@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
@@ -106,6 +107,20 @@ class Heightfield:
     heights: np.ndarray
 
 
+@dataclass(frozen=True)
+class Image:
+    """A picture a material draws (a sign atlas, a text plate). It is stored like every object, under the hash of
+    its bytes; a kind returns it in `Output.images` and writes `url` into the material's parameters."""
+
+    data: bytes
+    ext: str = "png"
+
+    @property
+    def url(self) -> str:
+        digest = hashlib.sha256(self.data).hexdigest()
+        return f"objects/{digest[:2]}/{digest}.{self.ext}"
+
+
 @dataclass
 class Output:
     origin: tuple[float, float, float]  # engine metres, absolute
@@ -115,6 +130,7 @@ class Output:
     # Largest deviation of a level from the description, metres, by lod; the driver assumes 0.01 for lod 0 and 0.5
     # for a proxy level that does not say.
     error_m: dict[int, float] = field(default_factory=dict)
+    images: list[Image] = field(default_factory=list)  # pictures the materials name by url
 
 
 class Kind(Protocol):

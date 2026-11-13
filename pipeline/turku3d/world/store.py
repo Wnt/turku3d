@@ -122,6 +122,7 @@ class Store:
                 if row.get("url"):
                     urls.add(row["url"])
                 urls.update(i["asset"] for i in row.get("instances", []))
+                urls.update(row.get("images", []))
         return urls
 
 

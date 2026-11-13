@@ -116,6 +116,12 @@ def compile_entity(store: Store, kind_name: str, description: dict) -> dict:
         body["output"]["heightfield"] = {
             **store.put(heights.tobytes(), "bin"), "format": "f32le", "size": [heights.shape[1], heights.shape[0]],
             "origin": [round(float(v), 4) for v in field.origin], "spacing": float(field.spacing)}
+    if output.images:
+        stored = {image.url: store.put(image.data, image.ext) for image in output.images}
+        wrong = [url for url, entry in stored.items() if entry["url"] != url]
+        if wrong:
+            raise ValueError(f"{description['id']}: image url differs from the store's: {wrong[0]}")
+        body["output"]["images"] = [stored[url] for url in sorted(stored)]
     body["hash"] = sha256(canonical(body))
     body["timings"] = {"compileMs": round((compiled - started) * 1000, 1), "packMs": round((time.perf_counter() - compiled) * 1000, 1)}
     return body
@@ -188,6 +194,8 @@ def manifest_row(record: dict, role: str) -> dict:
     if "heightfield" in record["output"]:
         row["heightfield"] = {k: v for k, v in record["output"]["heightfield"].items() if k not in ("sha256", "bytes")}
     row["instances"] = [{k: v for k, v in item.items() if k != "lod"} for item in instances if item["lod"] == level]
+    if record["output"].get("images"):
+        row["images"] = [image["url"] for image in record["output"]["images"]]
     return row
 
 

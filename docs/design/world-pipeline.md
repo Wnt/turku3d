@@ -99,6 +99,14 @@ One entity compiles to GLB meshes and instance lists.
     `emissiveFactor`.
   - Positions are snapped to 0.1 mm, so equal points are bit-identical. Nothing is quantised, compressed or merged.
   - No embedded textures. A family that needs maps names them in `params` (library ids or store URLs).
+  - **Images.** A kind returns the pictures its materials draw in `Output.images` (`api.Image(data, ext)`, whose
+    `url` is `objects/<aa>/<sha256>.<ext>` of its bytes) and writes that url into the material's parameters
+    (`{"atlas": url}`). The driver stores each under its url, lists them in the record (`output.images:
+    [{url, sha256, bytes}]`, part of the entity hash) and in the manifest row (`images: [url]`); `gc` keeps them.
+  - The client reads one with `storeTexture(url)` (`materials.ts`, beside `registerFamily`): one cached texture per
+    url, sRGB, `flipY` false, resolved against the store root.
+  - A picture shared by many entities is one constant image (so one url); a picture of free text is keyed by its
+    text. Sign plates: `sign` family, `uv: atlas`, 1024 px per metre.
 - **Material families** are resolved in the client (`game/src/world/location/materials.ts`, one registered
   function per family: `params → three material`). `flat` (`color`, `roughness`, `metalness`) always exists.
   `w2-buildings`, `w2-street` and `w2-look` add families there; a generator may use a family name before the client

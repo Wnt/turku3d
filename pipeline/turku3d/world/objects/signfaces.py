@@ -2,7 +2,7 @@
 
 `face(code, label, note, blue)` returns the plate outline and its paint layers in metres, centred on the plate.
 `face_mesh` turns the layers into non-overlapping coloured triangles, so a face is one coplanar mesh that needs
-neither textures nor depth offsets. Every code of the city's sign register gets at least the face of its class (the
+neither textures nor depth offsets; `face_image` paints the same layers as a picture for the sign atlas. Every code of the city's sign register gets at least the face of its class (the
 right shape and colours); the codes that street views show most get their symbol too. Drawings are original and
 schematic, sized as the normal urban sign (0.64 m discs and squares, 0.9 m triangles).
 """
@@ -18,6 +18,7 @@ import shapely
 import shapely.prepared
 from shapely import affinity
 
+from .. import api
 from .glyphs import text_shape, text_width
 from .mesh import srgb
 
@@ -489,6 +490,87 @@ def face_mesh(face: Face) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     if not positions:
         return np.zeros((0, 2)), np.zeros((0, 3), dtype=np.int64), np.zeros((0, 3))
     return np.concatenate(positions), np.concatenate(triangles), np.concatenate(colours)
+
+
+# -- the face as a picture ----------------------------------------------------------------------------------------
+DENSITY = 1024  # px per metre of the sign atlas (docs/design/render-readiness.md, M4)
+SMOOTH = 3  # the picture is drawn this many times larger and reduced, so edges are antialiased
+
+
+def _encode(colour) -> tuple[int, int, int]:
+    """A linear RGB paint as 8-bit sRGB."""
+    return tuple(int(round(255 * (12.92 * c if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055))) for c in colour)
+
+
+def face_image(face: Face, density: int = DENSITY):
+    """The face as an RGBA picture at `density` px/m: its paint layers in order over the plate's grey, transparent
+    outside the plate outline. Pixel (0, 0) is the plate's top left; the picture covers the outline's bounds."""
+    from PIL import Image, ImageDraw
+
+    x0, y0, x1, y1 = face.outline.bounds
+    scale = density * SMOOTH
+    size = (max(int(math.ceil((x1 - x0) * scale)), 1), max(int(math.ceil((y1 - y0) * scale)), 1))
+    image = Image.new("RGBA", size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+
+    def paint(shape, colour) -> None:
+        for polygon in shapely.get_parts(shape):
+            if polygon.geom_type != "Polygon" or polygon.is_empty:
+                continue
+            ring = lambda r: [((x - x0) * scale, (y1 - y) * scale) for x, y in r.coords]  # noqa: E731
+            if polygon.interiors:  # a hole shows what was painted before it: draw the polygon on its own sheet
+                sheet = Image.new("L", size, 0)
+                pen = ImageDraw.Draw(sheet)
+                pen.polygon(ring(polygon.exterior), fill=255)
+                for hole in polygon.interiors:
+                    pen.polygon(ring(hole), fill=0)
+                image.paste(Image.new("RGBA", size, (*colour, 255)), (0, 0), sheet)
+            else:
+                draw.polygon(ring(polygon.exterior), fill=(*colour, 255))
+
+    paint(face.outline, _encode(GREY))
+    for colour, shape in face.layers:
+        if shape is not None and not shape.is_empty:
+            paint(shape.intersection(face.outline), _encode(colour))
+    return image.resize((max(size[0] // SMOOTH, 1), max(size[1] // SMOOTH, 1)), Image.LANCZOS)
+
+
+def encoded(picture) -> api.Image:
+    """A face picture as the stored image (PNG): the same picture gives the same bytes, so the same url. Outside the
+    plate the picture is filled with the plate's mean colour, so a reduced level never blends in a foreign colour."""
+    import io
+
+    from PIL import Image
+
+    fill = tuple(_encode(mean_colour(picture)))
+    flat = Image.new("RGB", picture.size, fill)
+    flat.paste(picture, (0, 0), picture.getchannel("A"))
+    data = io.BytesIO()
+    flat.save(data, "PNG", optimize=False, compress_level=9)
+    return api.Image(data.getvalue(), "png")
+
+
+def mean_colour(picture) -> tuple[float, float, float]:
+    """The mean linear colour of a face picture's plate (its opaque pixels)."""
+    pixels = np.asarray(picture, dtype=np.float64).reshape(-1, 4) / 255.0
+    solid = pixels[pixels[:, 3] > 0.5][:, :3]
+    if not len(solid):
+        return 1.0, 1.0, 1.0
+    linear = np.where(solid <= 0.04045, solid / 12.92, ((solid + 0.055) / 1.055) ** 2.4)
+    return tuple(float(v) for v in linear.mean(axis=0))
+
+
+def outline_mesh(face: Face) -> tuple[np.ndarray, np.ndarray]:
+    """(positions (n, 2), triangles) of the plate outline, curves drawn to 1 mm: the plate's front and back."""
+    ring = np.round(shapely.get_coordinates(shapely.simplify(face.outline, DETAIL).exterior)[:-1], 4)
+    with np.errstate(invalid="ignore"):
+        corners = shapely.get_coordinates(shapely.constrained_delaunay_triangles(shapely.Polygon(ring))).reshape(-1, 4, 2)[:, :3]
+    u, v = corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]
+    cross = u[:, 0] * v[:, 1] - u[:, 1] * v[:, 0]
+    corners[cross < 0] = corners[cross < 0][:, ::-1]
+    corners = np.round(corners[np.abs(cross) > 1e-12].reshape(-1, 2), 4)
+    keys, index = np.unique(corners, axis=0, return_inverse=True)
+    return keys, np.asarray(index).reshape(-1, 3)
 
 
 def border_edges(positions: np.ndarray, triangles: np.ndarray) -> list[tuple[int, int]]:

@@ -13,40 +13,42 @@ from .mesh import srgb
 BY = "w2-objects"
 ENVELOPE = ("schema", "id", "tier", "provenance")
 
-# Material families of the street objects. Parameters are the family's table row; the fallback colour is what an
-# unknown family renders with.
-GALVANISED = Material("metal", {"finish": "galvanised"}, srgb(150, 154, 156), 0.55, 0.85)
-ALUMINIUM = Material("metal", {"finish": "aluminium"}, srgb(168, 170, 172), 0.5, 0.8)
-SIGN_BACK = Material("metal", {"finish": "sign-back"}, srgb(138, 141, 143), 0.6, 0.6)
-BLACK_STEEL = Material("metal", {"finish": "painted", "color": "#1c1d1f"}, srgb(28, 29, 31), 0.5, 0.6)
-DARK_PLASTIC = Material("plastic", {"color": "#202224"}, srgb(32, 34, 36), 0.7, 0.0)
-LENS = Material("lens", {"kind": "street-light"}, srgb(232, 232, 220), 0.25, 0.0)
-GRANITE = Material("stone", {"kind": "granite", "finish": "split"}, srgb(150, 140, 132), 0.9, 0.0)
-CONCRETE = Material("concrete", {"finish": "cast"}, srgb(160, 158, 152), 0.9, 0.0)
+# Material families of the street objects, as rows of `world/families.json`. The fallback colour is what a family
+# nobody registered in the client renders with. A lens is its own primitive and carries what it emits.
+GALVANISED = Material("metal", {"colour": "#969a9c", "finish": "matt"}, srgb(150, 154, 156), 0.55, 0.85)
+ALUMINIUM = Material("metal", {"colour": "#a8aaac", "finish": "matt"}, srgb(168, 170, 172), 0.5, 0.8)
+SIGN_BACK = Material("metal", {"colour": "#8a8d8f", "finish": "matt"}, srgb(138, 141, 143), 0.6, 0.6)
+BLACK_STEEL = Material("metal", {"colour": "#1c1d1f", "finish": "matt"}, srgb(28, 29, 31), 0.5, 0.6)
+DARK_PLASTIC = Material("plastic", {"colour": "#202224"}, srgb(32, 34, 36), 0.7, 0.0)
+LENS = Material("lens", {"kind": "street-light", "colour": "#e8e8dc"}, srgb(232, 232, 220), 0.25, 0.0, emissive=(0.3, 0.3, 0.26))
+# `stone`, not `granite`: the game's own material pass draws anything named granite as its paving granite.
+GRANITE = Material("stone", {"colour": "#968c84", "finish": "rock_faced"}, srgb(150, 140, 132), 0.9, 0.0)
+CONCRETE = Material("concrete", {"colour": "#a09e98", "finish": "cast"}, srgb(160, 158, 152), 0.9, 0.0)
 
 
 def painted_metal(colour: str) -> Material:
     from .mesh import rgb_hex
 
-    return Material("metal", {"finish": "painted", "color": colour}, rgb_hex(colour), 0.5, 0.5)
+    return Material("metal", {"colour": colour, "finish": "matt"}, rgb_hex(colour), 0.5, 0.5)
 
 
-def painted_wood(colour: str, finish: str = "painted") -> Material:
+def painted_wood(colour: str, finish: str = "matt") -> Material:
     from .mesh import rgb_hex
 
-    return Material("wood", {"finish": finish, "color": colour, "boards": "vertical"}, rgb_hex(colour), 0.8, 0.0)
+    return Material("painted_wood", {"colour": colour, "finish": finish}, rgb_hex(colour), 0.8, 0.0)
 
 
-def sign_material(code: str, width: float, height: float, text: str = "", blue: bool = False) -> Material:
-    """The sign family: retroreflective sheeting whose face is named by the sign code. TEXCOORD_0 addresses the
-    face (0..1 across the plate, `uv: atlas`); the mesh also carries the face as vertex colours on a planar
-    partition, so the fallback draws it without a texture."""
-    params = {"code": code, "uv": "atlas", "width": round(width, 3), "height": round(height, 3)}
+def sign_material(code: str, width: float, height: float, atlas: str, mean=(1.0, 1.0, 1.0), text: str = "",
+                  blue: bool = False) -> Material:
+    """The sign family: retroreflective sheeting whose face is the picture stored at `atlas` (an image url of the
+    object store). TEXCOORD_0 addresses the picture, 0..1 across the plate's bounds with v down (`uv: atlas`); the
+    fallback colour is the picture's mean, for a client that draws no family."""
+    params = {"code": code, "uv": "atlas", "atlas": atlas, "width": round(width, 3), "height": round(height, 3)}
     if text:
         params["text"] = text
     if blue:
         params["blue"] = True
-    return Material("sign", params, (1.0, 1.0, 1.0), 0.45, 0.0)
+    return Material("sign", params, tuple(round(float(v), 3) for v in mean), 0.45, 0.0)
 
 
 def interaction(behaviour: str, shape: str, size: list[float], mass: float | None = None, **more) -> dict:

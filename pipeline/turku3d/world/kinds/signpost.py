@@ -204,7 +204,8 @@ class SignPost:
             items.append(Instances(plate_asset(*key), np.round(np.array([row for row, _ in placed]), 4), ids=[name for _, name in placed],
                                    behaviour=behaviour, collision={"shape": "box", "size": [round(width, 3), round(height, 3), 0.03]},
                                    mass=4.0 if mass is not None else None))
-        return Output(tuple(float(v) for v in to_engine(e, n, h)), [], items)
+        images = {image.url: image for image in (plate_image(*key) for stack in stacks.values() for _, key in stack)}
+        return Output(tuple(float(v) for v in to_engine(e, n, h)), [], items, images=list(images.values()))
 
 
 @lru_cache(maxsize=4096)
@@ -224,23 +225,25 @@ def post_asset(top: float, radius: float) -> list:
 
 
 @lru_cache(maxsize=4096)
-def _plate_parts(code: str, label: str, text: str, blue: bool) -> tuple:
-    """One plate as a closed 3 mm slab: origin at the bottom centre of its back, face towards +Z; the face is the
-    slab's front (sign family, vertex colours), back and rim are bare aluminium; a clamp rail sits behind it."""
+def _plate(code: str, label: str, text: str, blue: bool) -> tuple:
+    """One plate as a closed 3 mm slab and the picture of its face: origin at the bottom centre of its back, face
+    towards +Z. The front is the outline triangulated over its border vertices with the picture mapped on it (sign
+    family); back and rim are bare aluminium and meet the front at the same vertices; a clamp rail sits behind."""
     drawn = plate_face(code, label, text, blue)
     width, height = drawn.size
-    x0, y0 = drawn.outline.bounds[0], drawn.outline.bounds[1]
-    points, triangles, colours = signfaces.face_mesh(drawn)
+    x0, y0, _, y1 = drawn.outline.bounds
+    picture = signfaces.face_image(drawn)
+    image = signfaces.encoded(picture)
+    points, triangles = signfaces.outline_mesh(drawn)
     lift = np.array([0.0, -y0])
     flat = points + lift
     front = np.column_stack([flat, np.full(len(flat), PLATE_THICKNESS)])
     back = np.column_stack([flat, np.zeros(len(flat))])
-    behind, behind_triangles = signfaces.back_mesh(points, triangles)
-    behind = np.column_stack([behind + lift, np.zeros(len(behind))])
     mesh = Mesh()
-    uvs = np.column_stack([(points[:, 0] - x0) / width, (points[:, 1] - y0) / height])
-    mesh.add("face", sign_material(drawn.code, width, height, text, blue), front, np.tile([0.0, 0.0, 1.0], (len(front), 1)), triangles, colours, uvs=uvs)
-    mesh.add("plate", SIGN_BACK, behind, np.tile([0.0, 0.0, -1.0], (len(behind), 1)), behind_triangles[:, ::-1])
+    uvs = np.column_stack([(points[:, 0] - x0) / width, (y1 - points[:, 1]) / height])
+    material = sign_material(drawn.code, width, height, image.url, signfaces.mean_colour(picture), text, blue)
+    mesh.add("face", material, front, np.tile([0.0, 0.0, 1.0], (len(front), 1)), triangles, uvs=uvs)
+    mesh.add("plate", SIGN_BACK, back, np.tile([0.0, 0.0, -1.0], (len(back), 1)), triangles[:, ::-1])
     rim = [t for a, b in signfaces.border_edges(points, triangles) for t in (
         [front[a], back[a], back[b]], [front[a], back[b], front[b]])]
     if rim:
@@ -249,8 +252,12 @@ def _plate_parts(code: str, label: str, text: str, blue: bool) -> tuple:
     for share in ((0.25, 0.75) if height > 0.45 else (0.5,)):
         half = min(width * 0.36, 0.22)
         mesh.box("clamp", ALUMINIUM, [0.0, height * share, -STANDOFF / 2], [half * 2, 0.035, STANDOFF])
-    return tuple(mesh.parts())
+    return tuple(mesh.parts()), image
 
 
 def plate_asset(code: str, label: str, text: str, blue: bool) -> list:
-    return list(_plate_parts(code, label, text, blue))
+    return list(_plate(code, label, text, blue)[0])
+
+
+def plate_image(code: str, label: str, text: str, blue: bool):
+    return _plate(code, label, text, blue)[1]
