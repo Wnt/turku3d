@@ -538,7 +538,8 @@ def measured_roof(doc: dict) -> dict | None:
     """The roofing the orthophoto shows on a building nobody has looked at. The photo is taken in full sun, where
     roofing reads paler and greyer than its paint: the hue is kept, the colour is deepened to a paint or tile colour.
     A red pitched roof is clay tile on a small house from 1940 on and painted sheet metal on older and bigger
-    buildings, a green one painted sheet metal; any other roof keeps the roofing of its style in the measured grey."""
+    buildings, a green one painted sheet metal; any other roof keeps the roofing of its style in the measured grey.
+    Leaf green is tree crowns: such a roof keeps the colour of its style."""
     colour = doc.get("register", {}).get("roof_colour")
     if not colour:
         return None
@@ -546,7 +547,9 @@ def measured_roof(doc: dict) -> dict | None:
         *(int(colour[i : i + 2], 16) / 255 for i in (1, 3, 5))
     )
     red = (hue > 345 / 360 or hue < 30 / 360) and saturation >= 0.2
-    green = 70 / 360 < hue < 170 / 360 and saturation >= 0.12
+    if 60 / 360 < hue < 110 / 360 and saturation >= 0.15:
+        return None  # leaf green: tree crowns over the roof, not roofing
+    green = 110 / 360 <= hue < 170 / 360 and saturation >= 0.12
     if red or hue > 345 / 360 or hue < 40 / 360:
         saturation, value = min(0.7, saturation * 2.0), min(0.62, max(0.35, value * 0.8))
     elif green:

@@ -149,6 +149,9 @@ def test_roofing_follows_the_orthophoto_colour_until_somebody_describes_the_roof
     grey = describe.automatic("x", pitched, {"year": 1994, "storeys": 1, "roof_colour": "#9c9b98"})
     assert grey["roof"]["material"]["family"] == "felt"
     assert "roof" not in describe.automatic("x", pitched, {"year": 1994})
+    assert "roof" not in describe.automatic(
+        "x", pitched, {"year": 1994, "roof_colour": "#96b17f"}
+    )  # tree crowns
     stored = {"roof": {"material": {"family": "copper", "colour": "#5f8f7a"}}}
     assert (
         describe.effective("x", pitched, {"year": 1994, "roof_colour": "#ba615c"}, stored)["roof"]
