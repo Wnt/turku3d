@@ -114,6 +114,11 @@ def compile(description: dict) -> Output:  # noqa: A001 - the contract's name
         wall = priors.resolve_wall(doc, described.get(facade.index))
         if not facade.grounded:
             wall = priors.raised_wall(wall, facade.index in described)
+        elif facade.index not in described:
+            foot = float(facade.ground[:, 1].min()) if len(facade.ground) else 0.0
+            wall = priors.fitted_wall(
+                doc, wall, facades_module.eaves_height(facade.outline, facade.width) - foot
+            )
         if facade.index == 0 or facade.index in described:
             wall_family = palette.record(wall.get("material"))["family"]
         blocked = facades_module.blocked_region(facade, neighbours) if neighbours else None

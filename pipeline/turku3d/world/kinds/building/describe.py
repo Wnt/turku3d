@@ -24,6 +24,7 @@ def automatic(key: str, shell: dict, register: dict) -> dict:
     doc["style"] = {"type": priors.style_type(doc), "conf": {"*": 0.2}}
     doc["materials"] = {"wall": {**priors.register_wall(doc), "conf": {"*": 0.2}}}
     doc["wall_defaults"] = {"material": "wall"}
+    doc["opening_types"] = priors.automatic_openings(doc)
     return doc
 
 

@@ -355,6 +355,107 @@ def default_wall(doc: dict) -> dict:
     return wall
 
 
+ATTIC_WINDOW = {
+    "kind": "window",
+    "w_m": 0.55,
+    "h_m": 0.55,
+    "lights": {"pattern": "single"},
+    "surround": {"kind": "flat", "width_m": 0.1, "projection_m": 0.03, "colour": "#efece4"},
+    "sill": {"kind": "none"},
+}
+
+
+def automatic_openings(doc: dict) -> dict:
+    """Opening types of the automatic walls: what the windows of an unobserved building of the style look like."""
+    g = group(doc)
+    out = {"@attic": ATTIC_WINDOW}
+    if g is GROUPS["old_masonry"]:
+        out["@default"] = {
+            "kind": "window",
+            "surround": {
+                "kind": "flat",
+                "width_m": 0.12,
+                "projection_m": 0.03,
+                "colour": g["trim"],
+            },
+        }
+    elif style_type(doc) == "wooden_house":
+        out["@default"] = {"kind": "window", "h_m": 1.9}
+    return out
+
+
+def fitted_wall(doc: dict, wall: dict, height: float) -> dict:
+    """An automatic wall made to fit the wall it stands on.
+
+    The register's storey count is kept when it gives believable storeys; otherwise the storeys are counted from
+    the height. A low wooden house is one tall storey under a knee wall with small attic windows on a high plinth,
+    which is what the wooden quarters of Turku are made of.
+    """
+    if "storeys" in doc.get("wall_defaults", {}):
+        return wall
+    g = group(doc)
+    out = copy.deepcopy(wall)
+    plinth = out.get("plinth", {}).get("height_m", 0.0)
+    available = height - plinth
+    if available < 2.3:
+        out["storeys"] = []
+        return out
+    sill = g["sill"]
+    if style_type(doc) in WOODEN and 4.9 <= height < 7.4:
+        attic = 1.2
+        main = min(4.2, available - attic)
+        rest = available - attic - main
+        if rest > 0 and "plinth" in out:
+            out["plinth"]["height_m"] = round(plinth + min(rest, 1.0), 2)
+            rest -= min(rest, 1.0)
+        out["storeys"] = [
+            {
+                "kind": "ground",
+                "height_m": round(main, 2),
+                "sill_m": round(min(1.25, max(sill, main - 2.75)), 2),
+                "window": "@default",
+            },
+            {
+                "kind": "attic",
+                "height_m": round(attic + rest, 2),
+                "sill_m": 0.3,
+                "window": "@attic",
+            },
+        ]
+        return out
+    count = max(1, int(doc.get("register", {}).get("storeys", 1)))
+    if not 2.6 <= available / count <= 4.4:
+        count = max(1, round(available / g["upper_h"]))
+    each = available / count
+    ground = min(max(each, g["ground_h"]), each * 1.2) if count > 1 else each
+    upper = (available - ground) / (count - 1) if count > 1 else 0.0
+    out["storeys"] = [
+        {"kind": "ground", "height_m": round(ground, 2), "sill_m": sill, "window": "@default"}
+    ]
+    if count > 1:
+        out["storeys"].append(
+            {
+                "kind": "upper",
+                "count": count - 1,
+                "height_m": round(upper, 3),
+                "sill_m": sill,
+                "window": "@default",
+            }
+        )
+        if g is GROUPS["old_masonry"] and "bands" not in out:
+            out["bands"] = [
+                {
+                    "kind": "string_course",
+                    "v_m": round(plinth + ground - 0.1, 2),
+                    "height_m": 0.2,
+                    "projection_m": 0.06,
+                    "profile": "stepped",
+                    "colour": g["trim"],
+                }
+            ]
+    return out
+
+
 def resolve_wall(doc: dict, wall: dict | None) -> dict:
     """A described wall (or none) completed with `like`, `wall_defaults` and the style's automatic wall."""
     base = merged(default_wall(doc), doc.get("wall_defaults", {}))

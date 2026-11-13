@@ -110,7 +110,9 @@ def layout(facade, wall: dict, doc: dict, report: list) -> Layout:
     if isinstance(bays, dict):
         pitch = bays.get("pitch_m")
         count = bays.get("count")
-        fits = max(0, int((facade.width - 1.6) / pitch) + 1) if pitch else 0
+        # An automatic grid keeps its end windows clear of the corner boards and quoins.
+        margin = 1.6 if "frame" in wall else 2.4
+        fits = max(0, int((facade.width - margin) / pitch) + 1) if pitch else 0
         count = fits if count is None else min(count, fits) if pitch else count
         if facade.width < 2.2:
             count = 0
