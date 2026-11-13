@@ -110,6 +110,11 @@ def compile(description: dict) -> Output:  # noqa: A001 - the contract's name
     templates = {}
     neighbours = doc["shell"].get("neighbours", [])
     wall_family = "plaster"
+    # An unobserved block of flats has its street door on its longest wall that stands on the ground.
+    undescribed = [f for f in shell.facades if f.grounded and f.index not in described]
+    entrance = max(undescribed, key=lambda f: f.width, default=None)
+    if described or priors.style_type(doc) in priors.WOODEN:
+        entrance = None
     for facade in shell.facades:
         wall = priors.resolve_wall(doc, described.get(facade.index))
         if not facade.grounded:
@@ -117,7 +122,10 @@ def compile(description: dict) -> Output:  # noqa: A001 - the contract's name
         elif facade.index not in described:
             foot = float(facade.ground[:, 1].min()) if len(facade.ground) else 0.0
             wall = priors.fitted_wall(
-                doc, wall, facades_module.eaves_height(facade.outline, facade.width) - foot
+                doc,
+                wall,
+                facades_module.eaves_height(facade.outline, facade.width) - foot,
+                facade.width if facade is entrance else 0.0,
             )
         if facade.index == 0 or facade.index in described:
             wall_family = palette.record(wall.get("material"))["family"]

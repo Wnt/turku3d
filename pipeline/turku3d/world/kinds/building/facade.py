@@ -157,17 +157,7 @@ def layout(facade, wall: dict, doc: dict, report: list) -> Layout:
 
     for index, (floor_v, _height, storey) in enumerate(out.floors):
         sill = floor_v + storey.get("sill_m", 0.9)
-        row = storey.get("row")
-        default = storey.get("window")
-        if row is not None or default is not None:
-            for k, centre in enumerate(centres):
-                name = (
-                    row[k] if row is not None and k < len(row) else default if row is None else None
-                )
-                if name is None:
-                    continue
-                kind = priors.resolve_opening(doc, name)["kind"]
-                add(name, centre, None if kind in FLOOR_KINDS else sill, index, floor_v)
+        # What was placed by measurement comes first, so it keeps its place where the grid would put a window.
         for opening in storey.get("openings", []):
             kind = priors.resolve_opening(doc, opening["type"])["kind"]
             bottom = (
@@ -186,6 +176,17 @@ def layout(facade, wall: dict, doc: dict, report: list) -> Layout:
                 opening.get("w_m"),
                 opening.get("h_m"),
             )
+        row = storey.get("row")
+        default = storey.get("window")
+        if row is not None or default is not None:
+            for k, centre in enumerate(centres):
+                name = (
+                    row[k] if row is not None and k < len(row) else default if row is None else None
+                )
+                if name is None:
+                    continue
+                kind = priors.resolve_opening(doc, name)["kind"]
+                add(name, centre, None if kind in FLOOR_KINDS else sill, index, floor_v)
     for opening in wall.get("openings", []):
         add(
             opening["type"],

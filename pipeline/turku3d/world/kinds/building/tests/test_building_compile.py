@@ -57,9 +57,10 @@ def effective(name):
 def test_stone_apartment_compiles_to_closed_looking_parts():
     doc = effective("stone-apartment.json")
     assert description.errors(doc) == []
-    started = time.perf_counter()
+    # Processor time, so a busy machine does not fail the budget.
+    started = time.process_time()
     output = compile_module.compile(doc)
-    assert time.perf_counter() - started < 1.5
+    assert time.process_time() - started < 1.5
     names = {part.name for part in output.parts}
     assert {
         "walls",
@@ -124,5 +125,8 @@ def test_walls_of_set_back_storeys_do_not_turn_the_shell_inside_out():
     for z0 in (6.0, 9.0):
         surfaces += [wall(inner[i], inner[(i + 1) % 4], z0, z0 + 3.0) for i in range(4)]
     shell = shell_module.read({"source": "test", "surfaces": surfaces})
-    south = max(shell.facades, key=lambda f: f.outline.area if abs(f.normal[1]) > 0.9 and f.origin[1] < 1 else 0)
+    south = max(
+        shell.facades,
+        key=lambda f: f.outline.area if abs(f.normal[1]) > 0.9 and f.origin[1] < 1 else 0,
+    )
     assert south.normal[1] < -0.9  # the street wall on the south edge still faces south

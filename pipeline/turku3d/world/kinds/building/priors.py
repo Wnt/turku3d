@@ -383,10 +383,17 @@ def automatic_openings(doc: dict) -> dict:
         }
     elif style_type(doc) == "wooden_house":
         out["@default"] = {"kind": "window", "h_m": 1.9}
+    steps = min(5, round(g["plinth"]["height_m"] / 0.17))
+    out["@door"] = {
+        "kind": "door",
+        "w_m": 1.2,
+        "h_m": 2.3,
+        "leaf": {"leaves": 1, "style": "half_glazed", "fanlight": "rect", "steps": steps},
+    }
     return out
 
 
-def fitted_wall(doc: dict, wall: dict, height: float) -> dict:
+def fitted_wall(doc: dict, wall: dict, height: float, entrance_width: float = 0.0) -> dict:
     """An automatic wall made to fit the wall it stands on.
 
     The register's storey count is kept when it gives believable storeys; otherwise the storeys are counted from
@@ -440,6 +447,13 @@ def fitted_wall(doc: dict, wall: dict, height: float) -> dict:
     out["storeys"] = [
         {"kind": "ground", "height_m": round(ground, 2), "sill_m": sill, "window": "@default"}
     ]
+    if entrance_width > 6.0:
+        # The street door of a block of flats: in the bay nearest the middle of the building's longest wall.
+        pitch = out.get("bays", {}).get("pitch_m", g["pitch"])
+        bays = max(0, int((entrance_width - 2.4) / pitch) + 1)
+        out["storeys"][0]["openings"] = [
+            {"type": "@door", "u_m": round(entrance_width / 2 + (0 if bays % 2 else pitch / 2), 2)}
+        ]
     if count > 1:
         out["storeys"].append(
             {
