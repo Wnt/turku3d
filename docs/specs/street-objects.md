@@ -56,6 +56,12 @@ aluminium slab. A code with no drawing gets the generic face of its class (trian
 A measured top above 13 m is a tree or a facade at the register point, not the lamp: such a pole falls back to
 the street rule (9 m arm lamp within 9 m of a carriageway, else a 4.5 m park lantern) and says so in `guessed`.
 
+Arm and plain poles (rules since 2026-11-13 06:40Z): an arm reaching 2 m or more is drawn as a straight tube rising
+to the head on a straight pole, a shorter one as the bent top of a curved pole. A guessed arm takes the reach of
+the three nearest fully measured lamps within 120 m. A pole whose head the scan did not see, standing on a street
+stretch a lighting span crosses within 30 m, is a `span-pole` (plain pole, `guessed: ["family"]`): streets lit by
+hung lamps have no arm lamps.
+
 ## `turku-description/wire/1`
 
 One entity per overhead wire the survey lidar shows (`objects/wires.py`, the old generator's stage: wire returns in
@@ -73,6 +79,9 @@ free air, straight in plan and a parabola in profile, ends reached to a facade, 
 
 A lighting span on which the scan shows no lamp gets one over each carriageway centreline it crosses, at least
 7 m over the ground and 4 m from any other lamp (`guessed: true`): the old generator's rule.
+
+Wires are drawn no thinner than 2 cm in radius (`DRAWN`): the carrier wire and the cable hung on it read as one
+line, and a thinner tube is under a pixel from 15 m.
 
 ### Street spans the wire stage misses
 

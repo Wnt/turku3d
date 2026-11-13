@@ -4,7 +4,8 @@ The register (frn:CityFurniture_LOD2) gives a base point and nothing else. The l
 its height and the bearing and reach of its arm; where it shows no pole (scanned before the pole was set, or
 hidden under a crown) the family is a guess from the street beside it and is marked so. Families:
 
-- `street-arm`  a tapered steel pole with a curved arm and a flat head over the carriageway
+- `street-arm`  a tapered steel pole with an arm (curved under 2 m of reach, straight and rising from 2 m) and a flat
+                head over the carriageway
 - `street-top`  a tall pole with the head on its top
 - `park`        a 3 to 6 m post with a post-top lantern
 - `span-pole`   a plain pole that carries a lighting span wire (the hung lamps belong to the `wire` kind)
@@ -20,16 +21,18 @@ from pathlib import Path
 import numpy as np
 
 from ..api import Area, Output, Stub
-from ..objects import registers, wires
+from ..objects import registers, spans, wires
 from ..objects.common import BLACK_STEEL, DARK_PLASTIC, GALVANISED, LENS, box_of, describe, interaction, single, unique
 from ..objects.mesh import Mesh
 
 VERSION = 1
 STREET_MIN = 6.5  # m: a pole this tall lights a carriageway
 HEAD = 0.6  # m: length of a street-light head
+STRAIGHT = 2.0  # m: an arm reaching this far is a straight arm, a shorter one the bent top of a curved pole
 TALLEST = 13.0  # m: what the lidar shows taller at a register point is a tree or a facade, not the street lamp
 NEIGHBOURS = 120.0  # m within which the three nearest fully measured lamps set a hidden top
 SPAN_REACH = 1.6  # m from a pole to the end of a span wire it carries
+SPAN_LIT = (30.0, 4.0)  # m along and across its street within which a lighting span lights a pole's stretch
 
 
 def _family(measured: dict | None, street: dict | None) -> dict:
@@ -78,8 +81,10 @@ class Lamp:
         lidar = registers.lidar_of(sources)
         streets = registers.Streets(sources, area.bbox(6.0))
         # Ends of the overhead wires: a register pole that a span wire hangs from carries the span, not an arm.
-        spans, _ = wires.in_box(area.bbox(8.0), sources.log)
-        ends = np.array([w[end][:2] for w in spans for end in ("a", "b")] or np.zeros((0, 2)))
+        strung, _ = wires.in_box(area.bbox(8.0), sources.log)
+        across, _ = spans.in_box(sources, area.bbox(SPAN_LIT[0]))
+        ends = np.array([w[end][:2] for w in strung + across for end in ("a", "b")] or np.zeros((0, 2)))
+        middles = np.array([[(w["a"][0] + w["b"][0]) / 2, (w["a"][1] + w["b"][1]) / 2] for w in across] or np.zeros((0, 2)))
         found = []
         for post in posts:
             e, n = post["e"], post["n"]
@@ -96,6 +101,16 @@ class Lamp:
             if len(ends) and facts["family"] != "park" and not arm_measured and float(np.hypot(*(ends - [e, n]).T).min()) <= SPAN_REACH:
                 facts = {"family": "span-pole", "height": facts["height"], "basis": facts["basis"].split(";")[0] + "; a span wire ends at it",
                          "guessed": [name for name in facts.get("guessed", []) if name not in ("arm", "family")]}
+            # A street lit by lamps hung on spans has no arm lamps: a pole there whose head the scan did not see is
+            # a plain pole (it carries wires or signs), not a lamp with a guessed arm.
+            way = streets.car(e, n, 14.0)
+            if way is not None and len(middles) and facts["family"] != "span-pole" and (measured is None or "arm" in facts.get("guessed", [])) \
+                    and facts["family"] != "park":
+                d = middles - np.array(way["foot"])
+                t = np.array(way["tangent"])
+                if bool(((np.abs(d @ t) <= SPAN_LIT[0]) & (np.abs(d[:, 0] * t[1] - d[:, 1] * t[0]) <= SPAN_LIT[1])).any()):
+                    facts = {"family": "span-pole", "height": facts["height"], "basis": facts["basis"].split(";")[0] + "; its street is lit by span lamps and the scan shows no head",
+                             "guessed": [name for name in facts.get("guessed", []) if name != "arm"] + ["family"]}
             found.append((post, e, n, measured, street, facts))
         # A pole standing in a crown shows the scan only its lower part: beside a carriageway whose other lamps are
         # measured taller, it is as tall as they are.
@@ -117,6 +132,13 @@ class Lamp:
                 if len(near) and float(np.median(near)) - facts["height"] >= 1.0 and (measured is None or headless or crown >= 20):
                     facts = {"family": "street-arm", "height": round(float(np.median(near)), 2), "arm": {"bearing": street["bearing"], "reach": round(float(np.median(tall[nearest, 3])), 2)},
                              "basis": "register position; height and arm of the street's other lamps (its top is hidden)", "guessed": ["height", "arm"]}
+            if facts["family"] == "street-arm" and "arm" in facts.get("guessed", []) and len(tall):
+                # A guessed arm is as long as the measured arms of the lamps next along the street.
+                away = np.hypot(tall[:, 0] - e, tall[:, 1] - n)
+                nearest = np.argsort(away)[:3]
+                nearest = nearest[away[nearest] <= NEIGHBOURS]
+                if len(nearest):
+                    facts["arm"] = {**facts["arm"], "reach": round(float(np.median(tall[nearest, 3])), 2)}
             ground = registers.ground_height(sources, e, n)
             if not math.isfinite(ground):
                 continue
@@ -148,12 +170,19 @@ class Lamp:
             y0, run = height - bend, max(reach - HEAD, 0.15)
             base, neck = 0.075, 0.045
             path, radii = [[0, -0.3, 0], [0, 0, 0], [0, 1.0, 0]], [base, base, base * 0.94]
-            path.append([0, y0, 0])
-            radii.append(neck)
-            for k in range(1, 9):
-                t = k / 8 * math.pi / 2
-                path.append([0, y0 + bend * math.sin(t), run * (1 - math.cos(t))])
-                radii.append(neck - 0.015 * k / 8)
+            if reach >= STRAIGHT:
+                # A long arm is a straight tube on a straight pole, rising a little to the head (the older street
+                # lamp of the wooden-house streets); a short one is the bent top of a curved pole.
+                rise = 0.12 * run
+                path += [[0, height - rise - 0.45, 0], [0, height - rise - 0.1, 0.1], [0, height, run]]
+                radii += [neck, 0.035, 0.03]
+            else:
+                path.append([0, y0, 0])
+                radii.append(neck)
+                for k in range(1, 9):
+                    t = k / 8 * math.pi / 2
+                    path.append([0, y0 + bend * math.sin(t), run * (1 - math.cos(t))])
+                    radii.append(neck - 0.015 * k / 8)
             mesh.tube("pole", steel, path, radii, sides=10)
             street_head(mesh, np.array([0.0, height, run]), np.array([0.0, 0.0, 1.0]))
         elif family == "span-pole":

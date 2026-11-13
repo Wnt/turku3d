@@ -25,6 +25,7 @@ ASSETS = {
     "plate H20": lambda: signpost.plate_asset("H20", "", "9-20\n(9-17)\nVyöhyke 2\nZon 2", True),
     "sign post": lambda: signpost.post_asset(3.2, 0.03),
     "lamp street-arm": lambda: lamp_parts(family="street-arm", height=10.1, arm={"bearing": 40.0, "reach": 2.6}),
+    "lamp short curved arm": lambda: lamp_parts(family="street-arm", height=9.0, arm={"bearing": 0.0, "reach": 1.25}),
     "lamp street-top": lambda: lamp_parts(family="street-top", height=8.0),
     "lamp park": lambda: lamp_parts(family="park", height=4.6),
     "board gate": lambda: fence.gate("board", 1.8, 3.0, "#d8d0b6"),

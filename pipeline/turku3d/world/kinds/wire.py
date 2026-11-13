@@ -26,6 +26,7 @@ from ..objects.mesh import Mesh
 
 VERSION = 1
 RADIUS = {"span": 0.01, "utility": 0.012, "power": 0.014}  # m: a lighting span with its feed cable, a bundled cable, a conductor
+DRAWN = 0.02  # m: least drawn radius of a wire (the carrier wire and the cable hung on it read as one line)
 STEP = 1.0  # m of wire per tube segment
 SEGMENTS = 48
 CARRIED = 1.5  # m (plan) from a span within which a lamp hangs on it
@@ -151,7 +152,8 @@ class Wire:
         count = int(min(SEGMENTS, max(2, math.ceil(length / STEP))))
         path = [local(_point(wire, k / count)) for k in range(count + 1)]
         mesh = Mesh()
-        mesh.tube("wire", BLACK_STEEL, path, RADIUS.get(description.get("type"), 0.012), sides=5)
+        # Drawn no thinner than DRAWN: a 2 cm wire is under a pixel from 15 m and vanishes where the eye sees a line.
+        mesh.tube("wire", BLACK_STEEL, path, max(RADIUS.get(description.get("type"), 0.012), DRAWN), sides=5)
         instances = []
         lamps = description.get("lamps") or []
         if lamps:
