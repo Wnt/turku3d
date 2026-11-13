@@ -1152,10 +1152,10 @@ def prepared_coverage(out: Path, data: dict, listing: dict, state: dict) -> dict
     """Coverage after the picks whose photos are ready: a building pick fills its stratum; a street view its street
     stratum and, at a glance, the gap strata of the buildings its view shows (at least SHOWN_SHARE of the picture;
     the estimate of the list where no view was made here, as for a fresh-batch photo)."""
-    import geopandas as gpd
+    import pandas as pd
 
-    strata_of = dict(zip(*(gpd.read_parquet(out / "city/buildings-strata.parquet", columns=["key", "stratum"])[c]
-                           for c in ("key", "stratum")), strict=True))
+    table = pd.read_parquet(out / "city/buildings-strata.parquet", columns=["key", "stratum"])
+    strata_of = dict(zip(table.key, table.stratum, strict=True))
     gap_b = {"|".join(str(r["stratum"][c]) for c in STRATUM): r["buildings"] for r in data["buildings"] if r["status"] == "gap"}
     gap_s = {"|".join(str(r["stratum"][c]) for c in STREET_STRATUM): r["length_m"] for r in data["streets"] if r["status"] == "gap"}
     total_b = data["summary"]["buildings"]["eligible"]
