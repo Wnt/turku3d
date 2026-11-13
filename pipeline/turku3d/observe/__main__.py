@@ -7,6 +7,7 @@
     python -m turku3d.observe review --render --building KEY...   compare the game's render with the photograph
     python -m turku3d.observe roof --building KEY...       ask again about the dormers and chimneys of read buildings
     python -m turku3d.observe unblock --building KEY... --near E,N   other views for walls no crop showed
+    python -m turku3d.observe against [--out DIR]     the automatic tier against the stored readings, per attribute
 
 `describe` does what `unblock` does by itself: when the reader reports that no crop of a wall showed it (a quay
 wall, a fence or trees in the way, which LoD2 does not hold), the wall gets crops from panoramas on other paths
@@ -347,7 +348,7 @@ def select(args) -> tuple[lod2.Scene, list, dict]:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m turku3d.observe", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["views", "describe", "assemble", "review", "roof", "unblock"])
+    ap.add_argument("command", choices=["views", "describe", "assemble", "review", "roof", "unblock", "against"])
     ap.add_argument("--building", nargs="*", help="entity keys (with --near)")
     ap.add_argument("--near", help="E,N near the buildings named by --building")
     ap.add_argument("--at", help="E,N (EPSG:3877): the nearest building, or all within --radius")
@@ -379,6 +380,11 @@ def main(argv=None) -> int:
     global STORE
     STORE = not a.no_store
     root = a.out or config.work_root() / "observe"
+    if a.command == "against":  # no model call: the automatic rules measured against every stored reading
+        from . import against
+
+        print(json.dumps(against.run(a.out), ensure_ascii=False), flush=True)
+        return 0
     if a.command == "review":
         from concurrent.futures import ThreadPoolExecutor
 

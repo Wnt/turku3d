@@ -221,3 +221,23 @@ def test_a_stalled_preparation_does_not_hold_the_run():
         within(0.05, lambda: time.sleep(1.0))
     with pytest.raises(KeyError):
         within(1.0, lambda: {}["missing"])
+
+
+def test_against_measures_agreement_per_attribute():
+    from turku3d.observe import against
+
+    assert against.delta_e("#808080", "#808080") == 0
+    assert 2.0 < against.delta_e("#d3c9b6", "#cbb992") < 12.0
+    assert against.colour_class("#f2f1ec") == "white" and against.colour_class("#9c5a45") == "red"
+    assert against.era(1925) == "1920-39" and against.era(None) == "undated"
+    rows = [{"style_auto": "slab_block", "style_read": "detached_house", "wall_family_auto": "plaster",
+             "wall_family_read": "brick", "balconies_auto": 0, "balconies_read": 2, "dormers_auto": 0,
+             "dormers_read": 0, "chimneys_auto": 0, "chimneys_read": 0, "wall_dE": 4.0},
+            {"style_auto": "wooden_house", "style_read": "wooden_house", "wall_family_auto": "weatherboard",
+             "wall_family_read": "weatherboard", "balconies_auto": 0, "balconies_read": 0, "dormers_auto": 0,
+             "dormers_read": 1, "chimneys_auto": 0, "chimneys_read": 0}]
+    rates = {name: against.rate(rows, agrees) for name, agrees, _ in against.BUILDING_ATTRIBUTES}
+    assert rates["wall material family"] == (1, 2) and rates["balconies (has / has not)"] == (1, 2)
+    assert rates["wall colour within dE 10"] == (1, 1)  # a row without both colours is not counted
+    lines = against.table(rows, against.BUILDING_ATTRIBUTES, None)
+    assert any("plaster drawn, brick read ×1" in line for line in lines)
