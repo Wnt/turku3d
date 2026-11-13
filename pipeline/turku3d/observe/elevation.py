@@ -55,66 +55,6 @@ def _laid_out(local: dict, wall_id: str):
     return wall, hit, start, resolved, facades.layout(hit, resolved, local, [])
 
 
-def material_areas(local: dict, wall_id: str, crop: dict, registration: tuple[float, float, float],
-                   margin_m: float = 0.3) -> tuple[np.ndarray, list[str]]:
-    """Which named material the generator puts at each pixel of a wall's crop (0: none, i: names[i - 1]).
-
-    The same layout as the drawing, kept `margin_m` clear of the wall's edges, its openings, bands and plinth, so
-    that a registration a few decimetres off still leaves only wall surface under each name.
-    """
-    from PIL import Image, ImageDraw
-    from shapely import affinity
-    from shapely.geometry import box
-
-    from turku3d.world.kinds.building import facade as facades
-    from turku3d.world.kinds.building import openings
-
-    width, height = crop["size"][0] - RULER_PX, crop["size"][1] - RULER_PX
-    laid = _laid_out(local, wall_id)
-    if laid is None:
-        return np.zeros((height, width), np.uint8), []
-    _, hit, start, resolved, plan = laid
-    offset, scale, shift = registration
-    ppm, x_left, z_high = crop["px_per_m"], crop["x_left_m"], crop["z_high_m"]
-    names: list[str] = []
-    image = Image.new("L", (width, height), 0)
-    draw = ImageDraw.Draw(image)
-
-    def px(u, v):
-        return ((u - start) / scale + offset - x_left) * ppm, (z_high - ((v - plan.datum) + shift)) * ppm
-
-    def fill(polygon, material):
-        value = 0
-        if isinstance(material, str) and material in local.get("materials", {}):
-            if material not in names:
-                names.append(material)
-            value = names.index(material) + 1
-        for part in getattr(polygon, "geoms", [polygon]):
-            if not part.is_empty and part.geom_type == "Polygon":
-                draw.polygon([px(u, v) for u, v in part.exterior.coords], fill=value)
-
-    inside = hit.outline.buffer(-margin_m)
-    fill(inside, resolved.get("material"))
-    for floor, storey_height, storey in plan.floors:
-        if storey.get("material"):
-            fill(box(0, floor - margin_m, hit.width, floor + storey_height + margin_m).intersection(hit.outline), None)
-            fill(box(0, floor + margin_m, hit.width, floor + storey_height - margin_m).intersection(inside),
-                 storey["material"])
-    for zone in resolved.get("zones", []):
-        u0, u1 = start + zone.get("u_from_m", -start), start + zone.get("u_to_m", hit.width - start)
-        v0, v1 = plan.datum + zone.get("from_m", 0.0), plan.datum + zone.get("to_m", hit.height)
-        fill(box(u0 - margin_m, v0 - margin_m, u1 + margin_m, v1 + margin_m).intersection(hit.outline), None)
-        fill(box(u0 + margin_m, v0 + margin_m, u1 - margin_m, v1 - margin_m).intersection(inside), zone.get("material"))
-    ground_floor = resolved.get("ground_floor_m", resolved.get("plinth", {}).get("height_m", 0.0))
-    fill(box(0, -1.0, hit.width, plan.datum + ground_floor + margin_m), None)
-    for band in resolved.get("bands", []):
-        v = facades.anchor(plan, band["at"], local) if "at" in band else plan.datum + band.get("v_m", 0.0)
-        fill(box(0, v - margin_m, hit.width, v + band.get("height_m", 0.15) + margin_m), None)
-    for p in plan.placed:
-        fill(affinity.translate(openings.outline(p.spec, p.width, p.height), p.u0, p.v0).buffer(margin_m), None)
-    return np.asarray(image), names
-
-
 def draw_wall(doc: dict, wall_id: str, crop: dict, registration: tuple[float, float, float], path: Path) -> bool:
     """Write the drawing of one described wall over the extent of `crop`; false when the wall has no shell wall."""
     from turku3d.world.kinds.building import facade as facades
