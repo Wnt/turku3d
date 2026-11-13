@@ -468,13 +468,11 @@ def build(
     mouths = [rectangle(c.a, -2.0, c.b, c.ceiling) for c in cuts if c.depth is None]
     if mouths:
         outline = outline.difference(unary_union(mouths))
-    arcades = [
-        Recess(shape, c.depth, cut=c)
-        for c in cuts
-        if c.depth is not None
-        and not (shape := rectangle(c.a, -2.0, c.b, c.ceiling).intersection(outline)).is_empty
-        and shape.geom_type == "Polygon"
-    ]
+    arcades = []
+    for c in cuts:
+        shape = rectangle(c.a, -2.0, c.b, c.ceiling).intersection(outline) if c.depth is not None else None
+        if shape is not None and shape.geom_type == "Polygon" and not any(shape.intersects(a.shape) for a in arcades):
+            arcades.append(Recess(shape, c.depth, cut=c))
 
     # Openings that fit: inside the wall, clear of a neighbour's party wall and of each other.
     inside = outline.buffer(-0.12)

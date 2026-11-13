@@ -156,22 +156,24 @@ def facts(outline, ways: list, parts: list) -> list[dict]:
         area = shapely.make_valid(area.buffer(0.05, join_style="mitre").buffer(-0.05, join_style="mitre"))
         if area.area >= MIN_AREA_M2:
             found.append({"area": area, "clear_m": clear, "use": "road" if road else "foot", "refs": refs})
+    # Overlapping corridors are one passage (a covered footway beside a covered service way under one arcade): a
+    # facade opens once, to the higher soffit of a road where one runs in it.
     merged = []
-    for use in ("road", "foot"):
-        group = [f for f in found if f["use"] == use]
-        while group:
-            first = group.pop(0)
-            joined = True
-            while joined:
-                joined = False
-                for other in list(group):
-                    if first["area"].buffer(0.05).intersects(other["area"]):
-                        first = {"area": first["area"].union(other["area"]), "use": use,
-                                 "clear_m": max([c for c in (first["clear_m"], other["clear_m"]) if c] or [None]),
-                                 "refs": first["refs"] + [r for r in other["refs"] if r not in first["refs"]]}
-                        group.remove(other)
-                        joined = True
-            merged.append(first)
+    while found:
+        first = found.pop(0)
+        joined = True
+        while joined:
+            joined = False
+            for other in list(found):
+                if first["area"].buffer(0.05).intersects(other["area"]):
+                    clears = [c for c in (first["clear_m"], other["clear_m"]) if c]
+                    first = {"area": first["area"].union(other["area"]),
+                             "use": "road" if "road" in (first["use"], other["use"]) else "foot",
+                             "clear_m": max(clears) if clears else None,
+                             "refs": first["refs"] + [r for r in other["refs"] if r not in first["refs"]]}
+                    found.remove(other)
+                    joined = True
+        merged.append(first)
     out = []
     for item in merged:
         rings = []
