@@ -102,14 +102,19 @@ def second_look(record: dict, packet: Path, root: Path, reading: dict, meta: dic
     return again, {**meta_again, **total}, {**second, "second_look": note}
 
 
-def review(packet: Path, root: Path, effort: str) -> dict:
+REVIEW_MAY_DROP = 2  # parts a review may lose more than the first reading: the photographs outweigh the fit
+
+
+def review(packet: Path, root: Path, effort: str, force: bool = False) -> dict:
     """Render and compare for one read building: drawings of what gets built beside the crops, the reader's
-    corrections, the result stored at tier reviewed when it is valid and loses no more parts than before."""
+    corrections, the result stored at tier reviewed when it is valid and loses hardly more parts than before.
+    A review already made (reading-reviewed.json) is taken again without a model call unless forced."""
     from turku3d.world.kinds.building import description as fmt
     from turkutex.streetview.height import ground_height
 
     record = json.loads((packet / "views.json").read_text())
-    saved = json.loads((packet / "reading.json").read_text())
+    first = packet / ("reading-observed.json" if (packet / "reading-observed.json").exists() else "reading.json")
+    saved = json.loads(first.read_text())
     reading, meta = saved["reading"], saved["meta"]
     doc = reader.assemble(record, reading, meta, ground=ground_height)
     before = check.count(check.build_report(doc), reader_only=True)
@@ -126,19 +131,22 @@ def review(packet: Path, root: Path, effort: str) -> dict:
     if not pairs:
         return {**line, "skipped": "no read wall lies on a shell wall of the generator"}
     (packet / "first-description.json").write_text(json.dumps(reading["description"], indent=1, ensure_ascii=False))
-    try:
-        again, meta_again = reader.read(record, packet, effort=effort, feedback_text=reader.review_text(pairs))
-    except Exception as error:  # noqa: BLE001 - the observed description stands
-        return {**line, "error": str(error)[:300]}
-    meta_again["tier"] = "reviewed"
-    (packet / "reading-reviewed.json").write_text(json.dumps({"reading": again, "meta": meta_again}, indent=1,
-                                                             ensure_ascii=False))
+    made = packet / "reading-reviewed.json"
+    if made.exists() and not force:
+        again, meta_again = (json.loads(made.read_text())[k] for k in ("reading", "meta"))
+    else:
+        try:
+            again, meta_again = reader.read(record, packet, effort=effort, feedback_text=reader.review_text(pairs))
+        except Exception as error:  # noqa: BLE001 - the observed description stands
+            return {**line, "error": str(error)[:300]}
+        meta_again["tier"] = "reviewed"
+        made.write_text(json.dumps({"reading": again, "meta": meta_again}, indent=1, ensure_ascii=False))
     candidate = reader.assemble(record, again, meta_again, ground=ground_height, tier="reviewed")
     problems = fmt.errors(candidate)
     after = None if problems else check.count(check.build_report(candidate), reader_only=True)
     line.update(read_s=meta_again["seconds"], cost_usd=meta_again["cost_usd"], invalid=problems[:5] or None,
                 dropped_reader=f"{before} -> {after}", changed=str(again.get("notes", ""))[:400])
-    if problems or after > before:
+    if problems or after > before + REVIEW_MAY_DROP:
         return {**line, "kept": "the observed description (the review was invalid or lost more parts)"}
     (packet / "reading-observed.json").write_text(json.dumps(saved, indent=1, ensure_ascii=False))
     (packet / "reading.json").write_text(json.dumps({"reading": again, "meta": meta_again}, indent=1,
@@ -217,7 +225,7 @@ def main(argv=None) -> int:
 
         def one(packet):
             try:
-                line = review(packet, root, a.effort)
+                line = review(packet, root, a.effort, a.force)
             except Exception as error:  # noqa: BLE001 - one failed building must not stop the others
                 line = {"building": packet.name, "error": f"{type(error).__name__}: {error}"[:300]}
             print(json.dumps(line, ensure_ascii=False), flush=True)

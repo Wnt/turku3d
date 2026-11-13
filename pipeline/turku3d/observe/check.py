@@ -12,6 +12,7 @@ import numpy as np
 from shapely.geometry import box
 
 INSET_M = 0.12  # the generator keeps openings this far inside the wall outline
+TOUCH_M2 = 0.03  # openings sharing less than this are joined, not overlapping
 BASE_LIFT_M = 0.15  # an opening that fits once lifted this much only stands on the wall base: the generator's limit
 
 
@@ -60,7 +61,11 @@ def build_report(doc: dict) -> dict:
                     why, reader = f"{p.width:.1f} m wide and {p.height:.1f} m high, it reaches beyond {beyond}", True
                 found.append({**item, "why": why, "reader": reader})
             elif any(shape.intersects(other) for other in kept):
-                found.append({**item, "why": "overlaps another opening of the same wall", "reader": True})
+                # Openings joined in one frame (a balcony door beside its window) touch without overlapping.
+                shared = max(shape.intersection(other).area for other in kept)
+                found.append({**item, "why": "overlaps another opening of the same wall", "reader": True}
+                             if shared > TOUCH_M2 else
+                             {**item, "why": "touches its neighbour, which the generator does not allow yet", "reader": False})
             else:
                 kept.append(shape)
         if found:
