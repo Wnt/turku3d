@@ -28,6 +28,7 @@ VERSION = 1
 STREET_MIN = 6.5  # m: a pole this tall lights a carriageway
 HEAD = 0.6  # m: length of a street-light head
 TALLEST = 13.0  # m: what the lidar shows taller at a register point is a tree or a facade, not the street lamp
+NEIGHBOURS = 120.0  # m within which the three nearest fully measured lamps set a hidden top
 SPAN_REACH = 1.6  # m from a pole to the end of a span wire it carries
 
 
@@ -79,7 +80,7 @@ class Lamp:
         # Ends of the overhead wires: a register pole that a span wire hangs from carries the span, not an arm.
         spans, _ = wires.in_box(area.bbox(8.0), sources.log)
         ends = np.array([w[end][:2] for w in spans for end in ("a", "b")] or np.zeros((0, 2)))
-        stubs = []
+        found = []
         for post in posts:
             e, n = post["e"], post["n"]
             if not area.touches(box_of(e, n, 0.5)):
@@ -89,11 +90,33 @@ class Lamp:
                 e, n = e + measured["offset"][0], n + measured["offset"][1]
             else:
                 measured = None
-            facts = _family(measured, streets.towards_street(e, n))
+            street = streets.towards_street(e, n)
+            facts = _family(measured, street)
             arm_measured = facts["family"] == "street-arm" and "arm" not in facts.get("guessed", [])
             if len(ends) and facts["family"] != "park" and not arm_measured and float(np.hypot(*(ends - [e, n]).T).min()) <= SPAN_REACH:
                 facts = {"family": "span-pole", "height": facts["height"], "basis": facts["basis"].split(";")[0] + "; a span wire ends at it",
                          "guessed": [name for name in facts.get("guessed", []) if name not in ("arm", "family")]}
+            found.append((post, e, n, measured, street, facts))
+        # A pole standing in a crown shows the scan only its lower part: beside a carriageway whose other lamps are
+        # measured taller, it is as tall as they are.
+        tall = np.array([(e, n, facts["height"], facts["arm"]["reach"]) for _, e, n, measured, _, facts in found
+                         if measured and facts["family"] == "street-arm" and not facts.get("guessed")] or np.zeros((0, 4)))
+        stubs = []
+        for post, e, n, measured, street, facts in found:
+            hidden = facts["family"] in ("park", "street-top") or "arm" in facts.get("guessed", [])  # no head seen by the scan
+            if hidden and street and street["distance"] <= 9.0 and len(tall):
+                away = np.hypot(tall[:, 0] - e, tall[:, 1] - n)
+                nearest = np.argsort(away)[:3]
+                nearest = nearest[away[nearest] <= NEIGHBOURS]
+                near = tall[nearest, 2]
+                top = measured["top"] if measured else 0.0
+                around = lidar.around(e, n, 1.5)
+                crown = int(((around[:, 3] == 5) & (around[:, 2] > top + 0.5)).sum()) if len(around) else 0
+                # A measured low post without a crown over it may be a real lantern; a tall pole without its head is not.
+                headless = facts["family"] != "park"
+                if len(near) and float(np.median(near)) - facts["height"] >= 1.0 and (measured is None or headless or crown >= 20):
+                    facts = {"family": "street-arm", "height": round(float(np.median(near)), 2), "arm": {"bearing": street["bearing"], "reach": round(float(np.median(tall[nearest, 3])), 2)},
+                             "basis": "register position; height and arm of the street's other lamps (its top is hidden)", "guessed": ["height", "arm"]}
             ground = registers.ground_height(sources, e, n)
             if not math.isfinite(ground):
                 continue
