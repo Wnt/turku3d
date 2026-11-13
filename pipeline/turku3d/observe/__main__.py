@@ -191,6 +191,8 @@ def select(args) -> tuple[lod2.Scene, list, dict]:
         e = [v["pose"]["E"] for v in views]
         n = [v["pose"]["N"] for v in views]
         scene = lod2.Scene((min(e) - 400, min(n) - 400, max(e) + 400, max(n) + 400))
+        if not scene.buildings:
+            sys.exit(f"no LoD2 buildings around {', '.join(args.view)}: their LoD2 tiles are not in this host's raw data")
         for v in views:
             for key, share in visible_in_view(v, scene).items():
                 why.setdefault(key, {})[v["id"]] = share
@@ -280,6 +282,7 @@ def main(argv=None) -> int:
         packet = root / "buildings" / b.id
         record = prepare(scene, b, local.panos, packet)
         record["selected_by"] = why.get(b.id, {})
+        packet.mkdir(parents=True, exist_ok=True)  # a building no panorama sees has no crops, but keeps its record
         (packet / "views.json").write_text(json.dumps(record, indent=1, ensure_ascii=False))
         return record, time.time() - started
 
