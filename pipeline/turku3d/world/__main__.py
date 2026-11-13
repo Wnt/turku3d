@@ -207,6 +207,9 @@ def main() -> None:
     region.add_argument("--speed", type=float, default=1.0, help="proof: one of its cores against one of the measuring host's")
     region.add_argument("--jobs", type=int, default=8, help="proof: compile processes per unit")
     region.add_argument("--slots", type=int, default=2, help="proof: lidar worker slots per unit")
+    region.add_argument("--lidar-cpu", type=float, default=0.0,
+                        help="proof: CPU seconds of a cold lidar tile added before each unit (0: the tiles were warmed before)")
+    region.add_argument("--lidar-mb", type=float, default=3800, help="proof: memory of that tile's lidar worker")
     args = parser.parse_args()
     store = Store()
     if args.command == "build":
@@ -244,6 +247,12 @@ def main() -> None:
             return
         if args.action == "proof":
             profiles = regions.unit_profiles(store, args.name, args.jobs, args.slots)
+            if args.lidar_cpu:  # one survey tile per unit (a unit is a tile), measured by w2-core at ~1.15 cores
+                for p in profiles:
+                    p["stages"].insert(0, {"stage": "lidar", "cpu": args.lidar_cpu, "wall": args.lidar_cpu / 1.15,
+                                           "width": 1.15, "mb": args.lidar_mb})
+                    p["cpu"] += args.lidar_cpu
+                    p["peakMb"] = max(p["peakMb"], args.lidar_mb)
             for p in profiles:
                 print(f"{p['unit']}: cpu {p['cpu']:.0f} s, wall {p['wall']} s, peak {p['peakMb']} MB: "
                       + ", ".join(f"{s['stage']} {s['cpu']:.0f}/{s['wall']:.0f}" for s in p["stages"] if s["wall"] >= 5))
