@@ -44,12 +44,31 @@ What a building looks like when nobody has read it (`describe.automatic`, rules 
   `measured.roof.colour` takes the place of the orthophoto's roof colour. `measured.trim` and `measured.plinth`
   are stored for later use. A stored description may consist of `measured` alone, with tier `auto`. A material
   somebody described always wins over a measurement.
-- **Roofing** from the orthophoto's roof colour: on a house, warm red is tile, warm grey and brown dark concrete
-  tile, cold grey seamed sheet metal; deep boxed eaves with a gutter, a chimney below the ridge on houses built
-  before 2005.
-- **Walls by role:** the longest eaves-side wall of a house takes the door under a porch (a row house one door a
-  dwelling), a gable takes a gable window, a garage its door on the shortest wall that fits one (a row of garages
-  a door every 3 m), a shed a boarded door and no windows, a hall loading doors and ribbon windows.
+- **Roofing** from the orthophoto's roof colour (`archetypes.roofing`), corrected against the readings: the photo is
+  taken in full sun, and the same roof read from the street is about half as light, so a grey roof is drawn dark
+  and pale only where a pitched roof is very bright and colourless in the photo. On a house, warm red is tile,
+  warm grey and brown dark concrete tile, cold grey seamed sheet metal; on other pitched roofs red is tile on
+  low post-war blocks and red-painted sheet metal elsewhere, a faint green is green sheet, and what is not tile
+  is seamed sheet metal (felt on sheds and on blocks built since 1980). Flat roofs keep felt.
+- **Eaves and chimneys:** houses have deep boxed eaves with a gutter. Chimneys stand below the ridge of the
+  largest roof plane: one on a detached house built before 2020, one or two on an old wooden house, one about
+  every nine metres of ridge on stone houses of flats and post-war blocks under pitched roofs.
+- **Blocks by decade** (`archetypes.block`): small two-leaf windows 3.2 m apart after the war, wide windows with
+  a vent leaf in the element blocks of 1960 to 1979, wider bays since. The long wall that faces nearest
+  south-west carries balconies on most blocks of three storeys or more: small cantilevers with sheet fronts
+  after the war, recessed bays or cantilevers with concrete fronts in the sixties and seventies, glazed
+  balconies since 1980 (glass fronts since 2000).
+- **Shop floors:** `register.premises` holds the points of the open map's shops, cafes, banks and the like inside
+  the footprint. The wall such a point lies at (and on a corner the next wall within 8 m) has a ground storey of
+  shopfronts (`@shop`, every third bay `@shop_door`) under a sign band; a building whose register use is trade
+  has one on its longest wall.
+- **Houses of a storey and a half:** a house whose eaves are under 5.4 m above its plinth is one storey whatever
+  the register counts: the wall above the windows is the attic's knee wall (up to 1.4 m), what is left over
+  raises the plinth (a basement on a sloping site), and the gable has the attic room's window.
+- **Walls by role** (`archetypes.wall_roles`, through `compile.wall_roles(doc, shell)`): the longest eaves-side
+  wall of a house takes the door under a porch (a row house one door a dwelling), a gable takes a gable window,
+  a garage its door on the shortest wall that fits one (a row of garages a door every 3 m), a shed a boarded
+  door and no windows, a hall loading doors and ribbon windows.
 
 ## Rules
 
@@ -182,9 +201,8 @@ when not given), placed when the front wall under the gable has room for it. A w
 already has as a wall gable is not built twice.
 
 A roof nobody gave a material takes it from the orthophoto: `register.roof_colour` is the median of the roof's lit
-pixels (tree crowns and deep shadow left out), deepened to a paint or tile colour of the same hue. A red pitched
-roof is clay tile on a small house from 1940 on and painted sheet metal elsewhere; any other roof keeps the
-roofing of its style in the measured colour (`priors.measured_roof`).
+pixels (tree crowns and deep shadow left out); the roofing family and the colour as the street sees it follow
+by the rule under "The automatic tier" (`archetypes.roofing`, through `priors.measured_roof`).
 
 A dormer, chimney or detail has an `anchor`: either `at: [E, N]`, or `wall` + `u_m` + `setback_m` (above the
 described wall, that far behind its face). Its base follows the roof surface.

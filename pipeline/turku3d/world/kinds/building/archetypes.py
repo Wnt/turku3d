@@ -19,6 +19,9 @@ from shapely.ops import unary_union
 HOUSES = {"detached_house", "row_house"}
 SHEDS = {"outbuilding", "garage"}
 HALLS = {"industrial", "commercial"}
+BLOCKS = {"functionalist_apartment", "slab_block", "tower_block", "modern_apartment", "office"}
+OLD_WOODEN = {"wooden_house", "wooden_villa"}
+OLD_MASONRY = {"stone_apartment", "classicist_apartment"}
 
 # bldg:function of the city's LoD2 model (the CityGML code list), by what the building is drawn as.
 SMALL_RESIDENTIAL = {"1000"}
@@ -112,7 +115,12 @@ BRICK_WHITE = ["#e3e0d5", "#e6ddcc", "#ddd3bc", "#e6e4dc"]
 BRICK_BROWN = ["#6e4a3a", "#7b5544", "#5f4336"]
 RENDER_VETERAN = ["#e6e7e4", "#e3e4e1", "#d3dad1", "#ddd3a8", "#e4d9b4", "#c9d3c0", "#e2cfc0", "#d6dde2", "#ead9a0"]
 RENDER_NEW = ["#e9e9e6", "#ebe8e3", "#e6e6e2", "#dcd9d2", "#e9e9e6", "#d3d0c8", "#6a6c6e"]
-RENDER_BLOCK = ["#cfc8b8", "#d6d0c2", "#c8c5ba", "#dddddb", "#cdc5b9", "#d9cdbb", "#e3dcc4"]
+RENDER_BLOCK = ["#cfc8b8", "#d6d0c2", "#dddddb", "#e4e1d6", "#d5d5cf", "#e3dcc4", "#d4aa6a", "#dcc79a", "#cdc5b9", "#e8e6df"]
+# Old wooden houses as read: three in five are yellow ochre, the rest white, grey-green, blue-grey, beige, red.
+WOOD_OLD = [
+    "#e2c672", "#e2cf8e", "#d8bc62", "#e0b272", "#e6d590", "#d3c08f", "#e2c67c", "#e3d9b3", "#dccb9a",
+    "#d9dad3", "#d6d9d0", "#a6bfa2", "#c3cfc6", "#c3d1dc", "#b3a690", "#9c3b30",
+]  # fmt: skip
 # The old generator's four families of wood paint, weights 0.42 / 0.30 / 0.145 / 0.138.
 WOOD_TRADITIONAL = [
     "#d9c48e", "#cdc191", "#e2cf8e", "#d2bd84", "#dccb9a", "#c9b576",
@@ -163,6 +171,8 @@ def wall(doc: dict, kind: str) -> dict | None:
             return {**PANELS, "colour": pick(doc, "wall", CONCRETE_PANEL)}
         if material == "puu":
             return {**BOARDS_UPRIGHT, "colour": pick(doc, "wall", WOOD_SHED)}
+        if kind == "commercial" and material != "metallilevy":
+            return {**PLASTER, "colour": pick(doc, "wall", RENDER_BLOCK)}
         return {**SHEET, "colour": pick(doc, "wall", SHEET_HALL)}
     if kind in HOUSES:
         if material == "tiili":
@@ -188,19 +198,25 @@ def wall(doc: dict, kind: str) -> dict | None:
             return {**(PLASTER if colour in RENDER_VETERAN else BRICK_PALE), "colour": colour}
         return {**PLASTER, "colour": pick(doc, "wall", RENDER_NEW)}
     # Blocks of flats, offices and the rest: only what the readings correct in the register's own palette.
+    if kind in OLD_WOODEN and material in ("puu", None, ""):
+        return {**BOARDS, "colour": pick(doc, "wall", WOOD_OLD)}
     if material == "tiili" and year >= 1940:
         if year < 1970:
             colours = BRICK_BUFF[4:] * 2 + BRICK_RED
         elif year < 1990:
             colours = BRICK_RED + BRICK_BROWN + BRICK_BUFF[:3]
         else:
-            colours = BRICK_RED + BRICK_BUFF[:4] + BRICK_WHITE[:2]
+            colours = BRICK_RED * 2 + BRICK_BUFF[:3] + BRICK_WHITE[:1]
         colour = pick(doc, "wall", colours)
         return {**(BRICK_PALE if colour in BRICK_BUFF + BRICK_WHITE else BRICK), "colour": colour}
     if material == "betoni" and year >= 1980:
         return {**PANELS, "colour": pick(doc, "wall", CONCRETE_LATE)}
     if material in ("muu materiaali", None, "") and year >= 1940:
         return {**PLASTER, "colour": pick(doc, "wall", RENDER_BLOCK)}
+    if material == "betoni" and year < 1980 and kind in BLOCKS:
+        # Concrete in the register is the frame as often as the face: half of these were read as render.
+        colour = pick(doc, "wall", CONCRETE_PANEL + RENDER_BLOCK[:5])
+        return {**(PANELS if colour in CONCRETE_PANEL else PLASTER), "colour": colour}
     return None
 
 
@@ -332,19 +348,17 @@ def house(band: str, wooden: bool, dark: bool) -> dict:
     over tile, and since 2000 pale render or boards under dark sheet metal, some with dark frames and eaves.
     """
     spec = {
-        "veteran": dict(ground=2.8, sill=0.85, pitch=2.9, w=1.0, h=1.25, lights={"pattern": "two_leaf"},
+        "veteran": dict(ground=2.8, sill=0.85, pitch=3.4, w=1.0, h=1.25, lights={"pattern": "two_leaf"},
                         plinth=0.8, plinth_colour="#8d8f8c", eaves=0.45, fascia=0.16,
                         roof={"family": "clay_tile", "colour": "#96483a", "profile": "pantile", "scale_m": 0.3}),
-        "sixties": dict(ground=2.7, sill=0.9, pitch=3.1, w=1.5, h=1.2,
+        "sixties": dict(ground=2.7, sill=0.9, pitch=3.3, w=1.5, h=1.2,
                         lights={"pattern": "side_vent", "vent": "left", "vent_share": 0.28},
                         plinth=0.5, plinth_colour="#8d8b86", eaves=0.5, fascia=0.2,
                         roof={"family": "felt", "colour": "#3f3f41", "profile": "plain"}),
-        "eighties": dict(ground=2.7, sill=0.8, pitch=2.9, w=1.2, h=1.3,
-                         lights={"pattern": "side_vent", "vent": "left", "vent_share": 0.3},
+        "eighties": dict(ground=2.7, sill=0.95, pitch=3.4, w=1.2, h=1.1, lights={"pattern": "single"},
                          plinth=0.35, plinth_colour="#a9a59b", eaves=0.6, fascia=0.2,
                          roof={"family": "concrete_tile", "colour": "#6a4638", "profile": "pantile", "scale_m": 0.33}),
-        "new": dict(ground=2.8, sill=0.7, pitch=3.0, w=1.2, h=1.45,
-                    lights={"pattern": "side_vent", "vent": "right", "vent_share": 0.3},
+        "new": dict(ground=2.8, sill=0.5, pitch=3.4, w=1.0, h=1.65, lights={"pattern": "single"},
                     plinth=0.4, plinth_colour="#6a6c6e", eaves=0.6, fascia=0.22,
                     roof={"family": "sheet_metal", "colour": "#33363a", "profile": "standing_seam", "scale_m": 0.5}),
     }[band]  # fmt: skip
@@ -393,8 +407,53 @@ def house(band: str, wooden: bool, dark: bool) -> dict:
     }
 
 
+def block_band(year: int) -> str:
+    return "postwar" if year < 1960 else "sixties" if year < 1980 else "eighties" if year < 2000 else "new"
+
+
+@functools.cache
+def block(band: str) -> dict:
+    """Defaults of a block of flats or offices by the decade it was built in, sizes as the readings have them:
+    small two-leaf windows close together after the war, wide windows with a vent leaf in the element blocks of
+    the sixties and seventies, wider bays since."""
+    spec = {
+        "postwar": dict(w=1.25, h=1.35, pitch=3.2, lights={"pattern": "two_leaf"}, ground=3.0, upper=2.9,
+                        recess=0.14, eaves=0.35, gutter=True, plinth=0.6, plinth_colour="#7d7a74"),
+        "sixties": dict(w=2.1, h=1.4, pitch=3.6, lights={"pattern": "side_vent", "vent": "left", "vent_share": 0.24},
+                        ground=2.9, upper=2.8, recess=0.1, eaves=0.15, gutter=False, plinth=0.5, plinth_colour="#76726c"),
+        "eighties": dict(w=1.9, h=1.45, pitch=4.0, lights={"pattern": "side_vent", "vent": "left", "vent_share": 0.28},
+                         ground=3.0, upper=2.9, recess=0.12, eaves=0.2, gutter=False, plinth=0.5, plinth_colour="#807c75"),
+        "new": dict(w=2.1, h=1.6, pitch=4.4, lights={"pattern": "side_vent", "vent": "right", "vent_share": 0.3},
+                    ground=3.1, upper=3.0, recess=0.14, eaves=0.15, gutter=False, plinth=0.45, plinth_colour="#6f6f6d"),
+    }[band]  # fmt: skip
+    return {
+        "wall": {**PLASTER, "colour": "#d5cfc2"},
+        "plinth": {"height_m": spec["plinth"], "projection_m": 0.0, "material": {**CAST, "colour": spec["plinth_colour"]}},
+        "ground_h": spec["ground"],
+        "upper_h": spec["upper"],
+        "sill": 0.9,
+        "pitch": spec["pitch"],
+        "window": {
+            "w_m": spec["w"],
+            "h_m": spec["h"],
+            "recess_m": spec["recess"],
+            "lights": spec["lights"],
+            "surround": {"kind": "none"},
+            "sill": {"kind": "sheet_metal", "projection_m": 0.04, "height_m": 0.03, "colour": "#8a8d8f"},
+        },
+        "trim": "#e8e6e0",
+        "roof": {
+            "material": {"family": "felt", "colour": "#3f3f41", "profile": "plain"},
+            "eaves": {"overhang_m": spec["eaves"], "fascia_m": 0.25, "soffit": "boxed", "gutter": spec["gutter"]},
+            "verge": {"overhang_m": 0.1, "bargeboard": "none"},
+        },
+    }
+
+
 def group(doc: dict, kind: str) -> dict | None:
-    """The defaults of a house, an outbuilding or a hall; None for the kinds `priors` keeps itself."""
+    """The defaults of a house, an outbuilding, a hall or a block; None for the kinds `priors` keeps itself."""
+    if kind in BLOCKS:
+        return block(block_band(era_year(doc)))
     if kind in HOUSES:
         year = era_year(doc)
         wooden = doc.get("register", {}).get("material") == "puu"
@@ -440,11 +499,48 @@ def _hex(rgb) -> str:
     return "#" + "".join(f"{round(c * 255):02x}" for c in rgb)
 
 
-def chimney(doc: dict, kind: str) -> dict | None:
-    """Where the chimney of a house stands: a little below the ridge of its largest roof plane, a third along it.
-    Houses heated by a stove or an oil burner have one; houses built since about 2005 mostly do not."""
-    if kind != "detached_house" or era_year(doc) >= 2005:
-        return None
+def roofing(colour: str, kind: str, year: int, pitch_deg: float, storeys: int, base: dict) -> dict | None:
+    """The roofing of any unread building from the orthophoto's colour, corrected against the readings.
+
+    The photo is taken in full sun from above; from the street the same roof is far darker (read lightness is
+    about 33 where the photo has 70, whatever the photo's value), so a grey roof is drawn dark, and pale only
+    where a pitched roof is very bright and colourless in the photo (galvanised or pale painted sheet). Red is
+    tile on post-war houses and low blocks and red-painted sheet metal on older and taller buildings; a faint
+    green on a pitched roof is green paint or patina. A pitched roof that is not tile is seamed sheet metal on
+    every kind but the block of flats built since 1980 and the shed, which keep felt. `base` is the roofing of
+    the style, which a flat roof keeps.
+    """
+    if kind in HOUSES:
+        return house_roofing(colour, year, pitch_deg)
+    hue, saturation, value = colorsys.rgb_to_hsv(*(int(colour[i : i + 2], 16) / 255 for i in (1, 3, 5)))
+    degrees = hue * 360
+    if 60 < degrees < 110 and saturation >= 0.15:
+        return None  # leaf green: tree crowns over the roof
+    lightness, a, b = lab(colour)
+    dark = from_lab(min(46.0, max(22.0, 0.3 * lightness + 12.0)), a * 0.4, b * 0.4)
+    sheet = {"family": "sheet_metal", "profile": "standing_seam", "scale_m": 0.55}
+    if pitch_deg <= 10:
+        return {**base, "colour": dark}
+    red = (degrees >= 345 or degrees <= 26) and saturation >= 0.13
+    brown = 26 < degrees <= 55 and saturation >= 0.1
+    if (red or brown) and kind not in HALLS and year >= 1940 and (storeys <= 2 or (year < 1980 and storeys <= 4)):
+        return house_roofing(colour, year, pitch_deg)
+    if red:
+        deep = colorsys.hsv_to_rgb(hue, min(0.62, max(0.5, saturation * 3.0)), min(0.56, max(0.42, value * 0.66)))
+        return {**sheet, "colour": _hex(deep)}
+    if brown:
+        deep = colorsys.hsv_to_rgb(hue, min(0.3, saturation * 1.6), min(0.4, max(0.26, value * 0.42)))
+        return {**sheet, "colour": _hex(deep)}
+    if 110 <= degrees < 175 and saturation >= 0.05 and a <= -4.0:
+        return {**sheet, "colour": from_lab(min(62.0, max(38.0, lightness - 24.0)), a * 2.6, b * 1.6)}
+    material = dict(base) if (kind == "modern_apartment" or kind in SHEDS) and base.get("family") == "felt" else sheet
+    if lightness >= 80 and math.hypot(a, b) < 7 and material is sheet:
+        return {**sheet, "colour": from_lab(68.0, a * 0.6, b * 0.6)}
+    return {**material, "colour": dark}
+
+
+def _ridge(doc: dict):
+    """The ridge of the building's largest sloping roof plane and a point at its eaves: (a, b, low), or None."""
     best = None
     for surface in doc.get("shell", {}).get("surfaces", []):
         if surface.get("kind") != "roof":
@@ -461,24 +557,51 @@ def chimney(doc: dict, kind: str) -> dict | None:
     ring = best[1]
     top = max(p[2] for p in ring)
     ridge = [p for p in ring if p[2] > top - 0.15]
-    low = min(ring, key=lambda p: p[2])
     if len(ridge) < 2:
         return None
     a, b = max(((p, q) for p in ridge for q in ridge), key=lambda pq: math.dist(pq[0][:2], pq[1][:2]))
     if math.dist(a[:2], b[:2]) < 2.5:
         return None
-    share = 0.3 + 0.4 * (zlib.crc32(f"{doc.get('id', '')}/chimney".encode()) % 100) / 100
-    at = [a[0] + (b[0] - a[0]) * share, a[1] + (b[1] - a[1]) * share]
-    down = [low[0] - at[0], low[1] - at[1]]
-    length = math.hypot(*down) or 1.0
-    at = [round(at[0] + down[0] / length * 0.9, 3), round(at[1] + down[1] / length * 0.9, 3)]
-    band = house_band(era_year(doc))
-    material = (
-        {"family": "brick", "colour": "#8a4b3a", "colour2": "#b9b2a6"}
-        if band in ("veteran", "sixties")
-        else {"family": "sheet_metal", "colour": "#3a3c3f", "profile": "flat_seam"}
-    )
-    return {"anchor": {"at": at}, "w_m": 0.75, "d_m": 0.55, "h_m": 0.9, "material": material, "cap": "slab"}
+    return a, b, min(ring, key=lambda p: p[2])
+
+
+def chimneys(doc: dict, kind: str) -> list:
+    """The chimneys of an unread building, a little below the ridge of its largest roof plane.
+
+    As read: every old wooden house has them (two on a long one), four in five stone houses of flats (one about
+    every nine metres of ridge), post-war blocks under pitched roofs and nearly every detached house built
+    before 2020; row houses, halls and later blocks have none that the street sees."""
+    year = era_year(doc)
+    found = _ridge(doc)
+    if found is None:
+        return []
+    a, b, low = found
+    length = math.dist(a[:2], b[:2])
+    brick = {"family": "brick", "colour": "#8a4b3a", "colour2": "#b9b2a6"}
+    metal = {"family": "sheet_metal", "colour": "#3a3c3f", "profile": "flat_seam"}
+    render = {"family": "plaster", "colour": "#b9b4a8", "finish": "fine"}
+    jitter = (zlib.crc32(f"{doc.get('id', '')}/chimney".encode()) % 100) / 100
+    if kind == "detached_house" and year < 2020:
+        shares = [0.3 + 0.4 * jitter]
+        size = {"w_m": 0.75, "d_m": 0.55, "h_m": 0.9, "material": brick if year < 1980 else metal, "cap": "slab"}
+    elif kind in OLD_WOODEN:
+        shares = [0.25 + 0.1 * jitter, 0.68 + 0.1 * jitter] if length >= 11 else [0.35 + 0.3 * jitter]
+        size = {"w_m": 0.8, "d_m": 0.6, "h_m": 1.1, "material": brick if jitter < 0.5 else metal, "cap": "slab"}
+    elif kind in OLD_MASONRY or (kind in ("slab_block", "functionalist_apartment") and year < 1960):
+        count = max(1, min(4, round(length / 9.0)))
+        shares = [(k + 0.35 + 0.3 * jitter) / count for k in range(count)]
+        size = {"w_m": 1.1, "d_m": 0.6, "h_m": 1.2, "material": render if jitter < 0.6 else brick, "cap": "slab"}
+    else:
+        return []
+    # Down the slope: square to the ridge, on the side of the plane's lowest point.
+    across = [-(b[1] - a[1]) / length, (b[0] - a[0]) / length]
+    if across[0] * (low[0] - a[0]) + across[1] * (low[1] - a[1]) < 0:
+        across = [-across[0], -across[1]]
+    out = []
+    for share in shares:
+        at = [a[0] + (b[0] - a[0]) * share + across[0] * 0.9, a[1] + (b[1] - a[1]) * share + across[1] * 0.9]
+        out.append({"anchor": {"at": [round(at[0], 3), round(at[1], 3)]}, **size})
+    return out
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -500,9 +623,12 @@ def wall_roles(doc: dict, kind: str, walls: list, pitch: float) -> dict:
     """What each free wall of an unread building carries besides its windows: {wall index: role}.
 
     `walls`: one dict a wall that stands on the ground and nobody described: index, width, rise (how far its
-    outline climbs over the eaves line) and apex (the u of its highest point). A role may hold `doors` (u of each
+    outline climbs over the eaves line), apex (the u of its highest point), height (ground to eaves) and, where
+    known, its ends p0 and p1 and its outward normal in the survey frame. A role may hold `doors` (u of each
     street door), `porch` (the doors stand under a porch roof), `garage` (u of each garage door), `loading`
-    (u of each loading door), `gable` ((apex u, rise) of a gable to give a window) and `blank` (no windows).
+    (u of each loading door), `gable` ((apex u, rise) of a gable to give a window), `blank` (no windows),
+    `shops` (the ground storey's row of shopfronts, one cell a bay) and `balconies` (parts for the wall's
+    `balconies` list).
     """
     walls = [w for w in walls if w["width"] >= 2.2]
     roles = {w["index"]: {} for w in walls}
@@ -548,7 +674,10 @@ def wall_roles(doc: dict, kind: str, walls: list, pitch: float) -> dict:
         side = 0.35 if zlib.crc32(doc.get("id", "").encode()) % 2 else 0.65
         roles[longest["index"]]["doors"] = [max(0.7, min(longest["width"] - 0.7, longest["width"] * side))]
     elif kind in HALLS:
-        if longest["width"] >= 10.0:
+        if kind == "commercial":
+            if longest["width"] > 4.0:
+                roles[longest["index"]]["doors"] = [nearest_bay(longest["width"], pitch, 0.5 * longest["width"])]
+        elif longest["width"] >= 10.0:
             count = max(1, min(4, round(longest["width"] / 22.0)))
             each = longest["width"] / count
             roles[longest["index"]]["loading"] = [nearest_bay(longest["width"], pitch, (k + 0.65) * each) for k in range(count)]
@@ -560,4 +689,84 @@ def wall_roles(doc: dict, kind: str, walls: list, pitch: float) -> dict:
         centres = bay_centres(longest["width"], pitch)
         middle = longest["width"] / 2 + (0 if len(centres) % 2 else pitch / 2)
         roles[longest["index"]]["doors"] = [middle]
+    if kind in BLOCKS:
+        part = balcony(doc, kind)
+        tall = [w for w in walls if w["width"] >= max(9.0, 0.6 * longest["width"]) and w.get("height", 0.0) >= 7.5]
+        if part and tall:
+            # Balconies look to the sun: the long wall that faces nearest south-west carries them.
+            sunny = max(tall, key=lambda w: -0.5 * w.get("normal", (0.0, 0.0))[0] - 0.87 * w.get("normal", (0.0, 0.0))[1])
+            centres = bay_centres(sunny["width"], pitch)
+            every, first = part.pop("every"), part.pop("first")
+            taken = roles[sunny["index"]].get("doors", [])
+            us = [c for k, c in enumerate(centres) if k % every == first % every and all(abs(c - u) > 0.1 for u in taken)]
+            width = min(part["w_m"], pitch - 0.3) if every == 1 else part["w_m"]
+            roles[sunny["index"]]["balconies"] = [{**part, "w_m": round(width, 2), "u_m": round(u, 2)} for u in us]
+    if kind in BLOCKS | OLD_MASONRY | HALLS:
+        fronts = shop_walls(doc, kind, walls, longest)
+        for w in fronts:
+            count = len(bay_centres(w["width"], pitch))
+            if count:
+                turn = zlib.crc32(f"{doc.get('id', '')}/shop/{w['index']}".encode()) % 3
+                roles[w["index"]]["shops"] = ["@shop_door" if k % 3 == turn else "@shop" for k in range(count)]
     return roles
+
+
+def balcony(doc: dict, kind: str) -> dict | None:
+    """The balconies a block of flats of its decade has, as the readings count them (seven in ten slab blocks,
+    five in six towers, three in four later blocks): small cantilevered slabs with a sheet front after the war,
+    recessed bays or cantilevers with concrete fronts in the element blocks, glazed since the eighties. None for
+    the blocks that have none, picked by id, and for offices."""
+    if kind == "office":
+        return None
+    year = era_year(doc)
+    chance = zlib.crc32(f"{doc.get('id', '')}/balcony".encode()) % 100
+    band = block_band(year)
+    if band == "postwar":
+        if year < 1940 or chance >= 60:
+            return None
+        return {"type": "cantilever", "w_m": 2.4, "depth_m": 1.1, "every": 3, "first": 1,
+                "railing": {"kind": "sheet", "height_m": 1.0, "colour": pick(doc, "rail", ["#d6cdb8", "#b9bcb4", "#8f9a8c", "#c9b99a"])},
+                "slab": {"thickness_m": 0.14, "colour": "#c9c6bc"}}  # fmt: skip
+    if band == "sixties":
+        if chance >= 90:
+            return None
+        front = {"kind": "solid", "height_m": 1.05, "colour": pick(doc, "rail", ["#d9d6cc", "#c9c6bc", "#e3e0d6", "#b3ab9c"])}
+        if chance % 2:
+            return {"type": "recessed", "w_m": 3.2, "depth_m": 1.4, "every": 2, "first": 0, "railing": front,
+                    "slab": {"thickness_m": 0.2, "colour": "#c9c6bc"}}  # fmt: skip
+        return {"type": "cantilever", "w_m": 3.2, "depth_m": 1.4, "every": 2, "first": 0, "railing": front,
+                "slab": {"thickness_m": 0.18, "colour": "#c9c6bc"}}  # fmt: skip
+    if chance >= (75 if band == "eighties" else 90):
+        return None
+    rail = (
+        {"kind": "solid", "height_m": 1.05, "colour": pick(doc, "rail", ["#e3e0d6", "#d9d6cc", "#c9c3b4", "#b9bcbd"])}
+        if band == "eighties"
+        else {"kind": "glass", "height_m": 1.1, "colour": pick(doc, "rail", ["#a9b6b5", "#9fb0bb", "#b9c3c2"])}
+    )
+    return {"type": "glazed", "w_m": 3.6, "depth_m": 1.6 if band == "eighties" else 1.8, "every": 2, "first": 0,
+            "railing": rail, "slab": {"thickness_m": 0.22, "colour": "#d0cfc8"}}  # fmt: skip
+
+
+def shop_walls(doc: dict, kind: str, walls: list, longest: dict) -> list:
+    """The walls whose ground storey is shopfronts: those that the building's mapped premises (shops, cafes,
+    banks: `register.premises`, points of the open map inside the footprint) lie at, and the longest wall of a
+    building whose register use is trade."""
+    premises = doc.get("register", {}).get("premises") or []
+    fronts = {}
+    for e, n in premises:
+        gaps = []
+        for w in walls:
+            if "p0" not in w or w["width"] < 4.0:
+                continue
+            (ax, ay), (bx, by) = w["p0"], w["p1"]
+            t = max(0.0, min(1.0, ((e - ax) * (bx - ax) + (n - ay) * (by - ay)) / (w["width"] ** 2)))
+            gaps.append((math.hypot(e - ax - t * (bx - ax), n - ay - t * (by - ay)), w["index"], w))
+        gaps.sort(key=lambda g: g[:2])
+        # A premise is mapped at its door or in its room: the wall nearest it, and on a corner the other wall
+        # within a room's depth.
+        for k, (gap, index, w) in enumerate(gaps):
+            if gap <= (14.0 if k == 0 else 8.0):
+                fronts[index] = w
+    if kind == "commercial" and not fronts and longest["width"] >= 6.0:
+        fronts[longest["index"]] = longest
+    return list(fronts.values())

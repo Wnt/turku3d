@@ -67,6 +67,9 @@ def _localise(doc: dict, origin: np.ndarray) -> dict:
             frame["p1"] = (np.asarray(frame["p1"], float) - origin[:2]).tolist()
             if "base_h" in frame:
                 frame["base_h"] -= origin[2]
+    premises = doc.get("register", {}).get("premises")
+    if premises:
+        doc["register"]["premises"] = (np.asarray(premises, float) - origin[:2]).tolist()
     roof = doc.get("roof", {})
     for group in ("chimneys", "dormers", "details"):
         for part in roof.get(group, []):
@@ -82,6 +85,32 @@ def building_origin(shell: dict) -> np.ndarray:
     points = np.vstack([np.asarray(r, float) for s in shell["surfaces"] for r in s["rings"]])
     low, high = points.min(axis=0), points.max(axis=0)
     return np.round(np.array([(low[0] + high[0]) / 2, (low[1] + high[1]) / 2, low[2]]), 3)
+
+
+def wall_roles(doc: dict, shell) -> dict:
+    """{facade index: role} of a building nobody described a wall of (archetypes.wall_roles): what
+    `priors.fitted_wall` takes as its `role`. `doc` and `shell` (shell.read of its shell) are in one frame."""
+    free = []
+    for facade in shell.facades:
+        if facade.grounded:
+            eaves = facades_module.eaves_height(facade.outline, facade.width)
+            corners = [c for part in mesh.polygons_of(facade.outline) for c in part.exterior.coords]
+            if not corners:
+                continue
+            apex = max(corners, key=lambda c: c[1])
+            free.append(
+                {
+                    "index": facade.index,
+                    "width": facade.width,
+                    "rise": float(apex[1] - eaves),
+                    "apex": float(apex[0]),
+                    "height": float(eaves - (facade.ground[:, 1].min() if len(facade.ground) else 0.0)),
+                    "p0": [float(v) for v in facade.p0],
+                    "p1": [float(v) for v in facade.p1],
+                    "normal": [float(v) for v in facade.normal[:2]],
+                }
+            )
+    return archetypes.wall_roles(doc, priors.style_type(doc), free, priors.group(doc)["pitch"])
 
 
 def compile(description: dict) -> Output:  # noqa: A001 - the contract's name
@@ -129,27 +158,7 @@ def compile(description: dict) -> Output:  # noqa: A001 - the contract's name
     wall_family = "plaster"
     # What each wall of a building nobody described carries besides its windows: the street door, garage doors,
     # a gable window (archetypes.wall_roles). A building somebody described in part keeps plain automatic walls.
-    roles = {}
-    if not described:
-        free = []
-        for facade in shell.facades:
-            if facade.grounded:
-                eaves = facades_module.eaves_height(facade.outline, facade.width)
-                corners = [c for part in mesh.polygons_of(facade.outline) for c in part.exterior.coords]
-                if not corners:
-                    continue
-                apex = max(corners, key=lambda c: c[1])
-                free.append(
-                    {
-                        "index": facade.index,
-                        "width": facade.width,
-                        "rise": float(apex[1] - eaves),
-                        "apex": float(apex[0]),
-                    }
-                )
-        roles = archetypes.wall_roles(
-            doc, priors.style_type(doc), free, priors.group(doc)["pitch"]
-        )
+    roles = {} if described else wall_roles(doc, shell)
     for facade in shell.facades:
         wall = priors.resolve_wall(doc, described.get(facade.index))
         if not facade.grounded:

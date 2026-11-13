@@ -4,7 +4,6 @@
 statement about buildings of a kind in Turku, never about one building.
 """
 
-import colorsys
 import copy
 import math
 import zlib
@@ -28,7 +27,7 @@ GROUPS = {
         "plinth": {
             "height_m": 0.7,
             "projection_m": 0.04,
-            "material": {"family": "rubble", "colour": "#7f7a72", "colour2": "#9c968b"},
+            "material": {"family": "granite", "colour": "#8a857d", "finish": "rock_faced", "scale_m": 0.35},
         },
         "ground_h": 3.5,
         "upper_h": 3.0,
@@ -40,7 +39,7 @@ GROUPS = {
             "recess_m": 0.03,
             "lights": {"pattern": "t_frame", "transom_at": 0.68},
             "surround": {
-                "kind": "eared",
+                "kind": "moulded",
                 "width_m": 0.13,
                 "projection_m": 0.03,
                 "colour": "#efece4",
@@ -247,7 +246,11 @@ REGISTER_WALLS = {
     ),
     "lasi": ({"family": "metal", "finish": "gloss"}, ["#50606b", "#5c6a70"]),
 }
-OLD_PLASTER = ["#d3c4a2", "#cfb69e", "#ccc9bc", "#c4a58f", "#bfc2b5", "#d9c9a8", "#c9b9a0"]
+# Render of the stone town as read: yellows, creams and whites, some terracotta and pink, a green.
+OLD_PLASTER = [
+    "#e4c574", "#e6cd8a", "#e0bd6e", "#d8cbb2", "#cdbb9c", "#d3c4a2", "#d8d5ca", "#ecece9",
+    "#cc9780", "#d7a29f", "#a8836f", "#a3b697", "#e2cbc9", "#d9c9a8",
+]  # fmt: skip
 NEW_PLASTER = ["#d3d0c7", "#ccc8b8", "#c6c0b1", "#dad6ca"]
 
 
@@ -442,7 +445,26 @@ def automatic_openings(doc: dict) -> dict:
             "h_m": 0.6,
             "lights": {"pattern": "single"},
         }
-    elif kind in SHEDS:
+    if kind not in HOUSES and kind not in SHEDS:
+        # A shop bay of the ground storey: glass from a low riser to a sign band, every third with its door.
+        sign = archetypes.pick(doc, "sign", ["#e6e3da", "#2f3a45", "#c9c5b8", "#3a3c3f", "#7a2e2a", "#2f5a4a", "#d9d2bd"])
+        shop = {
+            "kind": "shopfront",
+            "w_m": round(min(4.2, g["pitch"] - 0.55), 2),
+            "h_m": 2.55,
+            "recess_m": 0.14,
+            "frame": {"colour": "#3c4044", "width_m": 0.06},
+            "shopfront": {
+                "panes": 2,
+                "stallriser_m": 0.35,
+                "transom_h_m": 0.0,
+                "door": "none",
+                "fascia": {"height_m": 0.4, "colour": sign},
+            },
+        }
+        out["@shop"] = shop
+        out["@shop_door"] = merged(shop, {"shopfront": {"panes": 3, "door": "centre", "stallriser_m": 0.35}})
+    if kind in SHEDS:
         out["@door"] = {
             "kind": "door",
             "w_m": 0.9,
@@ -541,18 +563,35 @@ def fitted_wall(doc: dict, wall: dict, height: float, role: dict | None = None) 
             },
         ]
         return out
-    count = max(1, int(doc.get("register", {}).get("storeys", 1)))
+    count = max(1, int(doc.get("register", {}).get("storeys") or 1))
+    knee = 0.0
     if kind in SHEDS or (kind in HALLS and count <= 1):
         count = 1  # one room to the eaves, however high
+    elif kind in HOUSES and available < 5.4:
+        # A house whose eaves are too low for two storeys is one storey, whatever the register counts (it counts
+        # the rooms in the roof and the basement): the wall above the windows is the knee wall of the attic, and
+        # what is left over is the basement standing out of a sloping site.
+        count = 1
+        spare = max(0.0, available - g["ground_h"])
+        knee = min(spare, 1.4 if doc.get("register", {}).get("storeys", 1) >= 2 else 0.5)
+        lift = min(spare - knee, 1.4)
+        if lift > 0.05 and "plinth" in out:
+            out["plinth"]["height_m"] = round(plinth + lift, 2)
+            plinth, available = plinth + lift, available - lift
     elif not 2.6 <= available / count <= 4.4:
         count = max(1, round(available / g["upper_h"]))
-    each = available / count
+    each = (available - knee) / count
     ground = min(max(each, g["ground_h"]), each * 1.2) if count > 1 else each
-    upper = (available - ground) / (count - 1) if count > 1 else 0.0
     window = None if role.get("blank") else "@default"
+    shops = role.get("shops") if available - knee >= 3.0 else None
+    if shops and count > 1:
+        ground = min(max(ground, 3.5), available - (count - 1) * 2.5)
+    upper = (available - knee - ground) / (count - 1) if count > 1 else 0.0
     out["storeys"] = [
         {"kind": "ground", "height_m": round(ground, 2), "sill_m": sill, "window": window}
     ]
+    if shops:
+        out["storeys"][0] = {"kind": "ground", "height_m": round(ground, 2), "sill_m": 0.0, "row": list(shops)}
     openings = []
     for name, key in (("@door", "doors"), ("@garage", "garage"), ("@loading", "loading")):
         spec = resolve_opening(doc, name)
@@ -588,6 +627,8 @@ def fitted_wall(doc: dict, wall: dict, height: float, role: dict | None = None) 
                 "window": window,
             }
         )
+        if role.get("balconies"):
+            out["balconies"] = out.get("balconies", []) + copy.deepcopy(role["balconies"])
         if g is GROUPS["old_masonry"] and "bands" not in out:
             out["bands"] = [
                 {
@@ -599,11 +640,14 @@ def fitted_wall(doc: dict, wall: dict, height: float, role: dict | None = None) 
                     "colour": g["trim"],
                 }
             ]
+    if knee > 0.05:
+        out["storeys"].append({"kind": "attic", "height_m": round(knee, 2), "sill_m": 0.2, "window": None})
     if "gable" in role:
-        # A gable high enough for a room under the roof has that room's window; a lower one a small light.
+        # A gable high enough for a room under the roof has that room's window (it stands on the attic floor,
+        # which a knee wall puts below the eaves); a lower one a small light.
         apex, rise = role["gable"]
-        name = "@gable" if rise >= 2.6 else "@gable_small"
-        lift = 0.35 if rise >= 2.6 else rise * 0.3
+        name = "@gable" if rise + knee >= 2.6 else "@gable_small"
+        lift = max(-0.5, 0.85 - knee) if rise + knee >= 2.6 else rise * 0.3
         out["openings"] = out.get("openings", []) + [
             {"type": name, "u_m": round(apex, 2), "v_m": round(height + lift, 2)}
         ]
@@ -665,46 +709,22 @@ def roof_pitch_deg(doc: dict) -> float:
 
 
 def measured_roof(doc: dict) -> dict | None:
-    """The roofing the orthophoto shows on a building nobody has looked at. The photo is taken in full sun, where
-    roofing reads paler and greyer than its paint: the hue is kept, the colour is deepened to a paint or tile colour.
-    A red pitched roof is clay tile on a small house from 1940 on and painted sheet metal on older and bigger
-    buildings, a green one painted sheet metal; any other roof keeps the roofing of its style in the measured grey.
-    Leaf green is tree crowns: such a roof keeps the colour of its style."""
+    """The roofing the orthophoto shows on a building nobody has looked at (archetypes.roofing: the hue is kept,
+    the lightness is that of roofing seen from the street). Leaf green is tree crowns: such a roof keeps the
+    roofing of its style."""
     colour = doc.get("measured", {}).get("roof", {}).get("colour") or doc.get(
         "register", {}
     ).get("roof_colour")
     if not colour:
         return None
-    if style_type(doc) in HOUSES:
-        return archetypes.house_roofing(
-            colour, archetypes.era_year(doc), roof_pitch_deg(doc)
-        )
-    hue, saturation, value = colorsys.rgb_to_hsv(
-        *(int(colour[i : i + 2], 16) / 255 for i in (1, 3, 5))
+    return archetypes.roofing(
+        colour,
+        style_type(doc),
+        archetypes.era_year(doc),
+        roof_pitch_deg(doc),
+        int(doc.get("register", {}).get("storeys") or 1),
+        group(doc)["roof"]["material"],
     )
-    reddish = (hue > 345 / 360 or hue < 30 / 360) and saturation >= 0.2
-    if 60 / 360 < hue < 110 / 360 and saturation >= 0.15:
-        return None  # leaf green: tree crowns over the roof, not roofing
-    greenish = 110 / 360 <= hue < 170 / 360 and saturation >= 0.12
-    if reddish or hue > 345 / 360 or hue < 40 / 360:
-        saturation, value = min(0.7, saturation * 2.0), min(0.62, max(0.35, value * 0.8))
-    elif greenish:
-        saturation, value = min(0.5, saturation * 1.6), min(0.55, max(0.3, value * 0.8))
-    else:
-        saturation, value = min(0.1, saturation), min(0.6, max(0.18, value * 0.75))
-    red, green, blue = (round(v * 255) for v in colorsys.hsv_to_rgb(hue, saturation, value))
-    colour = f"#{red:02x}{green:02x}{blue:02x}"
-    register = doc.get("register", {})
-    if roof_pitch_deg(doc) > 10 and (reddish or greenish):
-        if reddish and (register.get("year") or 1900) >= 1940 and register.get("storeys", 1) <= 2:
-            return {"family": "clay_tile", "colour": colour, "profile": "pantile", "scale_m": 0.3}
-        return {
-            "family": "sheet_metal",
-            "colour": colour,
-            "profile": "standing_seam",
-            "scale_m": 0.55,
-        }
-    return {**group(doc)["roof"]["material"], "colour": colour}
 
 
 def resolve_roof(doc: dict) -> dict:

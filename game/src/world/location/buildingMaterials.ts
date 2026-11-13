@@ -152,18 +152,20 @@ function glass(p: BuildingMaterialParams) {
   let inside = mix(room, cloth, inCurtain);
   inside = mix(inside, blindColour, inBlind);
   if (shop) {
-    // A lit shop behind the pane: a pale back wall that brightens towards the ceiling lights, a light strip under
-    // the ceiling and dark goods of uneven height along the floor; `seed` and `tone` make every pane differ.
-    const back = mix(vec3(0.1, 0.095, 0.085), vec3(0.36, 0.33, 0.29), tone).mul(at.y.mul(0.75).add(0.5));
-    const lights = smoothstep(0.84, 0.88, at.y).mul(smoothstep(0.97, 0.93, at.y)).mul(0.35);
+    // A shop behind the pane, seen from a daylit street: a dim room whose back wall brightens a little towards
+    // the ceiling lights, a light strip under the ceiling and dark goods of uneven height along the floor; `seed`
+    // and `tone` make every pane differ. (A pale back wall read as a row of roller doors from across the street.)
+    const back = mix(vec3(0.035, 0.036, 0.04), vec3(0.17, 0.16, 0.145), tone).mul(at.y.mul(0.75).add(0.5));
+    const lights = smoothstep(0.84, 0.88, at.y).mul(smoothstep(0.97, 0.93, at.y)).mul(0.3);
     const cell = at.x.mul(seed.mul(4).add(3)).add(seed.mul(7));
     const height = fract(sin(cell.floor().mul(12.9898)).mul(43758.5453)).mul(0.26).add(0.14);
     const goods = step(at.y, height).mul(step(fract(cell), 0.82));
     const stock = mix(vec3(0.05, 0.045, 0.04), vec3(0.16, 0.1, 0.07), fract(cell.floor().mul(0.37).add(seed)));
     inside = mix(back.add(lights), stock, goods);
-    // Offices and closed shops on a shop floor keep white vertical blinds drawn across the whole pane.
+    // Offices and closed shops on a shop floor keep white vertical blinds drawn across the whole pane: one pane
+    // in seven.
     const drawn = vec3(0.8, 0.79, 0.75).mul(sin(at.x.mul(seed.mul(120).add(160))).mul(0.1).add(0.9)).mul(0.64);
-    inside = mix(inside, drawn, step(0.62, tone));
+    inside = mix(inside, drawn, step(0.86, tone));
   }
   if (p.interior === 'frosted') inside = vec3(0.35, 0.37, 0.38);
   if (p.tint) inside = inside.mul(uniform(new THREE.Color(p.tint)).mul(2).add(0.3));

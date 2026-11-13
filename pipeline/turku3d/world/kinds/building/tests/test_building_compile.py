@@ -139,7 +139,7 @@ def test_roofing_follows_the_orthophoto_colour_until_somebody_describes_the_roof
         "surfaces": [{"kind": "roof", "rings": [[[0, 0, 5], [8, 0, 5], [8, 4, 8], [0, 4, 8]]]}]
     }
     house = describe.automatic("x", pitched, {"year": 1994, "storeys": 1, "roof_colour": "#ba615c"})
-    assert house["roof"]["material"]["family"] == "clay_tile"
+    assert house["roof"]["material"]["family"] == "concrete_tile"  # tile; clay before 1965
     red, green, blue = (int(house["roof"]["material"]["colour"][i : i + 2], 16) for i in (1, 3, 5))
     assert red > 1.8 * green and red < 0xBA  # deeper than the sunlit photo, same hue
     old = describe.automatic(
@@ -165,7 +165,7 @@ def test_roofing_follows_the_orthophoto_colour_until_somebody_describes_the_roof
     )
     assert (
         eaves["roof"]["eaves"] == {"overhang_m": 0.6}
-        and eaves["roof"]["material"]["family"] == "clay_tile"
+        and eaves["roof"]["material"]["family"] == "concrete_tile"
     )
 
 

@@ -115,6 +115,22 @@ def roof_colour(outline, raster) -> str | None:
     return f"#{red:02x}{green:02x}{blue:02x}"
 
 
+# Premises that show to the street as a glazed ground storey: every shop, and these services.
+STREET_AMENITIES = {"restaurant", "cafe", "bar", "pub", "fast_food", "bank", "pharmacy", "ice_cream", "nightclub",
+                    "post_office", "cinema", "bureau_de_change", "biergarten"}
+
+
+def street_premises(sources, box) -> np.ndarray:
+    """(E, N) of the open map's shops and street-front services in the box: one point a premise."""
+    try:
+        frame = sources.osm.features(box)
+    except Exception:  # no map table (offline): no building is known to hold a shop
+        return np.zeros((0, 2))
+    rows = frame[frame["shop"].notna() | frame["amenity"].isin(STREET_AMENITIES)]
+    points = [shape if shape.geom_type == "Point" else shape.representative_point() for shape in rows.geometry]
+    return np.array([[point.x, point.y] for point in points]).reshape(-1, 2)
+
+
 def discover(area: Area, sources) -> list[Stub]:
     """One stub per building that touches the area: `shell` and `register` as the building description has them.
     A building is a LoD2 building, or a register footprint that no LoD2 building covers."""
@@ -159,6 +175,7 @@ def discover(area: Area, sources) -> list[Stub]:
             "height": number(attrs.get("measuredHeight"))})
     modelled = {b["id"] for b in found}
     covered = shapely.unary_union([b["outline"] for b in found]) if found else shapely.Polygon()
+    premises = street_premises(sources, box)
     seen = set()
     for feature in listed:
         attrs = feature.attrs
@@ -230,10 +247,23 @@ def discover(area: Area, sources) -> list[Stub]:
                 "height_m": height if height and height > 0 else None,
                 "roof_colour": roof_colour(outline, aerial) if aerial is not None else None,
                 "year_near": year_near,
-            }.items() if value not in (None, "")},
+                "premises": inside(premises, outline),
+            }.items() if value not in (None, "", [])},
         }
         stubs.append(Stub(building["id"], tuple(round(v, 3) for v in outline.bounds), building["refs"], facts))
     return stubs
+
+
+def inside(points: np.ndarray, outline) -> list:
+    """The points on or within 1.5 m of an outline, at most twelve, to the decimetre."""
+    if not len(points):
+        return []
+    low, high = np.array(outline.bounds[:2]) - 1.5, np.array(outline.bounds[2:]) + 1.5
+    near = points[((points >= low) & (points <= high)).all(axis=1)]
+    if not len(near):
+        return []
+    held = near[shapely.dwithin(shapely.points(near), outline, 1.5)]
+    return sorted(np.round(held, 1).tolist())[:12]
 
 
 class ShellBuilding:

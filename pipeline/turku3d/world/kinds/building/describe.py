@@ -32,17 +32,17 @@ def automatic(key: str, shell: dict, register: dict, measurements: dict | None =
 
 
 def measured(doc: dict) -> dict:
-    """A roof nobody gave a material takes the roofing the orthophoto shows; a house nobody gave chimneys has
-    the one its kind and age usually have."""
+    """A roof nobody gave a material takes the roofing the orthophoto shows; a building nobody gave chimneys has
+    those its kind and age usually have."""
     roof = doc.get("roof", {})
     if "material" not in roof:
         roofing = priors.measured_roof(doc)
         if roofing:
             doc["roof"] = roof = {**roof, "material": roofing}
     if "chimneys" not in roof and doc.get("tier", "auto") == "auto":
-        chimney = archetypes.chimney(doc, priors.style_type(doc))
-        if chimney:
-            doc["roof"] = {**roof, "chimneys": [chimney]}
+        chimneys = archetypes.chimneys(doc, priors.style_type(doc))
+        if chimneys:
+            doc["roof"] = {**roof, "chimneys": chimneys}
     return doc
 
 
