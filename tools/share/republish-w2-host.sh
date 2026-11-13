@@ -49,6 +49,7 @@ for row in sorted(rows, key=lambda row: (row['name'] not in areas, row['name']))
         print(name, '--at', f"{query['at'][0]},{query['at'][1]}", '--radius', query['radius'], '--background', query['background'], '--name', name)
 PY
 echo "republish: $(wc -l < "$LOGS/plan.txt") locations, $BUILDS at once, $free GiB free"
+[ -s "$LOGS/plan.txt" ] || { echo "republish: nothing to build (no listed location matches the arguments)"; exit 2; }
 export LOGS
 build() {
   local name=$1; shift
@@ -62,7 +63,7 @@ build() {
 }
 export -f build
 # xargs returns 123 when any build failed; every other build still runs.
-xargs -P "$BUILDS" -L 1 bash -c 'build "$@"' _ < "$LOGS/plan.txt"
+xargs -r -P "$BUILDS" -L 1 bash -c 'build "$@"' _ < "$LOGS/plan.txt"
 code=$?
 grep -l 'FAILED' "$LOGS"/*.log 2>/dev/null | while read -r log; do echo "republish: failures in $(basename "$log" .log): $(grep -c FAILED "$log")"; done
 [ "$code" = 0 ] || exit 1
