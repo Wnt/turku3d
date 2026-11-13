@@ -2,10 +2,14 @@
 fascia and soffit, brackets, and chimneys standing on the planes. Survey axes (E, N, H), local to the building.
 """
 
+import zlib
+
 import numpy as np
+from shapely import affinity
 from shapely.geometry import Point, Polygon
 
-from . import mesh
+from . import mesh, openings, priors
+from .facade import eaves_height
 from .materials import Palette
 
 UP = np.array([0.0, 0.0, 1.0])
@@ -129,6 +133,7 @@ def build(
     wall_family: str,
     facade_by_wall: dict,
     report: list,
+    doc: dict | None = None,
 ):
     planes = shell.roofs
     if not planes:
@@ -259,6 +264,19 @@ def build(
 
     for chimney in roof.get("chimneys", []):
         _chimney(soup, shell, chimney, palette, facade_by_wall, report)
+    for index, dormer in enumerate(roof.get("dormers", [])):
+        _dormer(
+            soup,
+            shell,
+            dormer,
+            index,
+            palette,
+            cover,
+            trim_colour,
+            facade_by_wall,
+            doc or {},
+            report,
+        )
 
 
 def _brackets(soup, palette, key, a, b, outward2, overhang, fascia, spec):
@@ -302,6 +320,97 @@ def _roof_height(shell, xy):
             z = float(_plane_z(plane, np.asarray(xy)))
             best = z if best is None else max(best, z)
     return best
+
+
+def _dormer(
+    soup, shell, dormer, index, palette: Palette, cover, trim_colour, facade_by_wall, doc, report
+):
+    """A dormer on the roof above a described wall: a small front wall with its window, cheeks running back into
+    the roof and a gabled (or flat, for a shed dormer) roof of its own. A wall dormer stands on the wall's eaves."""
+    anchor = dormer.get("anchor", {})
+    facade = facade_by_wall.get(anchor.get("wall"))
+    if facade is None:
+        report.append("dormer without a usable anchor")
+        return
+    kind = dormer.get("type", "gable")
+    w, h = dormer.get("w_m", 1.4), dormer.get("h_m", 1.4)
+    u = anchor.get("u_m", facade.width / 2)
+    setback = 0.0 if kind == "wall_dormer" else anchor.get("setback_m", 1.0)
+    front = facade.point(u, 0.0, -setback)[:2]
+    inward = -np.asarray(facade.normal[:2], float)
+    base = _roof_height(shell, front + inward * 0.1)
+    if setback < 0.3:
+        top_of_wall = _outline_top(facade, u)
+        if top_of_wall is not None:
+            if top_of_wall - eaves_height(facade.outline, facade.width) > 0.6:
+                return  # the shell's wall already rises into this dormer: the wall gable is built with the wall
+            base = float(facade.origin[2]) + top_of_wall
+    if base is None:
+        report.append("dormer anchor is not over the roof")
+        return
+    rise = 0.0 if kind == "shed" else min(h * 0.4, w * 0.45)
+    eaves, peak = base + h - rise, base + h
+    # The body runs back until the roof has risen to the dormer's own ridge.
+    depth = max(1.0, w)
+    for step in np.arange(0.3, 10.0, 0.3):
+        z = _roof_height(shell, front + inward * step)
+        if z is None or z >= peak:
+            depth = float(step) + (0.0 if z is None else 0.2)
+            break
+    try:
+        wall_key = palette.key(
+            dormer.get("material") or doc.get("wall_defaults", {}).get("material")
+        )
+    except (KeyError, TypeError, ValueError):
+        wall_key = palette.paint(trim_colour)
+    roof_key = palette.key(dormer["roof_material"]) if "roof_material" in dormer else cover
+    frame = _Frame(
+        np.array([front[0], front[1], 0.0]) - facade.u_dir * w / 2, facade.u_dir, facade.normal
+    )
+    local = mesh.Soup()
+    body = Polygon(
+        [(0.0, base - 0.3), (w, base - 0.3), (w, eaves), (w / 2, peak), (0.0, eaves)]
+        if rise
+        else [(0.0, base - 0.3), (w, base - 0.3), (w, peak), (0.0, peak)]
+    )
+    spec = priors.resolve_opening(doc, dormer.get("window") or "@attic")
+    window_w = min(spec.get("w_m", 0.9), w - 0.3)
+    window_h = min(spec.get("h_m", 1.0), eaves - base - 0.25)
+    hole = None
+    if spec.get("kind") == "window" and window_w > 0.3 and window_h > 0.3:
+        u0, v0 = (w - window_w) / 2, base + max(0.12, (eaves - base - window_h) / 2)
+        hole = affinity.translate(openings.outline(spec, window_w, window_h), u0, v0)
+    mesh.face(local, "walls", wall_key, body.difference(hole) if hole is not None else body)
+    mesh.ring_walls(
+        local,
+        "walls",
+        wall_key,
+        np.asarray(mesh.orient(body, 1.0).exterior.coords)[:-1],
+        -depth,
+        0.0,
+        outward=True,
+    )
+    out, thick = 0.18, 0.07
+    if rise:
+        slope = rise / (w / 2)
+        for a, b in (
+            ((-out, eaves - slope * out), (w / 2, peak)),
+            ((w / 2, peak), (w + out, eaves - slope * out)),
+        ):
+            slab = Polygon([a, b, (b[0], b[1] + thick), (a[0], a[1] + thick)])
+            mesh.prism(local, "roof", roof_key, slab, -depth, 0.2, back=True)
+    else:
+        mesh.box(
+            local, "roof", roof_key, -out, peak, w + out, peak + thick, -depth, 0.25, back=True
+        )
+    soup.place(local, frame)
+    if hole is not None:
+        rng = np.random.default_rng(zlib.crc32(f"{doc.get('id', '')}/dormer/{index}".encode()))
+        template = openings.build(spec, window_w, window_h, wall_key, palette, trim_colour)
+        extra = np.array(
+            [rng.uniform(0.3, 1.0) if rng.random() < 0.6 else 0.0, 0.0, rng.random(), rng.random()]
+        )
+        soup.place(template, frame, u0, v0, extra=extra)
 
 
 def _chimney(soup, shell, chimney, palette: Palette, facade_by_wall, report):

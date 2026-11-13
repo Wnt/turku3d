@@ -140,6 +140,7 @@ def compile(description: dict) -> Output:  # noqa: A001 - the contract's name
         wall_family,
         facade_by_wall,
         report,
+        doc,
     )
 
     parts = []
