@@ -399,6 +399,30 @@ node scripts/dev/scene-capture.mjs --mode render --world humalistonkatu --area h
 - In-process, for a workbench: `turku3d.world.driver.compile_entity(store, kind, description)` returns the
   record's origin, bounds, output and hash.
 
+### Where a build runs
+
+Measured 2026-11-12 with the same code at two suburban points (radius 150 m, background 400 m, nothing cached):
+
+| Stage | Mac (M1 Max) | osgallery-dev | Runs on |
+| --- | --- | --- | --- |
+| Registers over WFS, fetch and parse | 7 s (51 blocks, 7 layers) | 35 s (81 blocks, 11 layers) | the build's host |
+| Lidar ground: fetch the tiles, 1 m grids | 8 s | 31 s | the build's host; grids are cached in shared data |
+| Orthophoto 0.2 m, panorama coverage | 3 s, 5 s | 3 s, 6 s | the build's host |
+| OpenStreetMap table of the city (once) | 181 s | not measured | any host once; it travels with `--data world/sources/osm` |
+| Compile ground, 157 to 159 cells | 5.0 s | 24.2 s | Mac or Air |
+| Compile buildings, 285 to 319 shells | 0.8 s | 2.6 s | Mac or Air |
+| Copy to the host and merge the store back (`scripts/dev/on-host`) | none | 5 s | |
+
+- **One location, or one entity while you work: the Mac** (or the Air, whose cores are as fast and which is idle:
+  `scripts/dev/on-host air -- python -m turku3d.world build …`). Every processor-bound stage is three to five
+  times slower per core on osgallery-dev, and a location is seconds of work.
+- **Kinds that read whole lidar point clouds** (objects, vegetation) fetch hundreds of megabytes per 500 m tile:
+  build new places on the Air or osgallery-dev so those caches stay off the Mac, and let the store merge back.
+- **Many locations at once** (a random set, a district): osgallery-dev or a cloud lease, one `build` process per
+  location; the store is content-addressed, so results from any host merge with `rsync -a --ignore-existing`,
+  which `on-host` does.
+- **Stills:** a browser slot on the Mac or the Air (`~/turku3d/loops/w2/hosts.md`); osgallery-dev has no GPU.
+
 ## 8. Live update of one entity
 
 1. A stored description changes (observation, review, the workbench), or a kind's code changes.

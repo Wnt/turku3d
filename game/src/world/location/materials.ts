@@ -30,6 +30,9 @@ export function familyMaterial(source: THREE.Material, cache: Map<string, THREE.
     const family = reference && families.get(reference.family);
     drawn = family ? family(reference!.params ?? {}, standard) : source;
     drawn.userData = { ...drawn.userData, turku: reference };
+    // A family nobody registered is handed to the game's own material pass under its name: that pass already
+    // gives asphalt, granite, setts and cobbles, grass and water their proven surfaces (render/materials.ts).
+    if (!family && reference) drawn.userData.material_key = reference.family;
     drawn.name = reference?.family ?? source.name;
     cache.set(key, drawn);
   }
