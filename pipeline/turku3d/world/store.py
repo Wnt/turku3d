@@ -133,7 +133,9 @@ class Store:
         """Object urls that any location manifest of this store draws."""
         urls: set[str] = set()
         for path in (self.root / "locations").glob("*.json"):
-            for row in json.loads(path.read_bytes())["entities"]:
+            manifest = json.loads(path.read_bytes())
+            urls.update(cell["url"] for cell in manifest.get("collision", {}).values())
+            for row in manifest["entities"]:
                 if row.get("url"):
                     urls.add(row["url"])
                 urls.update(i["asset"] for i in row.get("instances", []))

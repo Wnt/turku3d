@@ -50,6 +50,10 @@ export interface LocationManifest {
   origin: [number, number, number];
   focus: [number, number, number];
   entities: LocationEntity[];
+  /** Collision cells on the 62.5 m grid (`c_i_j`, .col v1 store objects), as a prepared scene lists them. */
+  collision?: Record<string, { url: string; sha256: string; bytes: number; tris: number; h: [number, number] }>;
+  /** Where a player starts: a point of a street for cars and the street's direction (EPSG:3877, grid bearing). */
+  start?: { E: number; N: number; headingDeg: number };
   stats: { entities: number; triangles: number; bytes: number; instances: number; byKind: Record<string, number> };
   timings: Record<string, number>;
 }
@@ -75,5 +79,9 @@ export function readLocation(value: unknown): LocationManifest {
       if (item.ids && item.ids.length !== item.transforms.length) fail(`${row.id}: instance ids do not match the transforms`);
     }
   }
+  for (const [id, cell] of Object.entries(data.collision ?? {})) {
+    if (!/^c_-?\d+_-?\d+$/.test(id) || !/^objects\/[a-f0-9]{2}\/[a-f0-9]{64}\.col$/.test(cell.url ?? '') || !numbers(cell.h, 2)) fail(`bad collision cell ${id}`);
+  }
+  if (data.start !== undefined && !numbers([data.start.E, data.start.N, data.start.headingDeg], 3)) fail('bad start');
   return data;
 }

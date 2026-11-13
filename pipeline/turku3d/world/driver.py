@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 
 from .api import BEHAVIOURS, SHAPES, Area, Instances, Output, Stub
+from .collision import collision_cells, street_start
 from .frame import ORIGIN, to_engine
 from .glb import pack
 from .kinds import KINDS, code_hash
@@ -302,6 +303,18 @@ def build(name: str, area: Area, background: float, store: Store, log=print) -> 
             "totalMs": 0,
         },
     }
+    # What the player walks and drives on, and where they start (collision.py); a failure costs the location its
+    # play mode, never its build.
+    began = time.perf_counter()
+    try:
+        manifest["collision"] = collision_cells(store, rows, log)
+        start = street_start(area, sources, log)
+        if start:
+            manifest["start"] = start
+    except Exception as error:  # noqa: BLE001
+        failures.append({"id": "collision/*", "error": f"{type(error).__name__}: {error}"[:300]})
+        log(f"  FAILED collision/*: {type(error).__name__}: {error}")
+    manifest["timings"]["collisionMs"] = round((time.perf_counter() - began) * 1000)
     manifest["timings"]["totalMs"] = round((time.perf_counter() - started) * 1000)
     store.put_location(manifest)
     log(f"location {name}: E {area.e} N {area.n} radius {area.radius:g} m, background {wide.radius:g} m, revision {manifest['revision']}")

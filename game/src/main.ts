@@ -747,10 +747,18 @@ async function preparedVisuals(manifest: CoarseHost['manifest'], collision: Pick
     const location = await LocationWorld.start(host, params.world);
     window.__dev!.world = watchLocation(location);
     coarse = location as unknown as PreparedWorld;
+    // Play starts on the location's street (open ground is searched around it, world/startGround.ts).
+    const start = location.manifest.start ?? (() => { const [x, y, z] = location.manifest.focus, at = engineToEN(x, y, z); return { E: at.E, N: at.N, headingDeg: 0 }; })();
+    if (!params.spawnGiven) params.spawn = { E: start.E, N: start.N, headingDeg: start.headingDeg };
     // Looking around a location (?world=NAME without a pose): start above the street, looking at its focus.
     if (params.preview && params.qa && !new URLSearchParams(window.location.search).has('cam')) {
-      const [x, y, z] = location.manifest.focus, at = engineToEN(x, y, z);
-      Object.assign(params.qa, { E: at.E, N: at.N - 45, H: at.H + 14, yawDeg: 0, pitchDeg: -14, fovDeg: 60, rollDeg: 0 });
+      const [x, y, z] = location.manifest.focus, at = engineToEN(x, y, z), street = location.manifest.start;
+      if (street) {
+        // On the street of the play start, a little above eye height, looking along it.
+        const p = enToEngine(street.E, street.N), ground = location.groundBelow(p.x, p.z);
+        Object.assign(params.qa, { E: street.E, N: street.N, H: engineToEN(0, Number.isFinite(ground) ? ground : y, 0).H + 2.4,
+          yawDeg: street.headingDeg, pitchDeg: -4, fovDeg: 60, rollDeg: 0 });
+      } else Object.assign(params.qa, { E: at.E, N: at.N - 45, H: at.H + 14, yawDeg: 0, pitchDeg: -14, fovDeg: 60, rollDeg: 0 });
       applyQaCamera();
     }
   } else coarse = await PreparedWorld.start(host);

@@ -17,6 +17,7 @@ import { releaseGeometry } from '../modelGeometry';
 import { modelGpuBytes, rendererResidency } from '../gpuBytes';
 import { StreamStats } from '../streamStats';
 import type { Entry } from '../coarseContracts';
+import type { ManifestEntry } from '../manifest';
 import type { PreparedWorld, PreparedWorldHost } from '../preparedWorld';
 import type { RoadGraphJson } from '../../gameplay/roadGraph';
 import type { PreparedLighting } from '../../render/lights/preparedLighting';
@@ -99,11 +100,12 @@ export class LocationWorld implements WorldSurface {
     const world = new LocationWorld(host, manifest, url);
     host.scene.add(world.group);
     host.manifest.code = world.data.release;
-    await world.install(manifest.entities);
+    // Play needs the collision before the drawing is worth waiting for: both load at once.
+    const [, collision] = await Promise.all([world.install(manifest.entities), world.loadCollision()]);
     // One entry stands for the location where the tile streamer's consumers look for loaded tiles.
     const [x, , z] = manifest.focus;
     world.entries.set(`t0_${Math.floor(x / 250)}_${Math.floor(z / 250)}`,
-      { state: 'draft', model: world.group, collision: new Map(), nextPoll: Infinity, pass: 'full', visualHash: world.data.release });
+      { state: 'draft', model: world.group, collision, nextPoll: Infinity, pass: 'full', visualHash: world.data.release });
     world.describe();
     return world;
   }
@@ -112,6 +114,33 @@ export class LocationWorld implements WorldSurface {
     const response = await (host.fetch ?? fetch)(url, { cache: 'no-store', signal: AbortSignal.timeout(15000) });
     if (!response.ok) throw new Error(`Location manifest: HTTP ${response.status} (${url})`);
     return readLocation(await response.json());
+  }
+
+  /**
+   * The location's collision cells, handed to the game exactly as a prepared scene's are (world/preparedWorld.ts):
+   * checked, listed in the active manifest and retained for the collision streamer, which loads the cells near the
+   * player into the physics worker and closes the edges of the loaded world. Only a host that plays asks for them.
+   */
+  private async loadCollision(): Promise<Map<string, ManifestEntry>> {
+    const host = this.host, cells = new Map<string, ManifestEntry>();
+    if (!host.retainCollision) return cells;
+    const queue = Object.entries(this.manifest.collision ?? {});
+    if (!queue.length) throw new Error(`Location ${this.manifest.name} was built without collision: rebuild it to play`);
+    await Promise.all(Array.from({ length: Math.min(LOADS, queue.length) }, async () => {
+      for (let next = queue.shift(); next; next = queue.shift()) {
+        const [id, cell] = next, url = this.storeUrl(cell.url);
+        const response = await (host.fetch ?? fetch)(url, { signal: AbortSignal.timeout(30000) });
+        if (!response.ok) throw new Error(`Collision ${id}: HTTP ${response.status}`);
+        const buffer = await response.arrayBuffer();
+        if (buffer.byteLength !== cell.bytes) throw new Error(`Collision ${id}: wrong byte count`);
+        await host.checkCollision(buffer.slice(0));
+        const entry = { ...cell, url };
+        cells.set(id, entry);
+        host.manifest.collision[id] = entry;
+        host.retainCollision!(id, entry, buffer);
+      }
+    }));
+    return cells;
   }
 
   private describe() {
@@ -344,6 +373,7 @@ export class LocationWorld implements WorldSurface {
     if (this.disposed) return;
     this.disposed = true;
     for (const chunk of [...this.chunks.values()]) this.hide(chunk);
+    for (const entry of this.entries.values()) for (const cell of entry.collision.keys()) { delete this.host.manifest.collision[cell]; this.host.unloadCollision(cell); }
     this.group.removeFromParent();
     this.entries.clear();
   }
