@@ -29,6 +29,8 @@ ZEBRA_STRIPE, ZEBRA_PITCH = 0.5, 1.0
 DASH_WIDTH = 0.12
 NEAR = shapely.box(-0.5, -0.5, CELL + 0.5, CELL + 0.5)   # the cell and a little more, in its own frame
 FLUSH = 0.005          # a kerb stone whose top is this near the skin under it is flush: no solid
+WATER_LEVEL = 0.0       # N2000: the river and the sea share one datum (the old generator's water level)
+BED_DEPTH = 1.0         # how far under the water level the bed lies, until soundings say more
 SLIVER = 0.0005        # a triangle lower than this over its longest side is a vertex on an edge
 
 
@@ -387,6 +389,11 @@ def compile_cell(description: dict) -> Output:
     px, pz = points[:, 0], points[:, 1]
     # Whole millimetres, with ties broken upwards past float noise: a neighbour computes the same border heights.
     heights = np.floor(np.where(low_vertex, low_at(px, pz), high_at(px, pz)) * 1000 + 0.5 + 1e-6) / 1000
+    # Under open water the skin is the bed: every vertex a water piece uses lies below the water level, so the bank's
+    # last triangles fall to it (the quay or bank face until a wall of its own stands there).
+    bed_vertex = np.zeros(len(points), bool)
+    bed_vertex[triangles[roles[owner] == 'bed'].ravel()] = True
+    heights = np.where(bed_vertex, np.minimum(heights, WATER_LEVEL - BED_DEPTH), heights)
     vertex_normals = np.where(low_vertex[:, None], low_normal(px, pz), high_normal(px, pz))
     vertex_normals /= np.linalg.norm(vertex_normals, axis=1, keepdims=True)
 
@@ -438,12 +445,19 @@ def compile_cell(description: dict) -> Output:
     far_xz = np.column_stack([fx, fz])
     far_normals = sampler(plain)[1](fx, fz)
     far_normals /= np.linalg.norm(far_normals, axis=1, keepdims=True)
-    parts.append(Part('far', np.column_stack([fx, relief.sample(plain, fx, fz) - base, fz]), facing_up(far_xz, far),
+    far_heights = relief.sample(plain, fx, fz)
+    far_heights = np.where(roles[nearest] == 'bed', np.minimum(far_heights, WATER_LEVEL - BED_DEPTH), far_heights)
+    parts.append(Part('far', np.column_stack([fx, far_heights - base, fz]), facing_up(far_xz, far),
                       Material('ground_far', {}, (1.0, 1.0, 1.0), 0.95), normals=far_normals, uvs=far_xz + origin_xz,
                       colors=colors, lod=1))
     # The height field the skin was cut from: the carriageway level inside carriageways, the other level elsewhere.
     side = int(round(CELL / relief.step)) + 1
     inner = slice(relief.halo, relief.halo + side)
     inside_low = shapely.contains_xy(low_area, relief.x[inner, inner].ravel(), relief.z[inner, inner].ravel()).reshape(side, side)
-    field = Heightfield((i * CELL, j * CELL), relief.step, np.where(inside_low, low[inner, inner], high[inner, inner]))
+    raster = np.where(inside_low, low[inner, inner], high[inner, inner])
+    beds = [piece for piece, _, role in pieces if role == 'bed']
+    if beds:
+        inside_bed = shapely.contains_xy(shapely.unary_union(beds), relief.x[inner, inner].ravel(), relief.z[inner, inner].ravel()).reshape(side, side)
+        raster = np.where(inside_bed, np.minimum(raster, WATER_LEVEL - BED_DEPTH), raster)
+    field = Heightfield((i * CELL, j * CELL), relief.step, raster)
     return Output((i * CELL, base, j * CELL), parts, heightfield=field, error_m={0: 0.01, 1: 0.15})

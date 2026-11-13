@@ -21,7 +21,7 @@ declare const __WORKBENCH_REFS__: string;
 interface Pose { E: number; N: number; H: number; yaw: number; pitch: number; roll: number; fov: number }
 interface Meta {
   name: string; id: string; revision: number; origin: [number, number, number];
-  view: { id: string; image: string; width: number; height: number; pose: Pose } | null;
+  view: { id: string; image: string; photo?: string; width: number; height: number; pose: Pose } | null;
   report: string[]; stats: { triangles: number; materials: number; bytes: number };
   timings_ms: Record<string, number>;
 }
@@ -41,7 +41,9 @@ let meta = await fetchMeta();
 const width = meta.view?.width ?? 960, height = meta.view?.height ?? 720;
 const photoPanel = document.getElementById('photo')!, renderPanel = document.getElementById('render')!;
 for (const panel of [photoPanel, renderPanel]) { panel.style.width = `${width}px`; panel.style.height = `${height}px`; }
-if (meta.view) (document.getElementById('reference') as HTMLImageElement).src = `/@fs${__WORKBENCH_REFS__}/${meta.view.image.split('/').pop()}`;
+// A view of qa/views shows its reference photo; any other view brings its own photo beside the GLB.
+if (meta.view) (document.getElementById('reference') as HTMLImageElement).src = meta.view.photo
+  ? `${root}/${meta.view.photo}?v=${meta.revision}` : `/@fs${__WORKBENCH_REFS__}/${meta.view.image.split('/').pop()}`;
 else photoPanel.style.display = 'none';
 
 const { renderer, backend } = await createRenderer('webgpu', renderPanel, { quality, qa: true });

@@ -75,7 +75,8 @@ def test_a_row_of_unknown_trees_is_one_species_and_a_street_crown_the_register_d
     named = census_row("puut-1", 23459500.0 + 54.0, 6704500.0, 13.0, source="register+lidar", register={"species": "Acer platanoides"})
     chosen = trees.families([*row, named])
     assert {chosen[item["id"]][0] for item in row} == {"maple"}
-    assert len({family for family, _ in trees.families(row).values()}) == 1
+    assert {family for family, _ in trees.families(row).values()} == {"lime"}  # a planted row of unknown species
+    assert len({family for family, _ in trees.families(row[:3]).values()}) == 1
     stub = trees.Stub("trees/c_0_0", (0, 0, 1, 1), [], {"cell": [0, 0], "trees": [*row, named], "absent": [], "cameras": [],
                                                        "onStreet": {"lidar-0": 4.0, "lidar-1": 1.0}})
     description = trees.Trees().describe(stub, None)

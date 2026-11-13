@@ -19,8 +19,9 @@ Source `../sandbox.env` first. One call does all of this:
    TURKU3D_WORK=~/turku3d-w2/<sandbox>/work and PYTHONPATH on the checkout. On osgallery-dev it runs in
    tilebuilds.slice (low CPU weight, the game servers stay responsive); on the Air under `caffeinate` (it sleeps
    after a minute otherwise). Give the bare command, for example `python -m turku3d.world ...`, not `run.sh`;
-4. merges the host's world store into yours (`rsync -a --ignore-existing .../work/world/ $TURKU3D_WORLD_STORE/`:
-   the store is content-addressed), copies each `--pull REL` from the host's work directory to $TURKU3D_WORK/REL,
+4. merges the host's world store into yours (objects and build records without overwriting: they are named by
+   their content; of a location's manifest the newer one wins; the markers of running builds stay on the host;
+   `--no-merge` leaves the store on the host for a later call to fetch), copies each `--pull REL` from the host's work directory to $TURKU3D_WORK/REL,
    and each `--pull-data REL` from the host's data to $TURKU3D_DATA/REL without overwriting.
 
 The exit code is COMMAND's. osgallery-dev must keep 25 GiB free: a copy that would go below that is refused, and
@@ -101,11 +102,11 @@ def push(host, source, target, delete=False, excludes=()):
        + [f'{source}/', f'{at(host, target)}/'], check=True)
 
 
-def pull(host, source, target, keep_existing=False):
+def pull(host, source, target, keep_existing=False, flags=()):
     if remote(host, f'test -d {shlex.quote(source)}', check=False).returncode != 0:
         return False
     Path(target).mkdir(parents=True, exist_ok=True)
-    sh(rsync(host) + (['--ignore-existing'] if keep_existing else []) + [f'{at(host, source)}/', f'{target}/'], check=True)
+    sh(rsync(host) + (['--ignore-existing'] if keep_existing else []) + list(flags) + [f'{at(host, source)}/', f'{target}/'], check=True)
     return True
 
 
@@ -191,6 +192,8 @@ def main():
     p.add_argument('--data', action='append', default=[], metavar='REL', help='copy $TURKU3D_DATA/REL to the host first')
     p.add_argument('--pull', action='append', default=[], metavar='REL', help="copy the host's work/REL back to $TURKU3D_WORK/REL")
     p.add_argument('--pull-data', action='append', default=[], metavar='REL', help="copy the host's data/REL back without overwriting")
+    p.add_argument('--no-merge', action='store_true',
+                   help="leave the host's world store on the host (a capture of this store is running here; merge with a later call)")
     p.add_argument('--jobs', type=int)
     p.add_argument('command', nargs='*', help='after --')
     a = p.parse_args()
@@ -238,7 +241,12 @@ def main():
     times['run'] = time.time() - start
     start = time.time()
     store = os.environ.get('TURKU3D_WORLD_STORE', f'{work}/world')
-    merged = pull(a.host, f'{root}/work/world', store, keep_existing=True)
+    # Objects and build records are named by their content, so the copy here stands. A location manifest is named by the
+    # location: the newer one wins, or a manifest that came back earlier would hide the build this call just made.
+    # The marker of a running build says nothing about this machine and stays on the host.
+    merged = not a.no_merge and pull(a.host, f'{root}/work/world', store, keep_existing=True, flags=['--exclude=/building', '--exclude=/locations'])
+    if merged:
+        pull(a.host, f'{root}/work/world/locations', f'{store}/locations', flags=['--update'])
     for rel in a.pull:
         pull(a.host, f'{root}/work/{rel}', f'{work}/{rel}')
     for rel in a.pull_data:

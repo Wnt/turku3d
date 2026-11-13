@@ -187,5 +187,25 @@ function far(): THREE.Material {
   return material;
 }
 
+/** Open water (the `water` kind's surface): the murky river as it reflects the sky. A first, plain version: no
+ *  ripples, no depth, no flow. */
+function water(params: GroundParams = {}): THREE.Material {
+  const key = `water:${JSON.stringify(params, Object.keys(params).sort())}`;
+  let material = cache.get(key) as THREE.MeshStandardNodeMaterial | undefined;
+  if (!material) {
+    material = new THREE.MeshStandardNodeMaterial();
+    material.name = 'ground-water';
+    const place = positionWorld.xz;
+    // Wind lanes: stretches of rougher and of calmer water, tens of metres long.
+    const lanes = mx_noise_float(vec3(place.mul(vec2(0.03, 0.09)), 2.2)).mul(0.5).add(0.5);
+    material.colorNode = params.body === 'pond' ? vec3(0.035, 0.05, 0.035) : vec3(0.05, 0.05, 0.036);
+    material.roughnessNode = float(0.1).add(lanes.mul(0.14));
+    material.metalnessNode = float(0);
+    cache.set(key, material);
+  }
+  return material;
+}
+
 for (const family of [...GROUND_FAMILIES, 'asphalt', 'grass', 'gravel', 'kerbstone']) registerFamily(family, params => groundMaterial(family, params));
+registerFamily('water', water);
 registerFamily('ground_far', far);

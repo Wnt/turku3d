@@ -148,6 +148,11 @@ The roof **form** comes from the LoD2 shell. The description says what covers it
 `bargeboard`); `parapet`; `dormers`; `chimneys`; `details` (skylights, ladders, snow guards, ridge crests, plant
 rooms). `form_hint` records what a reader saw, for audits of the shell.
 
+A roof nobody gave a material takes it from the orthophoto: `register.roof_colour` is the median of the roof's lit
+pixels (tree crowns and deep shadow left out), deepened to a paint or tile colour of the same hue. A red pitched
+roof is clay tile on a small house from 1940 on and painted sheet metal elsewhere; any other roof keeps the
+roofing of its style in the measured colour (`priors.measured_roof`).
+
 A dormer, chimney or detail has an `anchor`: either `at: [E, N]`, or `wall` + `u_m` + `setback_m` (above the
 described wall, that far behind its face). Its base follows the roof surface.
 

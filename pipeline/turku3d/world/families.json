@@ -40,6 +40,7 @@
     "kerbstone": { "owner": "w2-street", "params": {} },
     "road_paint": { "owner": "w2-street", "params": { "colour": "colour", "wear": "number" } },
     "ground_far": { "owner": "w2-street", "params": {} },
+    "water": { "owner": "w2-street", "params": { "body": ["river", "sea", "pond"] } },
 
     "sign": { "owner": "w2-objects", "params": { "code": "id", "atlas": "id", "text": "id", "width": "number", "height": "number", "blue": "boolean" } },
     "lens": { "owner": "w2-objects", "params": { "kind": ["street-light", "signal"], "colour": "colour" } },

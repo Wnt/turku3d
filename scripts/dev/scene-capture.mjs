@@ -424,7 +424,7 @@ async function main() {
 
 /** compare.html: one row per view, columns for every baseline, this capture and its variants (plus the clips);
  *  compare.jpg: the same grid as one image when ffmpeg is available. */
-function compare(out, manifest) {
+export function compare(out, manifest) {
   // Reference photos live beside the data root (qa/views/views.jsonl: `image` is relative to its parent).
   const photos = Object.fromEntries(manifest.views.filter(v => v.photo?.image).map(v => [v.id, path.resolve(process.env.TURKU3D_DATA ?? path.join(process.env.HOME ?? '', 'turku3d/data'), '..', v.photo.image)]));
   const columns = [...(Object.keys(photos).length ? [{ title: 'reference photo', files: photos, clip: null }] : []), ...manifest.baselines.map(b => {

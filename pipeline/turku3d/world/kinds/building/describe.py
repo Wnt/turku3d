@@ -25,6 +25,15 @@ def automatic(key: str, shell: dict, register: dict) -> dict:
     doc["materials"] = {"wall": {**priors.register_wall(doc), "conf": {"*": 0.2}}}
     doc["wall_defaults"] = {"material": "wall"}
     doc["opening_types"] = priors.automatic_openings(doc)
+    return measured(doc)
+
+
+def measured(doc: dict) -> dict:
+    """A roof nobody gave a material takes the roofing the orthophoto shows."""
+    if "material" not in doc.get("roof", {}):
+        roofing = priors.measured_roof(doc)
+        if roofing:
+            doc["roof"] = {**doc.get("roof", {}), "material": roofing}
     return doc
 
 
@@ -32,6 +41,7 @@ def effective(key: str, shell: dict, register: dict, stored: dict | None) -> dic
     doc = automatic(key, shell, register)
     if not stored:
         return doc
+    doc.pop("roof", None)  # measured again below, on the style the stored description gives
     for field, value in stored.items():
         if field in ("shell", "register", "schema", "id"):
             continue
@@ -43,4 +53,4 @@ def effective(key: str, shell: dict, register: dict, stored: dict | None) -> dic
             doc[field] = doc["provenance"] + value
         else:
             doc[field] = value
-    return doc
+    return measured(doc)
