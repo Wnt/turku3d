@@ -95,11 +95,13 @@ def main() -> None:
         from .driver import build as run
 
         name, area = location_name(args)
-        run(name, area, args.background, store)
+        with store.building(name):
+            run(name, area, args.background, store)
     elif args.command in ("entity", "refresh"):
         from .driver import refresh
 
-        refresh(args.location, store, getattr(args, "ids", None))
+        with store.building(args.location):
+            refresh(args.location, store, getattr(args, "ids", None))
     elif args.command == "watch":
         watch(args.location, store)
     elif args.command == "describe":

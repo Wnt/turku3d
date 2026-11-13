@@ -404,8 +404,9 @@ node scripts/dev/scene-capture.mjs --mode render --world humalistonkatu --area h
   the views of that area; the comparison sheet shows the reference photo beside the still, and with `--baseline
   DIR` (an earlier capture of the same views, for example the frozen game's) that render between them.
   `--ready-timeout SECONDS` (default 240) is how long the capture waits for the location to finish loading.
-  Do not build a location while a capture of it loads: the page follows the new manifest revision, redraws the
-  changed chunks and can run past the render mode's 120 s settle limit.
+  A page follows its location's manifest, so a revision that arrives while a capture loads or shoots redraws the
+  scene under the camera: `build`, `refresh` and `entity` keep `building/<name>.json` (host, pid, start) in the
+  store while they run, and `scene-capture.mjs --world NAME` refuses to start while that marker's process lives.
 - `gc` deletes the meshes that no location manifest in the store references, and the stored builds that pointed
   at them, so a build key that comes back compiles again. Delete the manifests of locations you no longer draw
   first (`locations/<name>.json`).

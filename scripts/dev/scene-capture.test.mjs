@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
-import { cameraPose, comparable, poseCamera, readViews, sessionUrl } from './scene-capture.mjs';
+import { buildInProgress, cameraPose, comparable, poseCamera, readViews, sessionUrl } from './scene-capture.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -69,4 +69,15 @@ test('render mode: the QA camera URL of the first view, and a world camera round
     const dot = back.quaternion.reduce((s, v, i) => s + v * view.camera.quaternion[i], 0);
     assert.ok(Math.abs(Math.abs(dot) - 1) < 1e-9, `${view.id}: quaternion round trip`);
   }
+});
+
+test('a location that is being built is refused; a marker of a process that is gone is ignored', () => {
+  const marker = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'building-')), 'portsa.json');
+  assert.equal(buildInProgress(marker), null);
+  fs.writeFileSync(marker, JSON.stringify({ name: 'portsa', host: os.hostname(), pid: process.pid, started: '2026-11-13T02:00:00Z' }));
+  assert.equal(buildInProgress(marker).pid, process.pid);
+  fs.writeFileSync(marker, JSON.stringify({ name: 'portsa', host: os.hostname(), pid: 2 ** 22 - 1, started: '2026-11-13T02:00:00Z' }));
+  assert.equal(buildInProgress(marker), null);
+  fs.writeFileSync(marker, JSON.stringify({ name: 'portsa', host: 'another-host', pid: 1, started: '2026-11-13T02:00:00Z' }));
+  assert.equal(buildInProgress(marker).host, 'another-host');
 });

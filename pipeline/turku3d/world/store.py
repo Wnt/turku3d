@@ -10,8 +10,10 @@ import hashlib
 import json
 import os
 import re
+import socket
 import tempfile
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from .. import config
@@ -92,6 +94,22 @@ class Store:
     def location(self, name: str) -> dict | None:
         path = self.location_path(name)
         return json.loads(path.read_bytes()) if path.exists() else None
+
+    def building_path(self, name: str) -> Path:
+        return self.root / "building" / f"{name}.json"
+
+    @contextmanager
+    def building(self, name: str):
+        """Marks a location as being built while the block runs: a capture of it is refused meanwhile, because a
+        page follows its manifest and a new revision would redraw it under the camera."""
+        path = self.building_path(name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"name": name, "host": socket.gethostname(), "pid": os.getpid(),
+                                    "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}))
+        try:
+            yield
+        finally:
+            path.unlink(missing_ok=True)
 
     def put_location(self, manifest: dict) -> None:
         write_atomic(self.location_path(manifest["name"]), json.dumps(manifest, separators=(",", ":")).encode())

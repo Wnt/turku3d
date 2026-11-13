@@ -33,12 +33,13 @@
 // Readiness is explicit (window.__render.quiet); builds without it (the frozen city, older lab releases) fall back
 // to --settle-ms and the manifest says so. Images, clips and comparisons stay outside Git.
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { previewState, touchPreview } from './preview-session.mjs';
-import { port } from '../../tools/dev/environment.mjs';
+import { port, worldStore } from '../../tools/dev/environment.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const { chromium } = createRequire(path.join(repo, 'game/package.json'))('playwright');
@@ -120,10 +121,26 @@ export function sessionUrl(base, views, entry, world = null) {
 
 const ms = since => Math.round(performance.now() - since);
 
+/**
+ * The marker `world build|refresh|entity` keeps while it runs (pipeline/turku3d/world/store.py), or null. A page
+ * follows its location's manifest: a revision that arrives while a capture loads or shoots redraws the scene under
+ * the camera. A marker whose process is gone on this host is stale and ignored.
+ */
+export function buildInProgress(marker) {
+  if (!fs.existsSync(marker)) return null;
+  const building = JSON.parse(fs.readFileSync(marker, 'utf8'));
+  if (building.host === os.hostname()) try { process.kill(building.pid, 0); } catch (error) { if (error.code === 'ESRCH') return null; }
+  return building;
+}
+
 async function main() {
   const views = readViews(opt('--views', path.join(repo, 'scripts/dev/views/riverside-office.json')));
   const world = opt('--world', null), area = opt('--area', null);
   if (world !== null && !/^[a-z0-9-]+$/.test(world)) throw new Error(`--world wants a location name: ${world}`);
+  if (world) {
+    const building = buildInProgress(path.join(worldStore, 'building', `${world}.json`));
+    if (building) throw new Error(`--world ${world}: the location is being built (pid ${building.pid} on ${building.host} since ${building.started}); capture it when the build has finished`);
+  }
   if (area) {
     views.views = views.views.filter(v => v.area === area);
     if (!views.views.length) throw new Error(`--area ${area}: no reference view of that area in the set`);

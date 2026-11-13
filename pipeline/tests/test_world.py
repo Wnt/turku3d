@@ -1,6 +1,7 @@
 """The world pipeline's spine: a description compiles to stored, content-addressed output and a manifest row."""
 
 import json
+import os
 import struct
 
 import numpy as np
@@ -91,7 +92,10 @@ def test_refresh_rewrites_the_manifest_only_when_an_entity_changed(posts):
     store.put_facts(stub.id, {"id": stub.id, "box": list(stub.box), "sources": stub.sources, "facts": stub.facts})
     row = driver.manifest_row(driver.entity_record(store, stub), "scene")
     store.put_location({"schema": "turku-location/1", "name": "t", "revision": 1, "entities": [row], "stats": driver.stats_of([row])})
-    assert driver.refresh("t", store, log=lambda *_: None)["changed"] == []
+    with store.building("t"):
+        assert json.loads(store.building_path("t").read_bytes())["pid"] == os.getpid()
+        assert driver.refresh("t", store, log=lambda *_: None)["changed"] == []
+    assert not store.building_path("t").exists()
     assert store.location("t")["revision"] == 1
     world_store.write_description({"schema": "turku-description/posts/1", "id": "posts/p1", "tier": "reviewed", "provenance": [], "height": 2.5}, by="test")
     assert driver.refresh("t", store, ["posts/p1"], log=lambda *_: None)["changed"] == ["posts/p1"]
