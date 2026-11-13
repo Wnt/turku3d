@@ -5,7 +5,7 @@
 //
 //   scripts/dev/scene-capture.mjs --views scripts/dev/views/riverside-office.json --out "$TURKU3D_WORK/captures/NAME"
 //     [--base http://localhost:$PORT/] [--cdp http://127.0.0.1:PORT] [--mode play|render] [--entry solo|multiplayer] [--reload]
-//     [--variant NAME=patch.json]... [--baseline DIR]... [--clip SECONDS|0] [--checks errors,camera,resolution,player,scene]
+//     [--variant NAME=patch.json]... [--baseline DIR]... [--ready-timeout SECONDS] [--clip SECONDS|0] [--checks errors,camera,resolution,player,scene]
 //     [--expect-release SHA] [--settle-ms 6000] [--label TEXT] [--world NAME] [--area NAME]
 //   (The preview browser runs muted: a capture never plays the game's audio.)
 //
@@ -155,6 +155,8 @@ async function main() {
     timings, views: [], variants: [], checks: {}, errors: [], consoleErrors: [], failedRequests: [], readiness: null };
   const write = () => fs.writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 1) + '\n');
 
+  // A location of thousands of entities takes minutes to prepare on a slow GPU: --ready-timeout SECONDS.
+  const readyTimeout = Number(opt('--ready-timeout', 240)) * 1000;
   const browser = await chromium.connectOverCDP(cdp);
   const url = sessionUrl(base, views, entry, world);
   const context = browser.contexts()[0] ?? await browser.newContext();
@@ -180,7 +182,7 @@ async function main() {
     if (!live || argv.includes('--reload')) await page.goto(url.href, { waitUntil: 'domcontentloaded', timeout: 60000 });
     manifest.reusedSession = live && !argv.includes('--reload');
     if (mode === 'render') {
-      await page.waitForFunction(() => window.__qaReady === true || !!window.__qaError, null, { timeout: 240000 });
+      await page.waitForFunction(() => window.__qaReady === true || !!window.__qaError, null, { timeout: readyTimeout });
       const qaError = await page.evaluate(() => window.__qaError ?? null);
       if (qaError) throw new Error(`QA render mode: ${qaError}`);
     } else {

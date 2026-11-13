@@ -137,7 +137,7 @@ export class LocationWorld implements WorldSurface {
       const mesh = node as THREE.Mesh;
       if (!mesh.isMesh) return;
       mesh.userData.layer = layer; mesh.userData.entityId = row.id;
-      mesh.material = Array.isArray(mesh.material) ? mesh.material.map(m => familyMaterial(m, this.materials)) : familyMaterial(mesh.material, this.materials);
+      mesh.material = Array.isArray(mesh.material) ? mesh.material.map(m => familyMaterial(m, this.materials, row.kind)) : familyMaterial(mesh.material, this.materials, row.kind);
     });
     root.updateMatrixWorld(true);
     return { row, root, heights: row.kind === 'ground' ? groundHeights(root, row) : null };

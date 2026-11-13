@@ -7,7 +7,9 @@ source facts of the last discovery, without reading sources: the live update pat
 from __future__ import annotations
 
 import json
+import os
 import time
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -119,25 +121,47 @@ def compile_entity(store: Store, kind_name: str, description: dict) -> dict:
     return body
 
 
-def entity_record(store: Store, stub: Stub, timings: dict | None = None) -> dict:
-    """The record of an entity for its current description and generator code, compiled when it is new."""
-    kind = KINDS[stub.kind]
-    started = time.perf_counter()
-    description = kind.describe(stub, read_description(stub.id))
+def plan(store: Store, stub: Stub) -> tuple[dict, str, dict | None]:
+    """An entity's effective description, its build key and the record under that key when it is already built."""
+    description = KINDS[stub.kind].describe(stub, read_description(stub.id))
     stored = store.put_json(description)
     key = sha256(canonical({"format": FORMAT, "kind": stub.kind, "code": code_hash(stub.kind), "description": stored["sha256"]}))
+    return description, key, store.record(key)
+
+
+def compile_record(store: Store, stub: Stub, description: dict, key: str) -> dict:
+    """Compiles a planned entity and stores its record."""
+    stored = store.put_json(description)
+    record = {
+        "schema": "turku-entity/1", "id": stub.id, "kind": stub.kind, "sources": stub.sources,
+        "description": {"sha256": stored["sha256"], "url": stored["url"], "tier": description["tier"]},
+        "generator": {"kind": stub.kind, "code": code_hash(stub.kind)}, "key": key,
+        **compile_entity(store, stub.kind, description),
+    }
+    store.put_record(key, record)
+    return record
+
+
+def compile_job(job: tuple[str, Stub, dict, str]) -> tuple[dict | None, float, str | None]:
+    """One compile, possibly in a worker process: (record, seconds, error). Outputs go straight into the store,
+    which is safe from several processes because every object is written under its content hash. An entity whose
+    generator fails is reported and left out: one bad entity never stops a location."""
+    root, stub, description, key = job
+    started = time.perf_counter()
+    try:
+        return compile_record(Store(Path(root)), stub, description, key), time.perf_counter() - started, None
+    except Exception as error:  # noqa: BLE001 - reported by build, with the entity's id
+        return None, time.perf_counter() - started, f"{type(error).__name__}: {error}"[:300]
+
+
+def entity_record(store: Store, stub: Stub, timings: dict | None = None) -> dict:
+    """The record of an entity for its current description and generator code, compiled when it is new."""
+    started = time.perf_counter()
+    description, key, record = plan(store, stub)
     described = time.perf_counter()
-    record = store.record(key)
     fresh = record is None
     if fresh:
-        record = {
-            "schema": "turku-entity/1", "id": stub.id, "kind": stub.kind, "sources": stub.sources,
-            "description": {"sha256": stored["sha256"], "url": stored["url"], "tier": description["tier"]},
-            "generator": {"kind": stub.kind, "code": code_hash(stub.kind)}, "key": key,
-            **compile_entity(store, stub.kind, description),
-        }
-        record["timings"]["describeMs"] = round((described - started) * 1000, 1)
-        store.put_record(key, record)
+        record = compile_record(store, stub, description, key)
     if timings is not None:
         timings["describe"] = timings.get("describe", 0.0) + described - started
         timings["compile"] = timings.get("compile", 0.0) + time.perf_counter() - described
@@ -216,12 +240,35 @@ def build(name: str, area: Area, background: float, store: Store, log=print) -> 
         stubs += found
     cover = source_cover(area, sources, log)
     discovered = time.perf_counter()
-    rows, work = [], {}
+    rows, work, planned = [], {}, []
     for stub in sorted(stubs, key=lambda s: s.id):
         store.put_facts(stub.id, {"id": stub.id, "box": list(stub.box), "sources": stub.sources, "facts": stub.facts})
+        t0 = time.perf_counter()
+        planned.append([stub, *plan(store, stub)])
         per_kind = work.setdefault(stub.kind, {})
-        record = entity_record(store, stub, per_kind)
-        rows.append(manifest_row(record, "scene" if area.box_distance(stub.box) <= area.radius else "background"))
+        per_kind["describe"] = per_kind.get("describe", 0.0) + time.perf_counter() - t0
+    described = time.perf_counter()
+    # Compile is pure, so the entities that need it are spread over TURKU3D_JOBS processes when there are enough.
+    missing = [entry for entry in planned if entry[3] is None]
+    jobs = max(1, int(os.environ.get("TURKU3D_JOBS") or 1))
+    tasks = [(str(store.root), stub, description, key) for stub, description, key, _ in missing]
+    if jobs > 1 and len(tasks) >= 8 * jobs:
+        with ProcessPoolExecutor(jobs) as pool:
+            done = list(pool.map(compile_job, tasks, chunksize=4))
+    else:
+        done = [compile_job(task) for task in tasks]
+    failures = []
+    for entry, (record, seconds, error) in zip(missing, done):
+        entry[3] = record
+        per_kind = work[entry[0].kind]
+        per_kind["compile"] = per_kind.get("compile", 0.0) + seconds
+        per_kind["compiled"] = per_kind.get("compiled", 0) + 1
+        if error:
+            failures.append({"id": entry[0].id, "error": error})
+            log(f"  FAILED {entry[0].id}: {error}")
+    for stub, _, _, record in planned:
+        if record is not None:
+            rows.append(manifest_row(record, "scene" if area.box_distance(stub.box) <= area.radius else "background"))
     compiled = time.perf_counter()
     ground = sources.terrain.heights(area.e, area.n)[0]
     previous = store.location(name)
@@ -230,12 +277,12 @@ def build(name: str, area: Area, background: float, store: Store, log=print) -> 
         "query": {"crs": "EPSG:3877", "at": [area.e, area.n], "radius": area.radius, "background": wide.radius},
         "origin": list(ORIGIN),
         "focus": [round(float(v), 3) for v in to_engine(area.e, area.n, float(ground) if np.isfinite(ground) else 0.0)],
-        "entities": rows, "stats": stats_of(rows), "sources": cover,
+        "entities": rows, "stats": stats_of(rows), "sources": cover, "failures": failures,
         "timings": {
             "sourcesMs": round(sum(sources.timings.values()) * 1000),
             "discoverMs": round((discovered - started) * 1000),
-            "describeMs": round(sum(w.get("describe", 0) for w in work.values()) * 1000),
-            "compileMs": round(sum(w.get("compile", 0) for w in work.values()) * 1000),
+            "describeMs": round((described - discovered) * 1000),
+            "compileMs": round((compiled - described) * 1000),
             "totalMs": 0,
         },
     }
@@ -251,6 +298,7 @@ def build(name: str, area: Area, background: float, store: Store, log=print) -> 
         count = sum(1 for r in rows if r["kind"] == kind.name)
         log(f"  {kind.name:<9} discover {timings[f'discover:{kind.name}']:6.2f} s, describe {w.get('describe', 0):6.2f} s, "
             f"compile {w.get('compile', 0):6.2f} s: {count} entities, {w.get('compiled', 0)} compiled")
+    log(f"  compile   {compiled - described:7.2f} s wall for {len(missing)} entities in {jobs if len(tasks) >= 8 * jobs else 1} process(es), {len(failures)} failed")
     stats = manifest["stats"]
     log(f"  total     {time.perf_counter() - started:7.2f} s: {stats['entities']} entities, {stats['triangles']} triangles, "
         f"{stats['instances']} instances, {stats['bytes'] / 1e6:.1f} MB -> {store.location_path(name)}")

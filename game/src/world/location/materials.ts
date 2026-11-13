@@ -11,8 +11,9 @@ export type Family = (params: Record<string, unknown>, fallback: THREE.MeshStand
 
 const families = new Map<string, Family>();
 
-export function registerFamily(name: string, family: Family) {
-  families.set(name, family);
+/** Registers a family for every kind, or for the entities of one kind only (which then wins for that kind). */
+export function registerFamily(name: string, family: Family, kind?: string) {
+  families.set(kind ? `${kind}/${name}` : name, family);
 }
 
 export function familyOf(material: THREE.Material): FamilyReference | null {
@@ -21,13 +22,13 @@ export function familyOf(material: THREE.Material): FamilyReference | null {
 }
 
 /** The drawn material for a loaded glTF material; identical references share one material per `cache`. */
-export function familyMaterial(source: THREE.Material, cache: Map<string, THREE.Material>): THREE.Material {
+export function familyMaterial(source: THREE.Material, cache: Map<string, THREE.Material>, kind = ''): THREE.Material {
   const reference = familyOf(source);
   const standard = source as THREE.MeshStandardMaterial;
-  const key = JSON.stringify([reference, standard.color?.getHex(), standard.roughness, standard.metalness, source.side]);
+  const key = JSON.stringify([kind, reference, standard.color?.getHex(), standard.roughness, standard.metalness, source.side]);
   let drawn = cache.get(key);
   if (!drawn) {
-    const family = reference && families.get(reference.family);
+    const family = reference && (families.get(`${kind}/${reference.family}`) ?? families.get(reference.family));
     drawn = family ? family(reference!.params ?? {}, standard) : source;
     drawn.userData = { ...drawn.userData, turku: reference };
     // A family nobody registered is handed to the game's own material pass under its name: that pass already
