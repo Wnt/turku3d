@@ -170,6 +170,9 @@ def main(argv=None) -> int:
     ap.add_argument("--idle-exit", type=float, default=3600.0)
     ap.add_argument("--walls-only", action="store_true", help="wall crops only, no context pictures")
     ap.add_argument("--remote", help="USER@HOST:DIR: the packets are there (see above); --root is the local mirror")
+    ap.add_argument("--also", type=Path, nargs="*", default=[],
+                    help="more local directories of packets to label (one model in memory serves them all: two "
+                         "segmenters on an 8 GB Air thrash)")
     a = ap.parse_args(argv)
     if a.remote:
         a.watch = a.walls_only = True
@@ -183,7 +186,8 @@ def main(argv=None) -> int:
     done, seconds = 0, []
 
     def pending():
-        for packet in sorted(p for p in a.root.iterdir() if p.is_dir() and (not a.only or p.name in a.only)):
+        packets = [p for root in [a.root, *a.also] if root.is_dir() for p in root.iterdir()]
+        for packet in sorted((p for p in packets if p.is_dir() and (not a.only or p.name in a.only)), key=lambda p: p.name):
             if a.watch and not (packet / "views.json").exists():
                 continue  # a batch writes views.json after the crops: until then a crop may be half written
             pictures = list(packet.glob("w*.jpg")) + ([] if a.walls_only else list(packet.glob("context-*.jpg")))
