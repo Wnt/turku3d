@@ -85,7 +85,8 @@ dormer's type by its own little roof: `gable` when it ends in a triangle, `shed`
 14. Balconies: decide the type from a context view, not from a rectified crop. `recessed` when the balcony floor \
 lies behind the wall plane (the wall runs on flush beside and above it and you look into a niche; give the \
 niche's `depth_m`); `cantilever` when a slab stands out of the wall (you see its underside, its end or its shadow \
-on the wall; `depth_m` is how far it stands out); `french` for a railing directly before a door. Give the \
+on the wall; `depth_m` is how far it stands out); `glazed` only for a glazed box that stands out of the wall (a \
+glazed balcony inside a niche is `recessed`); `french` for a railing directly before a door. Give the \
 railing's colour as the panel looks in overcast light, like every other colour.
 """
 
