@@ -60,3 +60,16 @@ def test_two_sided_crossing_sign_and_plate_order():
     plates = signpost._plates(groups[1])
     assert [(p["code"], p.get("turn", 0)) for p in plates] == [("E1", 0), ("E1", 180), ("H25", 0)]
     assert plates[2]["blue"]
+
+
+def test_wire_entity_is_a_closed_tube_with_its_hung_lamp():
+    from turku3d.world.kinds.wire import Wire
+
+    description = {"id": "wire/w1", "a": [23459100.0, 6704700.0, 20.0], "b": [23459112.0, 6704705.0, 20.4], "sag": 0.3, "type": "span",
+                   "lamps": [{"at": [23459106.0, 6704702.5, 19.9]}]}
+    output = Wire().compile(description)
+    bad, flipped, total = open_edges(output.parts)
+    assert total > 0 and bad == 0 and flipped == 0
+    assert len(output.instances) == 1 and output.instances[0].ids == ["wire/w1#lamp0"]
+    bad, flipped, total = open_edges(output.instances[0].asset)
+    assert bad == 0 and flipped == 0

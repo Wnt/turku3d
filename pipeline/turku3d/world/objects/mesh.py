@@ -43,6 +43,9 @@ class Mesh:
     def add(self, part: str, material: Material, positions, normals, triangles, colors=None, uvs=None) -> None:
         positions = np.asarray(positions, dtype=np.float64).reshape(-1, 3)
         triangles = np.asarray(triangles, dtype=np.int64).reshape(-1, 3)
+        if len(triangles):  # a ring of radius 0 or a collapsed edge leaves triangles without area: leave them out
+            a, b, c = (positions[triangles[:, k]] for k in range(3))
+            triangles = triangles[np.linalg.norm(np.cross(b - a, c - a), axis=1) > 1e-10]
         if not len(triangles):
             return
         group = self._group(part, material)
@@ -150,7 +153,11 @@ class Mesh:
         """A closed hexahedron from 8 corners ordered as (x, y, z) sign bits: index = 4 * x + 2 * y + z."""
         corners = np.asarray(corners, dtype=np.float64).reshape(8, 3)
         quads = [[0, 1, 3, 2], [4, 6, 7, 5], [0, 4, 5, 1], [2, 3, 7, 6], [0, 2, 6, 4], [1, 5, 7, 3]]
-        tris = [t for a, b, c, d in quads for t in ([a, b, c], [a, c, d])]
+        tris = np.array([t for a, b, c, d in quads for t in ([a, b, c], [a, c, d])])
+        centre = corners.mean(axis=0)
+        a, b, c = (corners[tris[:, k]] - centre for k in range(3))
+        if np.einsum("ij,ij->i", a, np.cross(b, c)).sum() < 0:  # corners given left-handed: turn the faces out
+            tris = tris[:, ::-1]
         self.flat(part, material, corners, tris)
 
     def beam(self, part: str, material: Material, start, end, width: float, depth: float, up=(0.0, 1.0, 0.0)) -> None:
