@@ -1129,6 +1129,92 @@ def run(out: Path, dry: bool, jobs: int, budget: float, only: set | None, log=pr
     return 0
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# The report
+
+def _key(stratum: dict) -> str:
+    return " · ".join(str(v) for v in stratum.values())
+
+
+def report(out: Path) -> Path:
+    """coverage.md: the strata, what covers them, the gaps by size, the list and its state, coverage before and
+    after. Made from strata.json, list.json and prepared/prepared.json; no model call."""
+    data = json.loads((out / "strata.json").read_text())
+    listing = json.loads((out / "list.json").read_text()) if (out / "list.json").exists() else None
+    state = json.loads((out / "prepared/prepared.json").read_text()) if (out / "prepared/prepared.json").exists() else {}
+    s = data["summary"]
+    b, st = s["buildings"], s["streets"]
+    lines = [
+        "# Gaps in what is known: strata, coverage and the list of readings", "",
+        f"Made {s['made']} by `python -m turku3d.observe gaps strata|pick|prepare` (no model call). "
+        f"Data: {out}.", "",
+        "## Strata", "",
+        f"- **Buildings** of Turku: {b['city']} in the city's WFS (LoD0 model + register footprints, Kaarina's left "
+        f"out); {b['eligible']} count (sheds, garages and footprints under {MIN_FOOTPRINT_M2:.0f} m2 left to the "
+        f"rules). A stratum is the style the automatic tier infers (`archetypes.infer`), the decade (an undated "
+        f"building takes its neighbours'), the storeys class (1, 2, 3-4, 5-7, 8+) and the area type within 150 m "
+        f"(centre, apartments, houses, work, rural): {b['strata']} strata.",
+        f"- **Streets**: OSM streets in Turku cut into pieces of at most {SEGMENT_M:.0f} m, {st['km']} km. A stratum "
+        f"is the class (main, local, pedestrian), the area type, the age of the buildings along it (-1939, 1940-69, "
+        f"1970-99, 2000-, open), trees (OSM's trees, 3 per 100 m) and the footway profile from the city's street "
+        f"parts (paved, asphalt, gravel, none, unmapped): {st['strata']} strata.", "",
+        "## Coverage before the list", "",
+        "| | strata | buildings or km | share |", "| --- | ---: | ---: | ---: |",
+        f"| buildings: a stored reading in the stratum | {b['read']['strata']} | {b['read']['buildings']} | {b['read']['share']} % |",
+        f"| buildings: known from the data (no reading in the stratum; the automatic tier draws its parent right) | "
+        f"{b['data']['strata']} | {b['data']['buildings']} | {b['data']['share']} % |",
+        f"| buildings: gap | {b['gap']['strata']} | {b['gap']['buildings']} | {b['gap']['share']} % |",
+        f"| streets: a read street view in the stratum | {st['read']['strata']} | {st['read']['km']} km | {st['read']['share']} % |",
+        f"| streets: gap | {st['gap']['strata']} | {st['gap']['km']} km | {st['gap']['share']} % |", "",
+        f"Readings: {b['readings']} stored buildings (full, hand, converted from the old facade programs, light at "
+        f"confidence 0.5 or more), all on city buildings; {st['views_read']} read street views. Known from the data: "
+        f"the parent (style, 20-year era) has 3 readings or more and the automatic tier agrees with them on 0.8 or "
+        f"more of style group, wall family, storeys, ground storey, roof form and balconies (`observe against`).", "",
+        "Parents measured by `against`: " + "; ".join(f"{k} {v['agree']} (n {v['n']}){' known' if v['known'] else ''}"
+                                                    for k, v in s["parents"].items() if v["n"] >= 2) + ".", "",
+        "## Largest gaps", "", "| buildings | stratum (style · decade · storeys · area) | parent agreement |",
+        "| ---: | --- | --- |",
+    ]
+    for r in [r for r in data["buildings"] if r["status"] == "gap"][:30]:
+        parent = r["parent"]
+        agreement = f"{parent['agree']} over {parent['n']} ({parent['era']})" if parent else "no reading"
+        lines.append(f"| {r['buildings']} | {_key(r['stratum'])} | {agreement} |")
+    lines += ["", "| km | street stratum (class · area · age · trees · profile) |", "| ---: | --- |"]
+    for r in [r for r in data["streets"] if r["status"] == "gap"][:20]:
+        lines.append(f"| {r['length_m'] / 1000:.1f} | {_key(r['stratum'])} |")
+    if listing:
+        m = listing["summary"]
+        lines += ["", "## The list", "",
+                  f"{m['readings']} readings: {m['buildings_readings']} full building readings and {m['street_views']} "
+                  f"street views (a light reading: the street type, and at a glance the gap buildings it shows). "
+                  f"Chosen greedily, largest gap first: a building stratum is worth its share of all gap buildings, a "
+                  f"street stratum its share of all gap street length, a street view's glance at a building stratum "
+                  f"{LIGHT_WEIGHT} of a full reading (at most {VIEW_STRATA} strata a view). Notional cost about "
+                  f"{m['notional_usd']} USD.", "",
+                  "| | buildings | streets |", "| --- | ---: | ---: |",
+                  f"| before | {m['coverage_before']['buildings_pct']} % | {m['coverage_before']['streets_pct']} % |",
+                  f"| after the list | {m['coverage_after']['buildings_pct']} % (full readings alone "
+                  f"{m['coverage_after']['buildings_pct_full_readings_only']} %) | {m['coverage_after']['streets_pct']} % |", "",
+                  "| id | kind | value % | stratum | where | photo |", "| --- | --- | ---: | --- | --- | --- |"]
+        for p in listing["picks"]:
+            ready = state.get(p["id"], {})
+            if p["kind"] == "building":
+                chosen = ready.get("chosen") or {}
+                where = f"{p['building']['address'] or p['building']['key']} ({p['building']['district']})"
+                photo = (f"{chosen.get('crops')} crops, {chosen.get('street_area_m2')} m2 seen, overcast {chosen.get('overcast')}"
+                         + (f", alternate {chosen['key']}" if chosen.get("key") and chosen["key"] != p["building"]["key"] else "")
+                         if chosen else ready.get("why") or "not prepared")
+            else:
+                where = f"{p['piece']['name'] or 'unnamed'} ({p['piece']['district']})"
+                photo = (("fresh view " + ready["view"]) if ready.get("fresh") else
+                         f"{ready.get('view')} {ready.get('date')}, overcast {ready.get('overcast')}, shows {len(ready.get('shows', []))} buildings"
+                         if ready.get("ready") else ready.get("why") or "not prepared")
+            lines.append(f"| {p['id']} | {p['kind']} | {p['value_pct']} | {_key(p['stratum'])} | {where} | {photo} |")
+    path = out / "coverage.md"
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
 def main(argv=None) -> int:
     import argparse
 
@@ -1136,7 +1222,7 @@ def main(argv=None) -> int:
 
     ap = argparse.ArgumentParser(prog="python -m turku3d.observe gaps", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("step", choices=["city", "strata", "pick", "prepare", "run"])
+    ap.add_argument("step", choices=["city", "strata", "pick", "prepare", "run", "report"])
     ap.add_argument("--out", type=Path, default=OUT)
     ap.add_argument("--store", type=Path, default=None, help="descriptions root (default the shared store)")
     ap.add_argument("--against", type=Path, default=None,
@@ -1158,6 +1244,9 @@ def main(argv=None) -> int:
         print(json.dumps(strata(a.out, store, against_csv), ensure_ascii=False), flush=True)
     elif a.step == "pick":
         print(json.dumps(pick(a.out, a.max), ensure_ascii=False), flush=True)
+        print(report(a.out), flush=True)
+    elif a.step == "report":
+        print(report(a.out), flush=True)
     elif a.step == "prepare" and a.host:
         return prepare_on(a.host, a.out, a.jobs)
     elif a.step == "prepare":
