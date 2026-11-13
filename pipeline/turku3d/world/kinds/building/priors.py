@@ -7,6 +7,8 @@ statement about buildings of a kind in Turku, never about one building.
 import copy
 import zlib
 
+from .description import expand_storeys
+
 WOODEN = {"wooden_house", "wooden_villa", "outbuilding"}
 OLD_MASONRY = {"stone_apartment", "classicist_apartment", "public", "church"}
 
@@ -391,10 +393,16 @@ def fitted_wall(doc: dict, wall: dict, height: float) -> dict:
     the height. A low wooden house is one tall storey under a knee wall with small attic windows on a high plinth,
     which is what the wooden quarters of Turku are made of.
     """
-    if "storeys" in doc.get("wall_defaults", {}):
-        return wall
-    g = group(doc)
     out = copy.deepcopy(wall)
+    if "storeys" in doc.get("wall_defaults", {}):
+        # Somebody described the building's usual wall: a lower wing keeps as many of its storeys as fit.
+        room = height - out.get("ground_floor_m", out.get("plinth", {}).get("height_m", 0.0))
+        storeys = expand_storeys(out.get("storeys", []))
+        while storeys and sum(s.get("height_m", 3.0) for s in storeys) > room * 1.3:
+            storeys.pop()
+        out["storeys"] = storeys
+        return out
+    g = group(doc)
     plinth = out.get("plinth", {}).get("height_m", 0.0)
     available = height - plinth
     if available < 2.3:

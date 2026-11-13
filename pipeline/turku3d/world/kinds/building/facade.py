@@ -90,14 +90,15 @@ def layout(facade, wall: dict, doc: dict, report: list) -> Layout:
     ground_floor = wall.get("ground_floor_m", wall.get("plinth", {}).get("height_m", 0.0))
     heights = [s.get("height_m", 3.0) for s in storeys]
     available = eaves - datum - ground_floor
-    # A described wall was measured, so only a small misfit is stretched away; an automatic wall always fits.
-    tolerance = 0.12 if "frame" in wall else 0.4
-    if len(heights) > 1 and available > heights[0] + 1.0:
-        total = sum(heights)
-        if abs(total - available) / available < tolerance and total - heights[0] > 0.5:
-            factor = (available - heights[0]) / (total - heights[0])
-            heights = [heights[0]] + [h * factor for h in heights[1:]]
-        elif abs(total - available) > 0.3:
+    # The shell wall's height is measured and a description's storey heights are read from a photo, so the storeys
+    # are scaled together onto the wall: stretched a little, compressed more (a row of windows is worth more than
+    # a storey height). A larger misfit means the wall is not the one that was described, and is reported.
+    total = sum(heights)
+    if heights and available > 2.0 and abs(total - available) > 0.03:
+        misfit = (total - available) / available
+        if -0.2 <= misfit <= 0.3 if "frame" in wall else abs(misfit) < 0.4:
+            heights = [h * available / total for h in heights]
+        elif abs(total - available) > 0.3 and "frame" in wall:
             report.append(
                 f"facade {facade.index}: storeys add up to {total + ground_floor:.1f} m, the shell wall is {eaves - datum:.1f} m"
             )
@@ -376,9 +377,20 @@ def build(
     kept, holes, misfits = [], [], []
     for p in plan.placed:
         shape = affinity.translate(openings.outline(p.spec, p.width, p.height), p.u0, p.v0)
-        if not inside.contains(shape):
-            misfits.append(f"{p.name} at u {p.u0 + p.width / 2:.1f} v {p.v0 - datum:.1f}")
-            continue
+        # What stands on the ground reaches the wall's lower edge, so only its upper part is tested; an opening
+        # read a little past a wall end is moved in rather than lost.
+        floor = p.spec["kind"] in FLOOR_KINDS
+        lift = min(0.3, p.height / 3) if floor else 0.0
+        tested = shape.intersection(rectangle(-1e3, p.v0 + lift, 1e3, 1e3)) if floor else shape
+        if not inside.contains(tested):
+            shift = max(0.15 - p.u0, 0.0) + min(width - 0.15 - (p.u0 + p.width), 0.0)
+            moved = affinity.translate(tested, shift, 0.0)
+            if shift and abs(shift) <= 0.6 * p.width and inside.contains(moved):
+                p.u0 += shift
+                shape = affinity.translate(shape, shift, 0.0)
+            else:
+                misfits.append(f"{p.name} at u {p.u0 + p.width / 2:.1f} v {p.v0 - datum:.1f}")
+                continue
         if blocked is not None and blocked.intersects(shape):
             continue
         if any(shape.intersects(h) for h in holes):
