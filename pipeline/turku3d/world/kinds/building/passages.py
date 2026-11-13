@@ -33,6 +33,7 @@ from . import mesh
 PATHS = ("footway", "path", "cycleway", "pedestrian", "steps", "corridor", "bridleway")
 FOOT_CLEAR_M = 3.0  # soffit over the floor of a footway arcade or passage: the arcades of the stone town
 ROAD_CLEAR_M = 4.2  # a drive-through: a delivery lorry
+SERVICE_WIDTH_M = 3.5  # a service way's gateway through a building when the map gives no lanes or width
 MIN_CLEAR_M = 2.3
 ABOVE_M = 2.5  # at least one storey stays above the soffit, or the building is no roof over a passage
 MIN_INSIDE_M = 1.0  # a way that runs this little inside the footprint passes beside the building, not under it
@@ -45,6 +46,7 @@ MIN_DEPTH_M = 1.0  # a shallower recess behind a facade is left closed
 PIER_W = 0.5  # square pier, on the facade line
 PIER_SPACING_M = 4.0  # the old arcade prior: count = length / 4 + 1
 ARCADE_MIN_M = 5.0  # an open stretch this long with a back wall is an arcade with piers; shorter ones are a niche
+ARCADE_MAX_DEPTH_M = 6.0  # deeper, or a stretch shorter than 1.5 times its depth, is a passage into the building
 LINING_SHADE = 0.75  # little sky reaches the lining walls
 SOFFIT = {"family": "plaster", "colour": "#c4c1ba", "finish": "smooth"}
 
@@ -53,10 +55,15 @@ def dimensions(tags: dict) -> tuple[float, float | None, bool]:
     """(width, clear height from the map or None, road) of a way: the old game's conservative defaults."""
     path = tags.get("highway") in PATHS
     try:
-        lanes = float(tags.get("lanes", 2))
-    except (TypeError, ValueError):
-        lanes = 2.0
-    width = 3.0 if path else max(4.0, lanes * 3.5 + 1.0)
+        lanes = float(tags["lanes"])
+    except (KeyError, TypeError, ValueError):
+        lanes = None
+    if path:
+        width = 3.0
+    elif lanes is None and tags.get("highway") == "service":
+        width = SERVICE_WIDTH_M  # a gateway into a yard is one lane, not the old tunnel box of two
+    else:
+        width = max(4.0, (lanes or 2.0) * 3.5 + 1.0)
     try:
         width = float(np.clip(float(str(tags.get("width", width)).removesuffix(" m")), 1.5, 30.0))
     except ValueError:
@@ -270,9 +277,11 @@ def cuts(shell, passages: list[Passage]) -> dict:
                     through += outline.distance(end) < 0.3
                 if not lengths:
                     continue
-                depth = None if through > len(lengths) / 2 else float(min(np.median(lengths), 15.0))
+                depth = None if through > len(lengths) / 2 else float(np.median(lengths))
                 if depth is not None and depth < MIN_DEPTH_M:
                     continue  # a register edge a little inside the wall, not a recess anybody walks into
+                if depth is not None and (depth > ARCADE_MAX_DEPTH_M or b - a < 1.5 * depth):
+                    depth = None  # a passage that ends inside the building: open mouth, the lining closes its end
                 ends = []
                 for u in (a - 0.3, b + 0.3):
                     probe = facade.point(np.clip(u, -0.3, facade.width + 0.3), 0.0, -min(depth or 1.0, 1.0) / 2)[:2]
