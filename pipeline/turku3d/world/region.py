@@ -382,3 +382,86 @@ def border_views(store: Store, name: str, per_border: int = 2, back: float = 30.
             "weather": "clear", "viewport": [960, 720], "renderScale": 1,
             "note": f"Region {name}: streets crossing the borders between its built units, seen from {back:g} m before the border "
                     "(pipeline/turku3d/world/region.py border_views).", "views": views}
+
+
+# ------------------------------------------------------------------------------------------- the 64-core proof
+
+def unit_profiles(store: Store, name: str, jobs: int, slots: int) -> list[dict]:
+    """Each built unit as its stages: CPU seconds (from the per-unit samples of `build_units`, or wall seconds where
+    no sample exists), the most cores the stage can use (compile: `jobs`, lidar: `slots` workers of ~4 threads,
+    everything else one process) and its peak memory. Wall time between stages is a serial stage `rest`."""
+    from datetime import datetime
+
+    work = Path(os.environ.get("TURKU3D_WORK", store.root.parent)) / "region" / name
+    samples = [json.loads(line) for line in (work / "cpu.jsonl").read_text().splitlines()] if (work / "cpu.jsonl").exists() else []
+    ends = {}
+    if (work / "units.jsonl").exists():
+        for line in (work / "units.jsonl").read_text().splitlines():
+            row = json.loads(line)
+            if row["exit"] == 0:
+                ends[row["unit"]] = row
+    profiles = []
+    for uid in all_units(read_plan(store, name) or {"rings": []}):
+        manifest = store.location(f"{name}/{uid}")
+        if manifest is None or "stages" not in manifest.get("timings", {}):
+            continue
+        run = ends.get(uid)
+        stop = datetime.fromisoformat(run["at"].replace("Z", "+00:00")).timestamp() if run else None
+        begin = stop - run["wall"] if run else None
+        stages, at = [], begin
+        for stage, value in manifest["timings"]["stages"].items():
+            seconds = float(value["s"])
+            cpu = None
+            if at is not None:
+                inside = [s["units"].get(uid, {}).get("cores", 0.0) for s in samples if "units" in s and at < s["t"] <= at + seconds]
+                cpu = sum(inside) * 5.0 if inside else None
+            width = jobs if stage == "compile" else 4 * slots if stage == "lidar" else 1
+            stages.append({"stage": stage, "wall": seconds, "cpu": cpu if cpu is not None else min(seconds, seconds * width),
+                           "width": width, "mb": value.get("peakMb", 0)})
+            if at is not None:
+                at += seconds
+        rest = manifest["timings"]["totalMs"] / 1000 - sum(s["wall"] for s in stages)
+        if rest > 1:
+            stages.append({"stage": "rest", "wall": rest, "cpu": rest, "width": 1, "mb": manifest["timings"].get("peakMb", 0)})
+        profiles.append({"unit": uid, "stages": stages, "peakMb": manifest["timings"].get("peakMb", 0),
+                         "cpu": run["cpu"] if run else sum(s["cpu"] for s in stages), "wall": run["wall"] if run else None})
+    return profiles
+
+
+def simulate(profiles: list[dict], cores: int, memory_gb: float, speed: float, hours: float = 1.0, step: float = 1.0) -> dict:
+    """Packs copies of the measured units onto a machine for `hours`: a unit starts when the memory of the running
+    units' peaks leaves room for its peak; at every step the cores are shared out (each stage takes at most its
+    width, the rest goes to others); a stage's CPU seconds shrink by `speed` (target core against the measuring
+    host's). Returns the utilisation over time and the units finished."""
+    budget = memory_gb * 1024 * 0.85
+    queue = [p for _ in range(1000) for p in profiles]
+    running, done, trace, t = [], 0, [], 0.0
+    horizon = hours * 3600
+    while t < horizon:
+        while queue and sum(r["peakMb"] for r in running) + queue[0]["peakMb"] <= budget:
+            p = queue.pop(0)
+            running.append({"peakMb": p["peakMb"], "stages": [dict(s, left=s["cpu"] / speed) for s in p["stages"]]})
+        wants = [min(r["stages"][0]["width"], r["stages"][0]["left"] / step) for r in running]
+        free, give = float(cores), [0.0] * len(running)
+        # Water filling: everyone gets an equal share up to what its stage can use.
+        while free > 1e-9:
+            hungry = [k for k, w in enumerate(wants) if give[k] < w - 1e-9]
+            if not hungry:
+                break
+            share = free / len(hungry)
+            for k in hungry:
+                extra = min(share, wants[k] - give[k])
+                give[k] += extra
+                free -= extra
+        trace.append(round(sum(give) / cores, 4))
+        for r, g in zip(running, give):
+            r["stages"][0]["left"] -= g * step
+            while r["stages"] and r["stages"][0]["left"] <= 1e-9:
+                r["stages"].pop(0)
+        finished = [r for r in running if not r["stages"]]
+        done += len(finished)
+        running = [r for r in running if r["stages"]]
+        t += step
+    minutes = [round(sum(trace[i:i + 60]) / len(trace[i:i + 60]), 3) for i in range(0, len(trace), 60)]
+    return {"cores": cores, "memoryGb": memory_gb, "speed": speed, "utilisation": round(sum(trace) / len(trace), 4),
+            "byMinute": minutes, "unitsDone": done, "km2": done * (UNIT / 1000) ** 2, "concurrent": len(running)}

@@ -186,7 +186,7 @@ def main() -> None:
     describe.add_argument("id")
     commands.add_parser("gc", help="delete objects that no location manifest of this store references")
     region = commands.add_parser("region", help="one continuous world in 500 m units (docs/design/world-regions.md)")
-    region.add_argument("action", choices=("plan", "build", "unit", "assemble", "views"),
+    region.add_argument("action", choices=("plan", "build", "unit", "assemble", "views", "proof"),
                         help="plan: add a ring to the plan and list its units; build: plan, build the units not built yet "
                              "(or --rebuild), assemble; unit: build one unit (what build runs per process); assemble: "
                              "write the region index and chunk objects from the built units; views: a capture view "
@@ -202,6 +202,11 @@ def main() -> None:
     region.add_argument("--parallel", type=int, default=3, help="units built at once (each its own process)")
     region.add_argument("--margin", type=float, default=62.5, help="metres discovered around a unit's square")
     region.add_argument("--out", help="views: the view set file to write")
+    region.add_argument("--cores", type=int, default=64, help="proof: cores of the machine simulated")
+    region.add_argument("--memory-gb", type=float, default=192, help="proof: its memory")
+    region.add_argument("--speed", type=float, default=1.0, help="proof: one of its cores against one of the measuring host's")
+    region.add_argument("--jobs", type=int, default=8, help="proof: compile processes per unit")
+    region.add_argument("--slots", type=int, default=2, help="proof: lidar worker slots per unit")
     args = parser.parse_args()
     store = Store()
     if args.command == "build":
@@ -233,6 +238,14 @@ def main() -> None:
             return
         if args.action == "assemble":
             regions.assemble(store, args.name)
+            return
+        if args.action == "proof":
+            profiles = regions.unit_profiles(store, args.name, args.jobs, args.slots)
+            for p in profiles:
+                print(f"{p['unit']}: cpu {p['cpu']:.0f} s, wall {p['wall']} s, peak {p['peakMb']} MB: "
+                      + ", ".join(f"{s['stage']} {s['cpu']:.0f}/{s['wall']:.0f}" for s in p["stages"] if s["wall"] >= 5))
+            result = regions.simulate(profiles, args.cores, args.memory_gb, args.speed)
+            print(json.dumps(result))
             return
         if args.action == "views":
             views = regions.border_views(store, args.name)
