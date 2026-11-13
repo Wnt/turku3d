@@ -35,6 +35,7 @@ class Pano:
     position: np.ndarray  # camera (E, N, H)
     heading: float  # grid bearing of the equirect's centre column
     height_source: str
+    width: int = 0  # pixels of the equirect as it will be fetched (0: the default zooms)
 
     @property
     def id(self) -> str:
@@ -63,10 +64,13 @@ class Panoramas:
         with Panoramas._guard:
             return Panoramas._locks.setdefault((pano.source, pano.id), threading.RLock())
 
-    def __init__(self, cache_dir: Path | None = None):
+    def __init__(self, cache_dir: Path | None = None, google_zoom: int = GOOGLE_ZOOM):
+        """`google_zoom`: 4 for reading a facade (23 px a degree), 3 where colour is all that is asked (a quarter
+        of the bytes)."""
         from turkutex.streetview.panos import PanoCache
 
         self.cache = PanoCache()
+        self.google_zoom = google_zoom
         self.own = Path(cache_dir) if cache_dir else config.work_root() / "observe/panoramas"
         self.own.mkdir(parents=True, exist_ok=True)
         self._tiles: dict = {}
@@ -147,7 +151,8 @@ class Panoramas:
                 h, why = base_h + camera_height(m.source, m.date), "wall base + assumed camera height"
             else:
                 h, why = m.elevation, "provider elevation"
-        return Pano(m, np.array([m.E, m.N, float(h)]), float(heading), why)
+        return Pano(m, np.array([m.E, m.N, float(h)]), float(heading), why,
+                    0 if m.source == "lookaround" or self.google_zoom == GOOGLE_ZOOM else 8192 >> (GOOGLE_ZOOM - self.google_zoom))
 
     def layers(self, spot: dict, base_h: float | None = None) -> list[Pano]:
         """Every time layer at a spot, each with its own pose: a Street View spot has one per visit of the camera
@@ -180,7 +185,7 @@ class Panoramas:
             if pano.source == "lookaround":
                 path = self.cache.lookaround_equirect(pano.meta, zoom=LOOKAROUND_ZOOM)
             else:
-                path = self.cache.google_image(pano.id, zoom=GOOGLE_ZOOM)
+                path = self.cache.google_image(pano.id, zoom=self.google_zoom)
         self.timings["fetch_s"] += time.time() - started
         return Path(path)
 

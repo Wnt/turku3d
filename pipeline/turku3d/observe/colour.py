@@ -51,6 +51,25 @@ def to_lab(rgb: np.ndarray) -> np.ndarray:
     return np.stack([116 * f[..., 1] - 16, 500 * (f[..., 0] - f[..., 1]), 200 * (f[..., 1] - f[..., 2])], -1)
 
 
+_XYZ = np.array([[0.4124, 0.2126, 0.0193], [0.3576, 0.7152, 0.1192], [0.1805, 0.0722, 0.9505]])
+_RGB = np.array([[3.2406, -0.9689, 0.0557], [-1.5372, 1.8758, -0.2040], [-0.4986, 0.0415, 1.0570]])
+_WHITE = np.array([0.95047, 1.0, 1.08883])
+
+
+def to_linear(colour: np.ndarray) -> np.ndarray:
+    """Linear sRGB (not clipped) of one CIELAB colour."""
+    fy = (colour[0] + 16) / 116
+    f = np.array([fy + colour[1] / 500, fy, fy - colour[2] / 200])
+    return (np.where(f > 0.206897, f ** 3, (f - 16 / 116) / 7.787) * _WHITE) @ _RGB
+
+
+def from_linear(rgb: np.ndarray) -> np.ndarray:
+    """CIELAB of one linear sRGB colour."""
+    f = (np.asarray(rgb, float) @ _XYZ) / _WHITE
+    f = np.where(f > 0.008856, np.cbrt(f), 7.787 * f + 16 / 116)
+    return np.array([116 * f[1] - 16, 500 * (f[0] - f[1]), 200 * (f[1] - f[2])])
+
+
 def to_hex(colour: np.ndarray) -> str:
     """sRGB hex of one CIELAB colour."""
     fy = (colour[0] + 16) / 116

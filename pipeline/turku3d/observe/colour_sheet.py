@@ -39,7 +39,7 @@ CONTEXT_W = 320
 CROP_W = 330
 SWATCH_W = 330
 CROPS = 3
-INK, PAPER, RULE = (20, 20, 20), (250, 250, 248), (200, 200, 200)
+INK, PAPER, RULE, FAINT = (20, 20, 20), (250, 250, 248), (200, 200, 200), (140, 140, 140)
 
 
 def _fit(image: Image.Image, width: int, height: int) -> Image.Image:
@@ -148,12 +148,14 @@ def part_map(picture, row: dict):
 
 
 def sketch(parts: dict) -> Image.Image:
-    """A flat-shaded house front in the measured colours (pixel colours): plinth, cladding zones, corner boards,
-    two windows with frames, a door, the roof."""
+    """A flat-shaded house front in the measured paint colours: plinth, cladding zones, corner boards, two windows
+    with frames, a door, the roof. Only the wall, the roof seen from the street and the parts confident enough to
+    be stored (0.4) are drawn; the rest stays a neutral grey."""
     w, h = SKETCH
     image = Image.new("RGB", (w, h), (225, 230, 235))
     draw = _draw(image)
-    get = lambda name, default=None: parts[name]["pixel"] if name in parts else default  # noqa: E731
+    parts = {name: part for name, part in parts.items() if name in ("wall", "roof") or part["conf"] >= 0.4}
+    get = lambda name, default=None: parts[name].get("colour", parts[name]["pixel"]) if name in parts else default  # noqa: E731
     wall = get("wall", "#888888")
     left, right, eaves, foot = 22, w - 22, 58, h - 14
     plinth_h = 14 if "plinth" in parts else 0
@@ -181,12 +183,8 @@ def sketch(parts: dict) -> Image.Image:
     return image
 
 
-def parts_row(packet: Path, tag: str, overcast: dict | None = None) -> tuple[Image.Image, dict] | None:
-    from . import colour_parts
-
-    result = colour_parts.of_packet(packet, tag, overcast, keep_maps=True)
-    if result is None:
-        return None
+def parts_row(packet: Path, result: dict) -> tuple[Image.Image, dict]:
+    """One building's row from its measured and calibrated result (candidates with their maps)."""
     width = CONTEXT_W + 2 * 400 + 560
     sheet = Image.new("RGB", (width, PART_ROW_H), PAPER)
     draw = _draw(sheet)
@@ -210,14 +208,15 @@ def parts_row(packet: Path, tag: str, overcast: dict | None = None) -> tuple[Ima
                   f"{best['oblique_deg']:.0f}°, wall free {best['visible']:.0%} ({front})", fill=INK)
         for k, (name, part) in enumerate(result["parts"].items()):
             px, py = x + (k % 4) * 92, 22 + (k // 4) * 84
-            draw.rectangle([px, py, px + 58, py + 44], fill=part["pixel"], outline=INK)
-            draw.rectangle([px + 60, py, px + 82, py + 44], fill=part["colour"], outline=INK)
+            stored = part["conf"] >= 0.4 and name != "roof"
+            draw.rectangle([px, py, px + 30, py + 44], fill=part["pixel"], outline=INK)
+            draw.rectangle([px + 32, py, px + 82, py + 44], fill=part["colour"], outline=INK)
             extra = part.get("zone") or (f"{part['height_m']} m" if "height_m" in part else "")
-            draw.text((px, py + 46), f"{name} {extra}", fill=INK)
-            draw.text((px, py + 58), f"{part['pixel']} c{part['conf']}", fill=INK)
+            draw.text((px, py + 46), f"{name} {extra}" if stored else f"({name} {extra})".replace(" )", ")"), fill=INK if stored else FAINT)
+            draw.text((px, py + 58), f"{part['colour']} c{part['conf']}", fill=INK if stored else FAINT)
         if "wall" in result["parts"]:
             sheet.paste(sketch(result["parts"]), (x + 368, 22))
-            draw.text((x + 368, 22 + SKETCH[1] + 2), "sketch in the measured colours", fill=INK)
+            draw.text((x + 368, 22 + SKETCH[1] + 2), "sketch in the paint colours", fill=INK)
         else:
             draw.text((x, 60), "nothing measured: no panorama shows enough of a wall", fill=INK)
         for k, r in enumerate(rows[:6]):
@@ -237,19 +236,24 @@ def parts_row(packet: Path, tag: str, overcast: dict | None = None) -> tuple[Ima
 
 def parts_sheet(packets: list[Path], out: Path, title: str = "", tag: str = "m2f", overcast: dict | None = None) -> dict:
     """The sheet and, beside it, `<out>.jsonl`: one line a building with its candidates and combined parts."""
-    done = [r for r in (parts_row(p, tag, overcast) for p in packets) if r is not None]
-    if not done:
+    from . import colour_parts
+
+    found = [(p, r) for p, r in ((p, colour_parts.of_packet(p, tag, overcast, keep_maps=True)) for p in packets) if r is not None]
+    if not found:
         return {"rows": 0}
+    whites = colour_parts.calibrate([r for _, r in found])
+    done = [parts_row(p, r) for p, r in found]
     head = 40
     page = Image.new("RGB", (done[0][0].width, head + PART_ROW_H * len(done)), PAPER)
     draw = _draw(page)
     draw.text((6, 4), title, fill=INK)
     draw.text((6, 20), "house | chosen wall crop | parts painted in their measured colours (green-grey: in front of the wall) | "
-              "swatches: pixel colour, narrow: calibrated paint colour; c = confidence | candidate panoramas, best first", fill=INK)
+              "swatches: narrow the pixel colour, wide the paint colour (pixels brought to the visit's white point); c = confidence, "
+              "(in brackets): not stored | candidate panoramas, best first", fill=INK)
     for k, (image, _) in enumerate(done):
         page.paste(image, (0, head + k * PART_ROW_H))
     out.parent.mkdir(parents=True, exist_ok=True)
     page.save(out, quality=85)
     out.with_suffix(".jsonl").write_text("".join(json.dumps(result, ensure_ascii=False) + "\n" for _, result in done))
-    return {"rows": len(done), "sheet": str(out), "size": list(page.size),
+    return {"rows": len(done), "sheet": str(out), "size": list(page.size), "white_points": whites,
             "with_wall": sum("wall" in r["parts"] for _, r in done)}

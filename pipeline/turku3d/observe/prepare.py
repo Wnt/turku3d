@@ -53,7 +53,8 @@ def other_views(scene: Scene, building: Building, panos: Panoramas, out: Path, r
 
 def prepare(scene: Scene, building: Building, panos: Panoramas, out: Path, *, per_wall: int = views.VIEWS_PER_WALL,
             only: set | None = None, avoid: dict | None = None, numbering: dict | None = None,
-            context_from: int = 0, layers: bool = False, limit: int = views.CROPS_PER_BUILDING) -> dict:
+            context_from: int = 0, layers: bool = False, limit: int = views.CROPS_PER_BUILDING,
+            per_visit: int = 1, light=None, contexts: bool = True) -> dict:
     """Write the crops of one building under `out` and return the record the reader works from.
 
     `only`, `avoid`: a second preparation for some walls, away from the views that did not show them
@@ -61,7 +62,7 @@ def prepare(scene: Scene, building: Building, panos: Panoramas, out: Path, *, pe
     started = time.time()
     before = dict(panos.timings)
     found = views.building_views(scene, building, panos, per_wall=per_wall, only=only, avoid=avoid, layers=layers,
-                                 limit=limit)
+                                 limit=limit, per_visit=per_visit, light=light)
     selected = time.time()
     records, unseen = [], list(found["unseen"])
     for wall_id, wall_views in found["views"].items():
@@ -80,8 +81,8 @@ def prepare(scene: Scene, building: Building, panos: Panoramas, out: Path, *, pe
             kept += 1
         if not kept:
             unseen.append({"wall": wall_id, "reason": "the panoramas that see it do not show enough of it"})
-    contexts = []
-    for k, pano in enumerate(found["contexts"], context_from):
+    wanted, contexts = contexts, []
+    for k, pano in enumerate(found["contexts"] if wanted else [], context_from):
         try:
             contexts.append(crops.context_view(building, pano, panos, out / f"context-{k + 1}.jpg"))
         except Exception as error:  # noqa: BLE001

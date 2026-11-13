@@ -66,7 +66,7 @@ def recency(date: str) -> float:
 
 
 def panorama_width(pano: Pano) -> int:
-    return 6416 if pano.source == "lookaround" else 8192  # Look Around zoom 2, Street View zoom 4
+    return pano.width or (6416 if pano.source == "lookaround" else 8192)  # Look Around zoom 2, Street View zoom 4
 
 
 def measure(scene: Scene, building: Building, wall: Wall, pano: Pano) -> WallView | None:
@@ -200,26 +200,50 @@ def same_path(provider: str, date, distance: float, blocked: list) -> bool:
                and abs(distance - b["distance_m"]) <= SAME_PATH_M for b in blocked)
 
 
-def by_date(candidates: list[WallView], count: int) -> list[WallView]:
-    """The best view of each visit (provider and month), best visits first: independent photographs of one wall
-    in different light, for choosing by weather and for measuring how far colours scatter between them."""
-    best: dict = {}
+def by_date(candidates: list[WallView], count: int, per_visit: int = 1) -> list[WallView]:
+    """The best views of each visit (provider and month), best visits first: independent photographs of one wall
+    in different light, for choosing by weather and for measuring how far colours scatter between them.
+    `per_visit` views from different panoramas of each of the `count` best visits."""
+    visits: dict = {}
     for v in candidates:
-        key = (v.pano.source, v.pano.date[:7])
         score = v.quality / recency(v.pano.date) * v.seen_fraction  # age is no fault here
-        if key not in best or score > best[key][0]:
-            best[key] = (score, v)
-    return [v for _, v in sorted(best.values(), key=lambda b: -b[0])[:count]]
+        visits.setdefault((v.pano.source, v.pano.date[:7]), []).append((score, v))
+    ranked = sorted((sorted(found, key=lambda b: -b[0])[:per_visit] for found in visits.values()), key=lambda f: -f[0][0])
+    return [v for found in ranked[:count] for _, v in found]
+
+
+GOOD_LIGHT = 0.7  # a newest visit at least this overcast is taken as it is: older visits are not looked up
+LAYER_SPOTS = 6  # spots whose older visits are looked up when the newest visit is sunny
+
+
+def by_light(candidates: list[WallView], light, count: int, per_visit: int = 2) -> list[WallView]:
+    """The views to measure colour from: overcast light first (`light(pano)` is 0..1 or None, one figure a visit),
+    then how much of the wall a view sees and how good it is (frontal, near, sharp, recent). At most `per_visit`
+    from one visit, so that a second visit can confirm the first."""
+    visits: dict = {}
+    for v in candidates:
+        visits.setdefault((v.pano.source, v.pano.date[:7]), []).append(v)
+    scored = []
+    best = max((v.quality * v.seen_fraction for v in candidates), default=0.0)
+    for found in visits.values():
+        found.sort(key=lambda v: -v.quality * v.seen_fraction)
+        if found[0].quality * found[0].seen_fraction < 0.3 * best:
+            continue  # a visit that hardly sees the wall is not worth a look at its sky
+        cloud = light(found[0].pano)
+        scored += [((0.15 + 0.85 * (0.5 if cloud is None else cloud)) * v.quality * v.seen_fraction, v) for v in found[:per_visit]]
+    return [v for _, v in sorted(scored, key=lambda s: -s[0])[:count]]
 
 
 def building_views(scene: Scene, building: Building, panos: Panoramas, *, per_wall: int = VIEWS_PER_WALL,
                    resolve_limit: int = 14, only: set | None = None, avoid: dict | None = None,
-                   layers: bool = False, limit: int = CROPS_PER_BUILDING) -> dict:
+                   layers: bool = False, limit: int = CROPS_PER_BUILDING, per_visit: int = 1, light=None) -> dict:
     """{'views': {wall id: [WallView]}, 'unseen': [{wall, reason}], 'candidates': {wall id: n}} for one building.
 
     `only` limits the walls; `avoid` gives per wall id the views that did not show it, as [{provider, year,
     distance_m}]: no panorama on their paths is taken for that wall again (same_path). `layers`: every time layer
-    of the spots is a candidate and a wall gets its best view of each visit (by_date), up to `per_wall`."""
+    of the spots is a candidate and a wall gets its `per_visit` best views of each visit (by_date), of up to
+    `per_wall` visits. `light` (a function of a panorama): views are chosen for colour (by_light); older visits
+    of the nearest spots are looked up only where the newest visit is not overcast."""
     walls = [w for w in building.walls if only is None or w.id in only]
     far = max((reach(w) for w in walls), default=40.0)
     b = building.footprint.bounds
@@ -260,25 +284,36 @@ def building_views(scene: Scene, building: Building, panos: Panoramas, *, per_wa
         for provider in sorted({key[0] for _, key, _ in rough}):
             take += [r for r in rough[resolve_limit:] if r[1][0] == provider][:PER_PROVIDER]
         found, taken = [], set()
-        for _, key, spot in take:
-            if layers:
-                if key not in layered:
-                    layered[key] = panos.layers(spot, wall.base)
-                here = layered[key]
-            else:
-                if key not in resolved:
-                    resolved[key] = panos.resolve(spot, wall.base)
-                here = [resolved[key]]
-            for pano in here:
-                if pano is None or (pano.source, pano.id) in taken:
-                    continue
-                taken.add((pano.source, pano.id))
-                v = measure(scene, building, wall, pano)
-                if v is not None and not same_path(pano.source, pano.date, v.distance, blocked):
-                    found.append(v)
+
+        def gather(spots_taken, every_visit):
+            for _, key, spot in spots_taken:
+                if every_visit:
+                    if key not in layered:
+                        layered[key] = panos.layers(spot, wall.base)
+                    here = layered[key]
+                else:
+                    if key not in resolved:
+                        resolved[key] = panos.resolve(spot, wall.base)
+                    here = [resolved[key]]
+                for pano in here:
+                    if pano is None or (pano.source, pano.id) in taken:
+                        continue
+                    taken.add((pano.source, pano.id))
+                    v = measure(scene, building, wall, pano)
+                    if v is not None and not same_path(pano.source, pano.date, v.distance, blocked):
+                        found.append(v)
+
+        if light is not None:
+            gather(take, False)
+            picked = by_light(found, light, per_wall)
+            if found and (not picked or (light(picked[0].pano) or 0.0) < GOOD_LIGHT):
+                gather(take[:LAYER_SPOTS], True)
+                picked = by_light(found, light, per_wall)
+        else:
+            gather(take, layers)
+            picked = by_date(found, per_wall, per_visit) if layers else choose(found, per_wall)
         counts[wall.id] = len(found)
         every += found
-        picked = by_date(found, per_wall) if layers else choose(found, per_wall)
         if picked:
             views[wall.id] = picked
         else:

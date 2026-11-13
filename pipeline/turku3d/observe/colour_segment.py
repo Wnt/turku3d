@@ -4,7 +4,7 @@ Standalone on purpose (torch, transformers, PIL, numpy; nothing of turku3d): it 
 of our machines or a GPU server, beside the pipeline environment that has no torch. Pictures in, label PNGs out.
 
     python colour_segment.py --root WORK/observe/buildings [--model HF_ID] [--tag NAME] [--device mps|cuda|cpu]
-                             [--only KEY...] [--ruler 30] [--max-side 1024]
+                             [--only KEY...] [--ruler 30] [--max-side 1024] [--watch] [--walls-only]
 
 For every `w*.jpg` (rectified wall crop, rulers cut off) and `context-*.jpg` of each packet under --root it writes
 `<name>.<tag>.png`: one byte a pixel, the classes of LABELS below, the size of the picture without rulers. The
@@ -106,6 +106,11 @@ def main(argv=None) -> int:
     ap.add_argument("--ruler", type=int, default=30, help="ruler margin of wall crops (left and bottom), pixels")
     ap.add_argument("--max-side", type=int, default=1024)
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--watch", action="store_true",
+                    help="keep looking for new crops (a batch writes them meanwhile) until <root>/../batch/stop exists "
+                         "or nothing came for --idle-exit seconds")
+    ap.add_argument("--idle-exit", type=float, default=3600.0)
+    ap.add_argument("--walls-only", action="store_true", help="wall crops only, no context pictures")
     a = ap.parse_args(argv)
     import torch
 
@@ -114,18 +119,43 @@ def main(argv=None) -> int:
     segmenter = Segmenter(a.model, device, a.max_side)
     loaded = time.time()
     done, seconds = 0, []
-    for packet in sorted(p for p in a.root.iterdir() if p.is_dir() and (not a.only or p.name in a.only)):
-        for path in sorted(list(packet.glob("w*.jpg")) + list(packet.glob("context-*.jpg"))):
+
+    def pending():
+        for packet in sorted(p for p in a.root.iterdir() if p.is_dir() and (not a.only or p.name in a.only)):
+            pictures = list(packet.glob("w*.jpg")) + ([] if a.walls_only else list(packet.glob("context-*.jpg")))
+            for path in sorted(pictures):
+                if a.force or not path.with_suffix(f".{a.tag}.png").exists():
+                    yield path
+
+    idle_since = time.time()
+    while True:
+        worked = False
+        for path in pending():
             out = path.with_suffix(f".{a.tag}.png")
-            if out.exists() and not a.force:
+            try:
+                image = Image.open(path).convert("RGB")
+            except Exception:  # noqa: BLE001 - a crop still being written, or removed meanwhile: next round
                 continue
-            image = Image.open(path).convert("RGB")
             if path.name.startswith("w") and a.ruler:
                 image = image.crop((a.ruler, 0, image.width, image.height - a.ruler))
             t = time.time()
-            Image.fromarray(segmenter.labels(image)).save(out)
+            temporary = out.with_suffix(".tmp")
+            Image.fromarray(segmenter.labels(image)).save(temporary, format="PNG")
+            try:
+                temporary.replace(out)
+            except FileNotFoundError:  # the packet was cleared meanwhile
+                continue
             seconds.append(time.time() - t)
             done += 1
+            worked = True
+        if not a.watch:
+            break
+        if worked:
+            idle_since = time.time()
+        elif (a.root.parent / "batch/stop").exists() or time.time() - idle_since > a.idle_exit:
+            break
+        else:
+            time.sleep(1.0)
     summary = {"model": a.model, "tag": a.tag, "device": device, "images": done, "load_s": round(loaded - started, 1),
                "median_s": round(float(np.median(seconds)), 2) if seconds else None,
                "total_s": round(time.time() - started, 1), "labels": list(LABELS)}

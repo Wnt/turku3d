@@ -31,6 +31,11 @@ MIN_WALL_M2 = 1.5  # a strip of boards over a hedge is enough for a colour
 ENOUGH_FREE = 0.3  # beyond this share of free wall a crop gains nothing for colour
 NEAR_BEST = 0.45  # crops scoring under this share of the best one do not vote (a sunny view beside an overcast one)
 PLINTH_MAX_M = 1.6
+PLINTH_MIN_M = 0.25  # a lower band than this is a kerb, a shadow line or a car's roof
+DOOR_TOP_M = 2.6  # a colour that keeps below this while the wall above is another is a garage or shop door
+STORED = ("wall", "wall2", "trim", "frame", "plinth", "door")  # the roof is not: see `combine`
+REPEATS_DE = 8.0  # a part other than the wall counts when two panoramas give it within this distance
+WHITE_L = 93.0  # CIELAB lightness of white paint under cloud, the reference a visit's white point is brought to
 SHADE_AB = 6.0  # a second colour nearer than this in a*, b* and not lighter is the same paint in shade
 TAG = "m2f"
 
@@ -56,6 +61,31 @@ def mode(pixels: np.ndarray, radius: float = CLUSTER_DE) -> tuple[np.ndarray, np
     return centre, near
 
 
+def wall_mode(pixels: np.ndarray, z: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
+    """The cladding's colour among the wall's pixels (CIELAB rows, their heights in metres above the foot).
+
+    The densest colour is not always the wall's: planks in overcast light spread their paint over a wider cluster
+    than a smooth grey (a red shed's boards lose to its grey roof edge), and a garage or shop door is one smooth
+    colour at the foot of the wall. So: of the two most common colours the one with more pixels, and a colour that
+    keeps under door height (DOOR_TOP_M) while the wall above it is another colour is the door, not the wall."""
+    first = mode(pixels)
+    if first is None:
+        return None
+    centre, near = first
+    second = mode(pixels[~near]) if (~near).sum() >= MIN_PART_PX else None
+    shade = second is not None and np.linalg.norm(second[0][1:] - centre[1:]) < SHADE_AB and second[0][0] < centre[0]
+    if second is not None and not shade and np.linalg.norm(second[0] - centre) >= 10.0 and second[1].sum() > near.sum():
+        centre = second[0]
+        near = np.linalg.norm(pixels - centre, axis=1) <= CLUSTER_DE
+    high = z > DOOR_TOP_M + 0.2
+    if np.quantile(z[near], 0.9) <= DOOR_TOP_M and high.sum() >= max(MIN_PART_PX, 0.15 * len(pixels)):
+        upper = mode(pixels[high])
+        if upper is not None and np.linalg.norm(upper[0] - centre) >= 10.0:
+            centre = upper[0]
+            near = np.linalg.norm(pixels - centre, axis=1) <= CLUSTER_DE
+    return centre, near
+
+
 def _box(mask: np.ndarray, px: int, axis: int) -> np.ndarray:
     """Whether any pixel within `px` along one axis is set (running sums: the cost does not grow with px)."""
     pad = [(0, 0), (0, 0)]
@@ -76,6 +106,18 @@ def _part(lab_pixels: np.ndarray, near: np.ndarray, centre: np.ndarray, of: int)
             "share": round(float(near.sum() / max(1, of)), 2),
             "spread": round(float(np.linalg.norm(members - centre, axis=1).mean()), 1),
             "light_range": round(float(np.quantile(members[:, 0], 0.9) - np.quantile(members[:, 0], 0.1)), 1)}
+
+
+def white_of(pixels: np.ndarray) -> list | None:
+    """The lightest paint of a house in a crop (CIELAB rows of its `building` pixels): the median of the pixels at
+    or above the 97th percentile of lightness that are not burnt out. On most houses that is white trim, so over
+    the crops of one visit of a camera car it tells the exposure and the colour of the light (`visit_white`)."""
+    if len(pixels) < 4 * MIN_PART_PX:
+        return None
+    top = pixels[(pixels[:, 0] >= np.quantile(pixels[:, 0], 0.97)) & (pixels[:, 0] < 99.0)]
+    if len(top) < MIN_PART_PX / 5:
+        return None
+    return [round(float(v), 1) for v in np.median(top, axis=0)]
 
 
 def eaves_in_picture(lab: np.ndarray, plain: np.ndarray, inside: np.ndarray, z: np.ndarray, eaves: float,
@@ -126,11 +168,12 @@ def of_crop(picture: np.ndarray, labels: np.ndarray, crop: dict, wall: dict) -> 
             edge = np.full(w, eaves)
     on_wall = inside[None, :] & (Z >= 0.0) & (Z <= edge[None, :] - 0.15)
     out = {"visible": 0.0, "in_front": {}, "parts": {}, "gable": bool(gable), "map": np.zeros((h, w), np.uint8),
-           "eaves_m": round(float(eaves), 2)}
+           "eaves_m": round(float(eaves), 2), "white": None}
     area = int(on_wall.sum())
     if area < 4 * MIN_PART_PX:
         return out
     house = np.isin(labels, HOUSE)
+    out["white"] = white_of(lab[labels == L["building"]])
     out["visible"] = round(float(house[on_wall].mean()), 2)
     out["in_front"] = {name: round(float((labels[on_wall] == L[name]).mean()), 2) for name in IN_FRONT
                        if (labels[on_wall] == L[name]).mean() >= 0.01}
@@ -164,7 +207,7 @@ def of_crop(picture: np.ndarray, labels: np.ndarray, crop: dict, wall: dict) -> 
         rows = np.flatnonzero(foot.any(1))
         share = np.array([is_plinth[r][foot[r]].mean() for r in rows])
         tall = z[rows][share >= 0.5]
-        if len(tall):
+        if len(tall) and tall.max() + 0.5 / ppm >= PLINTH_MIN_M:
             plinth_top = float(min(PLINTH_MAX_M, tall.max() + 0.5 / ppm))
             band = cladding & (Z < plinth_top)
             found = mode(lab[band])
@@ -172,7 +215,7 @@ def of_crop(picture: np.ndarray, labels: np.ndarray, crop: dict, wall: dict) -> 
                 record("plinth", band, found[1], found[0], height_m=round(plinth_top, 2))
     body = cladding & (Z >= plinth_top + 0.08)
     pixels = lab[body]
-    first = mode(pixels)
+    first = wall_mode(pixels, Z[body])
     if first is None:
         return out
     centre, near = first
@@ -227,9 +270,20 @@ def score(crop: dict, parts: dict, overcast: float | None) -> float:
     return round((0.15 + 0.85 * (0.5 if overcast is None else overcast)) * free * crop["quality"], 3)
 
 
+def light_of(row: dict) -> float:
+    return 0.5 if row.get("overcast") is None else row["overcast"]
+
+
 def combine(rows: list[dict], best: int = 3) -> dict:
     """One colour a part from the best crops: the weighted median in CIELAB over the `best` highest-scoring crops
-    that hold the part; `agreement` is the weighted mean distance of those crops from it."""
+    that hold the part; `agreement` is the weighted mean distance of those crops from it.
+
+    The wall is trusted on its own. Every other part is small or easily hidden, and what makes one wrong (leaf
+    shade read as trim, a hedge's foot as a plinth, a neighbour's wall as a roof) differs from panorama to
+    panorama: such a part is confident only when two different panoramas give it within REPEATS_DE. A part in the
+    wall's own colour is no part. The roof from the street is kept for the eye (sheets) and never confident: the
+    slope is seen at a grazing angle and mirrors the sky, a gable side shows none of it, and between panoramas
+    of one wall under cloud it scatters by dE 14 to 23; the orthophoto sees every roof from above."""
     out = {}
     for name in PARTS:
         held = sorted((r for r in rows if name in r["parts"]), key=lambda r: -r["score"])[:best]
@@ -240,24 +294,97 @@ def combine(rows: list[dict], best: int = 3) -> dict:
         weights = np.array([r["score"] * r["parts"][name]["px"] ** 0.5 for r in held]) + 1e-6
         centre = np.array([labs[o, k][min(len(held) - 1, np.searchsorted(np.cumsum(weights[o]), weights.sum() / 2))]
                            for k, o in ((k, np.argsort(labs[:, k])) for k in range(3))])
+        if name != "wall" and "wall" in out and np.linalg.norm(centre - np.array(out["wall"]["lab"])) < (10.0 if name == "wall2" else 8.0) \
+                and name not in ("roof", "door"):
+            continue
         distance = np.linalg.norm(labs - centre, axis=1)
         agreement = float((distance * weights).sum() / weights.sum())
         top = held[0]
+        panoramas = {r["panorama"]["id"] for r in held}
         visible = float(np.mean([r["visible"] for r in held]))
-        conf = 0.3 + 0.35 * min(visible, 0.8) / 0.8 + (0.2 if len(held) > 1 and agreement < 6 else 0.0) \
+        conf = 0.3 + 0.35 * min(visible, 0.8) / 0.8 + (0.2 if len(panoramas) > 1 and agreement < 6 else 0.0) \
             - (0.2 if agreement > 12 else 0.0) + 0.1 * min(1.0, top["parts"][name]["px"] / 4000)
+        conf *= 0.5 + 0.5 * light_of(top)  # a colour only the sun shows is half as sure
+        if name == "roof" or (name != "wall" and not (len(panoramas) > 1 and agreement <= REPEATS_DE)):
+            conf = min(conf, 0.3)
+        whites = [r["white"] for r in held if r.get("white")]
         part = {"lab": [round(float(v), 1) for v in centre], "pixel": colour.to_hex(centre),
-                "colour": colour.to_hex(colour.calibrated(centre)),
                 "spread": round(float(np.mean([r["parts"][name]["spread"] for r in held])), 1),
                 "share": round(float(np.mean([r["parts"][name]["share"] for r in held])), 2),
-                "visible": round(visible, 2), "agreement": round(agreement, 1), "n": len(held),
+                "visible": round(visible, 2), "agreement": round(agreement, 1), "n": len(panoramas),
                 "conf": round(float(np.clip(conf, 0.1, 0.95)), 2),
-                "from": {k: top["panorama"][k] for k in ("provider", "id", "date")}}
+                "from": {**{k: top["panorama"][k] for k in ("provider", "id", "date")}, "overcast": top.get("overcast")}}
+        if whites:
+            part["white"] = [round(float(v), 1) for v in np.median(np.array(whites), axis=0)]
         for extra in ("zone", "height_m"):
             if extra in top["parts"][name]:
                 part[extra] = top["parts"][name][extra]
         out[name] = part
     return out
+
+
+def visit_of(panorama: dict) -> str:
+    return f"{panorama['provider']}:{(panorama.get('date') or '')[:7]}"
+
+
+def visit_white(results: list[dict], least: int = 6) -> dict:
+    """{visit: [L, a, b]}: the white point of each visit of a camera car, the median of its crops' whites
+    (`white_of`); `*` is the median over the overcast crops of every visit, for visits with fewer than `least`."""
+    by_visit: dict = {}
+    for result in results:
+        for row in result["candidates"]:
+            if row.get("white"):
+                by_visit.setdefault(visit_of(row["panorama"]), []).append(row["white"])
+                if light_of(row) >= 0.5:
+                    by_visit.setdefault("*", []).append(row["white"])
+    return {visit: [round(float(v), 1) for v in np.median(np.array(found), axis=0)]
+            for visit, found in by_visit.items() if len(found) >= least or visit == "*"}
+
+
+def paint(lab: list, white: list | None, balance: bool = True) -> np.ndarray:
+    """A pixel colour brought to the paint scale by its visit's white point: in linear light each channel is
+    divided by the white's and multiplied by white paint's (exposure and, with `balance`, the colour of the
+    light). Without a white point the pixel colour stands."""
+    if not white:
+        return np.array(lab, float)
+    linear = lambda value: colour.to_linear(np.array(value, float))  # noqa: E731
+    reference = linear([WHITE_L, 0.0, 0.0])
+    seen = linear(white) if balance else linear([white[0], 0.0, 0.0])
+    gain = np.clip(reference / np.maximum(seen, 1e-3), 0.8, 2.6)
+    return colour.from_linear(np.clip(linear(lab) * gain, 0.0, 1.0))
+
+
+def calibrate(results: list[dict], whites: dict | None = None) -> dict:
+    """Adds `colour` (hex on the paint scale) to every combined part of the results, by the white point of the
+    visit its best crop is from. Returns the white points used."""
+    whites = whites if whites is not None else visit_white(results)
+    for result in results:
+        for part in result["parts"].values():
+            white = whites.get(visit_of(part["from"])) or (whites.get("*") if (part["from"].get("overcast") or 0) >= 0.5 else None)
+            part["colour"] = colour.to_hex(paint(part["lab"], white))
+            part["white_point"] = white
+    return whites
+
+
+def measured(result: dict, least: float = 0.0) -> dict:
+    """The `measured` block of a stored description (docs/specs/building-description.md) from a calibrated result:
+    one measuredColour a part of STORED."""
+    block = {}
+    for name in STORED:
+        part = result["parts"].get(name)
+        if not part or "colour" not in part or part["conf"] < least:
+            continue
+        entry = {"colour": part["colour"], "spread": part["spread"], "share": part["share"],
+                 "conf": {"*": part["conf"]}, "visible": part["visible"], "agreement": part["agreement"],
+                 "n": part["n"], "pixel": part["pixel"],
+                 "from": {k: v for k, v in part["from"].items() if v is not None}}
+        for extra in ("zone", "height_m"):
+            if extra in part:
+                entry[extra] = part[extra]
+        block[name] = entry
+    if "wall2" in block and "wall" not in block:
+        del block["wall2"]
+    return block
 
 
 def of_packet(packet: Path, tag: str = TAG, overcast: dict | None = None, keep_maps: bool = False) -> dict | None:
@@ -282,6 +409,7 @@ def of_packet(packet: Path, tag: str = TAG, overcast: dict | None = None, keep_m
         cloud = (overcast or {}).get(f"{pano['provider']}:{pano['id']}")
         row = {"file": path.name, "wall": crop["wall"], "panorama": pano, "distance_m": crop["distance_m"],
                "oblique_deg": crop["oblique_deg"], "quality": crop["quality"], "overcast": cloud,
+               "white": measured.get("white"),
                "visible": measured["visible"], "free_m2": measured.get("free_m2", 0.0),
                "in_front": measured["in_front"], "gable": measured["gable"],
                "parts": measured["parts"], "score": score(crop, measured, cloud)}
@@ -304,9 +432,12 @@ def scatter(results: list[dict], part: str = "wall", free: float = 0.5, cloudy: 
     """How far a part's colour scatters between independent panoramas of one wall, under cloud and in sun.
 
     `results`: measured_packets. Every pair of different panoramas that both show a wall at least `free` is one
-    distance (CIELAB, pixel colours): both overcast (>= `cloudy`), both sunny (<= `sunny`), or one of each. Also
-    per axis what sun does to a colour: sunny minus the wall's overcast median."""
-    pairs = {"overcast": [], "sunny": [], "mixed": []}
+    distance (CIELAB, pixel colours): both overcast (>= `cloudy`), both sunny (<= `sunny`), or one of each. Pairs
+    inside one visit of a camera car (same provider and month: the same paint, the same weather, another
+    standpoint) are counted apart as `overcast_same_visit` and `sunny_same_visit`: only they compare like with
+    like, since between visits years pass and houses are repainted. Also per axis what sun does to a colour:
+    sunny minus the wall's overcast median."""
+    pairs = {"overcast": [], "sunny": [], "mixed": [], "overcast_same_visit": [], "sunny_same_visit": []}
     shift, walls = [], 0
     for result in results:
         by_wall: dict = {}
@@ -324,6 +455,8 @@ def scatter(results: list[dict], part: str = "wall", free: float = 0.5, cloudy: 
                         continue
                     distance = float(np.linalg.norm(np.array(a["parts"][part]["lab"]) - np.array(b["parts"][part]["lab"])))
                     pairs[kind(a) if kind(a) == kind(b) else "mixed"].append(distance)
+                    if visit_of(a["panorama"]) == visit_of(b["panorama"]) and kind(a) == kind(b):
+                        pairs[kind(a) + "_same_visit"].append(distance)
             under_cloud = [r["parts"][part]["lab"] for r in rows if kind(r) == "overcast"]
             if under_cloud:
                 reference = np.median(np.array(under_cloud), axis=0)

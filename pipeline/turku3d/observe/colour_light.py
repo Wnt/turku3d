@@ -96,3 +96,65 @@ def of_root(root: Path) -> dict:
         own["run"] = len(near)
     path.write_text(json.dumps(out, indent=0))
     return out
+
+
+LIGHT_GOOGLE_ZOOM = 1  # 1024 x 512: two tiles
+LIGHT_LOOKAROUND_ZOOM = 5
+ENOUGH_NEAR = 3  # measured panoramas of a visit within RUN_M that settle its light without another fetch
+
+
+class Light:
+    """The light of panoramas while views are being chosen, at city scale: a panorama is measured on a small fetch
+    (a few kilobytes), and once ENOUGH_NEAR panoramas of its visit within RUN_M are measured the visit's median
+    answers for the rest. Kept in an append-only file (one line a measured panorama) so a run resumes."""
+
+    def __init__(self, path: Path, cache):
+        import threading
+
+        self.path, self.cache = path, cache
+        self.lock = threading.Lock()
+        self.own: dict = {}
+        self.visits: dict = {}
+        if path.exists():
+            for line in path.read_text().splitlines():
+                row = json.loads(line)
+                self._add(row)
+
+    def _add(self, row: dict):
+        self.own[row["key"]] = row
+        self.visits.setdefault((row["key"].split(":")[0], row["date"]), []).append(row)
+
+    def near(self, provider: str, date: str, position) -> list[float]:
+        return [row["own"] for row in self.visits.get((provider, date), [])
+                if np.hypot(row["position"][0] - position[0], row["position"][1] - position[1]) <= RUN_M]
+
+    def figure(self, panorama: dict) -> float | None:
+        """Overcast 0..1 of a crop's panorama record from what has been measured; None when nothing near was."""
+        near = self.near(panorama["provider"], panorama["date"] or "", panorama["position"])
+        return round(float(np.median(near)), 2) if near else None
+
+    def of(self, pano) -> float | None:
+        """Overcast 0..1 of a panorama's visit there, measuring this panorama when its visit is not settled yet."""
+        key, position = f"{pano.source}:{pano.id}", [round(float(pano.position[0]), 1), round(float(pano.position[1]), 1)]
+        with self.lock:
+            settled = key in self.own or len(self.near(pano.source, pano.date, position)) >= ENOUGH_NEAR
+        if not settled:
+            try:
+                path = (self.cache.lookaround_equirect(pano.meta, zoom=LIGHT_LOOKAROUND_ZOOM) if pano.source == "lookaround"
+                        else self.cache.google_image(pano.id, zoom=LIGHT_GOOGLE_ZOOM))
+                with Image.open(path) as im:
+                    row = {"key": key, **measure(np.asarray(im.convert("RGB"))), "date": pano.date, "position": position}
+            except Exception as error:  # noqa: BLE001 - a panorama that cannot be fetched says nothing
+                print(f"observe: light of {key} failed: {error}", flush=True)
+                row = None
+            if row is not None:
+                with self.lock:
+                    if key not in self.own:
+                        self._add(row)
+                        self.path.parent.mkdir(parents=True, exist_ok=True)
+                        with open(self.path, "a") as out:
+                            out.write(json.dumps(row) + "\n")
+        with self.lock:
+            near = self.near(pano.source, pano.date, position)
+        return round(float(np.median(near)), 2) if near else None
+

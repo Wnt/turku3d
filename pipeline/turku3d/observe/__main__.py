@@ -368,6 +368,8 @@ def main(argv=None) -> int:
     ap.add_argument("--layers", type=int, default=0, metavar="N",
                     help="views: every time layer of the panorama spots is a candidate; a wall gets its best view of "
                          "each visit, up to N (for ranking by weather and for scatter between visits)")
+    ap.add_argument("--per-visit", type=int, default=1, metavar="K",
+                    help="views --layers: K views from different panoramas of each visit (pairs inside one visit)")
     ap.add_argument("--parts", metavar="TAG", help="colour --sheet: parts from the label maps of colour_segment.py "
                                                    "written with this tag (wall zones, trim, frames, plinth, roof, door)")
     ap.add_argument("--location", help="light: the name the views are stored under (location/NAME)")
@@ -572,7 +574,8 @@ def main(argv=None) -> int:
                 return record, 0.0
         panos = panoramas()
         try:
-            more = {"per_wall": a.layers, "layers": True, "limit": 5 * a.layers} if a.layers else {}
+            more = {"per_wall": a.layers, "layers": True, "limit": 5 * a.layers * a.per_visit,
+                    "per_visit": a.per_visit} if a.layers else {}
             record = within(PREPARE_TIMEOUT_S, lambda: prepare(scene, b, panos, packet, **more))
         except TimeoutError:  # the stalled thread may hold this reader's locks: the next building gets a new one
             del local.panos
