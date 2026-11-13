@@ -32,21 +32,20 @@ def _plane_z(plane, xy):
     return p0[2] - (n[0] * (xy[..., 0] - p0[0]) + n[1] * (xy[..., 1] - p0[1])) / n[2]
 
 
-def _segment_distance(point, a, b):
-    ab = b - a
-    t = np.clip(((point - a) @ ab) / max(float(ab @ ab), 1e-12), 0.0, 1.0)
-    return float(np.linalg.norm(point - (a + t * ab)))
-
-
 def _edge_kinds(planes, facades, footprint):
     """Per plane, per edge: True when the edge is free (an eave or a verge over a wall top)."""
     from shapely.geometry import Point
 
-    segments = [
-        (k, plane.ring[i], plane.ring[(i + 1) % len(plane.ring)])
-        for k, plane in enumerate(planes)
-        for i in range(len(plane.ring))
-    ]
+    # Every plane's edges as arrays, so an edge is compared with all others at once (a large block has thousands).
+    owner = np.array([k for k, plane in enumerate(planes) for _ in plane.ring], dtype=int)
+    starts = np.array([plane.ring[i] for plane in planes for i in range(len(plane.ring))], float).reshape(-1, 3)
+    ends = np.array(
+        [plane.ring[(i + 1) % len(plane.ring)] for plane in planes for i in range(len(plane.ring))], float
+    ).reshape(-1, 3)
+    vectors = ends - starts
+    squared = np.einsum("ij,ij->i", vectors, vectors)
+    lengths = np.sqrt(squared)
+    usable = lengths >= 1e-6
     out = []
     boundary = (
         footprint.exterior
@@ -65,20 +64,15 @@ def _edge_kinds(planes, facades, footprint):
                 free.append(False)
                 continue
             # Shared with another roof plane (a ridge, hip or valley), wholly or along part of a longer edge.
-            shared = False
-            for other, c, d in segments:
-                if other == k:
-                    continue
-                other_direction = d - c
-                other_length = np.linalg.norm(other_direction)
-                if (
-                    other_length < 1e-6
-                    or abs(float(direction @ other_direction)) / (length * other_length) < 0.98
-                ):
-                    continue
-                if _segment_distance(middle, c, d) < 0.1:
-                    shared = True
-                    break
+            near = (owner != k) & usable
+            near[near] = np.abs(vectors[near] @ direction) / (length * lengths[near]) >= 0.98
+            if near.any():
+                c, v = starts[near], vectors[near]
+                t = np.clip(np.einsum("ij,ij->i", middle - c, v) / np.maximum(squared[near], 1e-12), 0.0, 1.0)
+                closest = middle - (c + t[:, None] * v)
+                shared = bool((np.sqrt(np.einsum("ij,ij->i", closest, closest)) < 0.1).any())
+            else:
+                shared = False
             if shared:
                 free.append(False)
                 continue
