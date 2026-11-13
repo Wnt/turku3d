@@ -5,8 +5,8 @@ above the water: the lidar gives the height of its crest, measured a few metres 
 drop over the edge. The wall is a closed solid on the land side of the outline, from under the water to the crest.
 Green land beside water is a natural bank and stays the ground's slope.
 
-UNFINISHED (2026-11-13): no retaining walls away from water (OpenStreetMap
-`barrier=retaining_wall`, old `coarse/retaining.py`), no steps, no coping stones or joints, no schema document.
+Schema: docs/specs/wall-description.md. UNFINISHED (2026-11-13): no retaining walls away from water (OpenStreetMap
+`barrier=retaining_wall`, old `coarse/retaining.py`), no steps, no coping stones, no stone look that reads from afar.
 """
 
 from __future__ import annotations
