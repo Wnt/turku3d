@@ -38,14 +38,13 @@ REVIEW_FRONTAGE_M = 8.0  # a street frontage at least this long is reviewed agai
 
 
 def store(doc: dict) -> str | None:
-    """Store a description in the shared descriptions root; None when the store refuses or when the stored
-    description of the same or a higher tier is somebody else's (a hand-written one)."""
+    """Store a description in the shared descriptions root; None when the store refuses or when somebody else
+    stored a reviewed (hand-written) description. A reading replaces an automatic or converted one."""
     from turku3d.world import store as world_store
-    from turku3d.world.api import TIERS
 
     log = world_store.description_path(doc["id"]).with_suffix(".log.jsonl")
     last = json.loads(log.read_text().splitlines()[-1]) if log.exists() else None
-    if last and last["by"] != "w2-observe" and TIERS.index(last["tier"]) >= TIERS.index(doc["tier"]):
+    if last and last["by"] != "w2-observe" and last["tier"] == "reviewed":
         print(f"observe: {doc['id']} not stored: {last['by']} stored it at tier {last['tier']}", file=sys.stderr)
         return None
     try:
