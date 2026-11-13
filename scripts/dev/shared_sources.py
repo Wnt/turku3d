@@ -17,8 +17,15 @@ import uuid
 DATASETS = ('raw', 'supplements', 'derived', 'landmark-descriptions')
 
 
-def merge_tree(base, destination, additions):
-    """Clone only changed directory spines; all existing source files stay read-only links."""
+# A version's own catalog describes that version only; a derived version writes its own.
+CATALOG = 'source-version.json'
+
+
+def merge_tree(base, destination, additions, *, top=True):
+    """Clone only changed directory spines; all existing source files stay read-only links.
+
+    The base version's catalog is never linked: the new version's catalog is written in its
+    place, and writing it through a link would replace the base's catalog."""
     destination.mkdir(parents=True, exist_ok=True)
     groups = {}
     for relative, source in additions.items():
@@ -26,7 +33,7 @@ def merge_tree(base, destination, additions):
         groups.setdefault(first, {})[Path(*rest).as_posix() if rest else ''] = source
     if base.is_dir():
         for child in base.iterdir():
-            if child.name not in groups:
+            if child.name not in groups and not (top and child.name == CATALOG):
                 (destination / child.name).symlink_to(child.resolve(), target_is_directory=child.is_dir())
     for name, nested in groups.items():
         target = destination / name
@@ -35,7 +42,7 @@ def merge_tree(base, destination, additions):
                 raise ValueError('source file/directory conflict')
             target.symlink_to(nested[''].resolve())
         else:
-            merge_tree(base / name, target, nested)
+            merge_tree(base / name, target, nested, top=False)
 
 
 def publish(base, root, downloads):
@@ -79,7 +86,10 @@ def publish(base, root, downloads):
     if not directory.exists():
         temporary = root / 'versions' / ('.' + uuid.uuid4().hex)
         merge_tree(base, temporary, additions)
-        (temporary / 'source-version.json').write_text(json.dumps(dict(version=version, files=hashes)) + '\n')
+        catalog = temporary / CATALOG
+        if catalog.is_symlink():
+            raise RuntimeError(f'{catalog} links into another version; refusing to write through it')
+        catalog.write_text(json.dumps(dict(version=version, files=hashes)) + '\n')
         temporary.rename(directory)
     pointer = root / ('.current-' + uuid.uuid4().hex)
     pointer.symlink_to(directory, target_is_directory=True)
