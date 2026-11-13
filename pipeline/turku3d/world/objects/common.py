@@ -91,3 +91,10 @@ def single(description: dict, parts: list[Part], bearing: float = 0.0) -> Output
 
 def box_of(e: float, n: float, reach: float = 1.0) -> tuple[float, float, float, float]:
     return (e - reach, n - reach, e + reach, n + reach)
+
+
+def unique(stubs: list[Stub]) -> list[Stub]:
+    """Stubs without repeated ids, the first of each kept: registers repeat rows (the same fence line under two
+    surveys, the same pole in two layers), and an entity id is one object."""
+    seen: set[str] = set()
+    return [stub for stub in stubs if not (stub.id in seen or seen.add(stub.id))]

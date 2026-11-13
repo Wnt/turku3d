@@ -21,7 +21,7 @@ import shapely
 from ..api import Area, Instances, Output, Stub
 from ..frame import to_engine
 from ..objects import registers, wires
-from ..objects.common import BLACK_STEEL, DARK_PLASTIC, LENS, describe, interaction, yaw_of_run
+from ..objects.common import BLACK_STEEL, DARK_PLASTIC, LENS, describe, interaction, yaw_of_run, unique
 from ..objects.mesh import Mesh
 
 VERSION = 1
@@ -129,7 +129,7 @@ class Wire:
             key = f"{round(wire['a'][0] * 10)}_{round(wire['a'][1] * 10)}_{round(length * 10)}"
             stubs.append(Stub(f"wire/w{key}", (float(lo[0]) - 0.5, float(lo[1]) - 0.5, float(hi[0]) + 0.5, float(hi[1]) + 0.5),
                               [{"source": "turku-lidar:pistepilvi", "key": key}], facts))
-        return stubs
+        return unique(stubs)
 
     def describe(self, stub: Stub, stored: dict | None) -> dict:
         return describe(self.name, VERSION, stub, stored)

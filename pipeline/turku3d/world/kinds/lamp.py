@@ -21,7 +21,7 @@ import numpy as np
 
 from ..api import Area, Output, Stub
 from ..objects import registers
-from ..objects.common import BLACK_STEEL, DARK_PLASTIC, GALVANISED, LENS, box_of, describe, interaction, single
+from ..objects.common import BLACK_STEEL, DARK_PLASTIC, GALVANISED, LENS, box_of, describe, interaction, single, unique
 from ..objects.mesh import Mesh
 
 VERSION = 1
@@ -97,7 +97,7 @@ class Lamp:
             if measured:
                 facts["measured"] = {"lidar": measured}
             stubs.append(Stub(f"lamp/{post['id']}", box_of(e, n, 3.5), [post["source"]], facts))
-        return stubs
+        return unique(stubs)
 
     def describe(self, stub: Stub, stored: dict | None) -> dict:
         return describe(self.name, VERSION, stub, stored)

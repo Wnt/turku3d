@@ -73,3 +73,11 @@ def test_wire_entity_is_a_closed_tube_with_its_hung_lamp():
     assert len(output.instances) == 1 and output.instances[0].ids == ["wire/w1#lamp0"]
     bad, flipped, total = open_edges(output.instances[0].asset)
     assert bad == 0 and flipped == 0
+
+
+def test_repeated_register_rows_give_one_entity():
+    from turku3d.world.api import Stub
+    from turku3d.world.objects.common import unique
+
+    stubs = [Stub("fence/r1", (0, 0, 1, 1), [], {}), Stub("fence/r1", (0, 0, 1, 1), [], {"again": True}), Stub("fence/r2", (0, 0, 1, 1), [], {})]
+    assert [(stub.id, stub.facts) for stub in unique(stubs)] == [("fence/r1", {}), ("fence/r2", {})]

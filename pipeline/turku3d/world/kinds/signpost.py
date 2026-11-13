@@ -18,7 +18,7 @@ from functools import lru_cache
 from ..api import Area, Instances, Output, Stub
 from ..frame import to_engine
 from ..objects import registers, signfaces
-from ..objects.common import ALUMINIUM, GALVANISED, SIGN_BACK, box_of, describe, interaction, sign_material, yaw_of_bearing
+from ..objects.common import ALUMINIUM, GALVANISED, SIGN_BACK, box_of, describe, interaction, sign_material, yaw_of_bearing, unique
 from ..objects.mesh import Mesh
 
 VERSION = 1
@@ -149,7 +149,7 @@ class SignPost:
             key = min((p["register"] for p in plates), key=lambda v: (len(v), v))
             refs = [{"source": "turku-wfs:GIS:Liikennemerkit", "key": p["register"]} for p in plates]
             stubs.append(Stub(f"signpost/s{key}", box_of(e, n, 0.5), refs, facts))
-        return stubs
+        return unique(stubs)
 
     def describe(self, stub: Stub, stored: dict | None) -> dict:
         return describe(self.name, VERSION, stub, stored)

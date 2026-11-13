@@ -21,7 +21,7 @@ import numpy as np
 from ..api import Area, Instances, Output, Stub
 from ..frame import to_engine
 from ..objects import registers
-from ..objects.common import GALVANISED, GRANITE, describe, interaction, painted_wood, yaw_of_run
+from ..objects.common import GALVANISED, GRANITE, describe, interaction, painted_wood, yaw_of_run, unique
 from ..objects.mesh import Mesh
 
 VERSION = 1
@@ -192,7 +192,7 @@ class Fence:
                      "measured": {"lidar": {"returns": int(len(around))}},
                      "interaction": interaction("fixed", "box", [0.36, height, 0.36])}
             stubs.append(Stub(f"fence/{row['id']}", (e - 0.5, n - 0.5, e + 0.5, n + 0.5), [row["source"]], facts))
-        return stubs
+        return unique(stubs)
 
     def describe(self, stub: Stub, stored: dict | None) -> dict:
         return describe(self.name, VERSION, stub, stored)
