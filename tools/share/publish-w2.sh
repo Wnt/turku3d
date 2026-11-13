@@ -84,7 +84,8 @@ PY
   git -C "$REPO" show "$SHA:tools/share/units/city-web.service" > "$BUILD/city-web.service"
   remote "mkdir -p ~/$C/releases/w2-$SHA/dist"
   say "uploading $(du -sh "$BUILD/dist" | cut -f1) dist to $SSH_HOST (unchanged files are linked from the live release)"
-  rsync -a --delete --exclude '*.map' --exclude '*.br' --link-dest="../../../current/dist/" "$BUILD/dist/" "$SSH_HOST:$C/releases/w2-$SHA/dist/"
+  # Assets are named by their content: --delete leaves them (the previous release's are carried there on purpose).
+  rsync -a --delete --filter 'P /assets/**' --exclude '*.map' --exclude '*.br' --link-dest="../../../current/dist/" "$BUILD/dist/" "$SSH_HOST:$C/releases/w2-$SHA/dist/"
   rsync -a "$BUILD/city-web.service" "$SSH_HOST:$C/releases/w2-$SHA/city-web.service"
   phase 'uploaded the client'
   # The Mac's disk is short: of the client builds kept here (0.3 GiB each) only the two newest stay.
@@ -147,6 +148,17 @@ if [ "$CLIENT" = 1 ]; then
   mkdir -p "$C/classic/dist"
   # Brotli sidecars for the big compressible files, as the share deploy makes them.
   nice -n 10 node "$C/web/src/tools/share/precompress.mjs" "$R/dist"
+  # A page that is open keeps working until it reloads: the modules, workers and worklets it loads lazily (hashed
+  # names under assets/) of the release live until now stay served beside the new ones, by hard link, never
+  # overwriting a file of the new release; files older than a day are not carried, so the set stays small.
+  if [[ "$CUR" == releases/w2-* ]] && [ "$C/$CUR" != "$R" ] && [ -d "$C/$CUR/dist/assets" ]; then
+    carried=0
+    while IFS= read -r -d '' f; do
+      [ -e "$R/dist/$f" ] && continue
+      mkdir -p "$R/dist/$(dirname "$f")" && ln "$C/$CUR/dist/$f" "$R/dist/$f" && carried=$((carried + 1))
+    done < <(cd "$C/$CUR/dist" && find assets -type f -mmin -1440 -print0)
+    echo "carried $carried assets of $CUR for pages still open"
+  fi
   ln -sfn "releases/w2-$SHA" "$C/current.new" && mv -T "$C/current.new" "$C/current"
   if ! cmp -s "$R/city-web.service" "$U/city-web.service"; then
     cp "$R/city-web.service" "$U/city-web.service"
