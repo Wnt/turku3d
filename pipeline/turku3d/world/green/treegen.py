@@ -63,7 +63,7 @@ FAMILIES: dict[str, dict] = {
     "oak": _broadleaf(cell="oak", bark="oak", shape=0.4, centre=0.42, lean=0.03, n1=22, elev=(12, 42), ratio=0.62, d2=3.0,
                       a2=50, l2ratio=0.55, l2max=2.8, d3=2.2, noise=0.35, droop1=0.06, droop2=0.08, cards=1500,
                       ref=(10.5, 5.6), leader=0.72, trunk=1.25),
-    "ash": _broadleaf(cell="rowan", bark="maple", shape=0.5, centre=0.5, n1=22, elev=(35, 62), ratio=0.5, d2=2.8,
+    "ash": _broadleaf(cell="linden", bark="maple", shape=0.5, centre=0.5, n1=22, elev=(35, 62), ratio=0.5, d2=2.8,
                       card=1.25, cards=1150, ref=(11.0, 4.6), leader=0.88, tint=(0.95, 1.0, 0.9)),
     "birch": _broadleaf(cell="birch", bark="birch", shape=0.6, centre=0.5, lean=0.015, n1=30, elev=(38, 62), ratio=0.42,
                         d2=3.6, a2=42, l2ratio=0.55, l2max=2.4, d3=2.2, droop2=0.55, droop3=0.9, card=1.0, cards=1300,

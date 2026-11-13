@@ -17,6 +17,7 @@ Description `turku-description/trees/1`:
                measured: {the census row}, species?}]
     absent   register trees the lidar does not show and no rule builds: [{e, n, layer, key, ...}]
     cleared  ids of trees left out because they stand within 3 m of a reference camera (see CAMERA_CLEARANCE)
+    felled   ids of crowns of the 2021 scan on a street that the city's tree register no longer lists (see `on_street`)
 
 A stored description overrides the automatic one per tree: `{"trees": {"<id>": {"family": "lime", "height": 14,
 "crown": {...}, "remove": true}}, "add": [{...a full tree row...}]}`. Observation writes there what panoramas show
@@ -33,11 +34,13 @@ from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
+import shapely
 
 from ..api import Area, Instances, Output, Stub, envelope
 from ..frame import CELL, cell_at, cell_box_en, cell_key, to_engine
 from ..geometry import seed as seed_of
 from ..green import census, treegen
+from ..street import registers
 
 GROWTH_YEARS = 5  # the scan is from April 2021; the reference photos are from summer 2026
 LEAF_MARGIN = 0.4  # metres added to a leaf-off crown diameter: the foliage beyond the twig tips
@@ -74,6 +77,30 @@ def beside_camera(tree: dict, camera: list[float]) -> bool:
     side = max(0.0, distance - (crown["major"] + crown["minor"]) / 4)
     above = max(0.0, tree["ground"] + crown["base"] - camera[2])
     return distance < CAMERA_CLEARANCE or math.hypot(side, above) < CAMERA_CLEARANCE
+
+
+def on_street(rows: list[dict], box: tuple[float, float, float, float]) -> dict[str, float]:
+    """Trees only the lidar shows whose trunk stands on the street area (GIS:Katualueet): id -> metres from the trunk
+    to the nearest ground off the street.
+
+    The city's tree register (GIS:Puut) is the maintenance inventory of the trees on its streets and is current; the
+    scan is from 2021. A crown of the scan on a street that the register does not list is either a tree felled since
+    (or a pole, a parked lorry) or a garden tree leaning over the pavement. The description tells them apart by reach:
+    a crown that does not reach off the street cannot hang from a garden."""
+    lone = [row for row in rows if row["source"] == "lidar"]
+    if not lone:
+        return {}
+    streets = registers.layer("GIS:Katualueet", box)
+    shapes = [shapely.make_valid(shapely.force_2d(shape)) for shape in streets.geometry if shape.geom_type == "Polygon"]
+    if not shapes:
+        return {}
+    area = shapely.union_all(shapes)
+    found = {}
+    for row in lone:
+        trunk = shapely.Point(row["e"], row["n"])
+        if area.contains(trunk):
+            found[row["id"]] = round(float(area.boundary.distance(trunk)), 2)
+    return found
 
 
 GENERA = {
@@ -131,15 +158,53 @@ def family_of(tree: dict, seed: int) -> tuple[str, str]:
     return pick(GARDEN_TALL, fraction), "lidar: broadleaf"
 
 
+GUESSED = ("lidar: small broadleaf", "lidar: tall and narrow", "lidar: broadleaf")
+TOGETHER = 12.0  # metres between trees of one planting
+
+
+def families(rows: list[dict]) -> dict[str, tuple[str, str]]:
+    """(family, why) per census row id. Trees are planted in rows and groups of one species: broadleaf trees of
+    unknown species that stand together at a like size share one guess, and take the species of a register tree
+    of their size among them when there is one."""
+    first = {row["id"]: family_of(row, seed_of(row["id"])) for row in rows}
+    guessed = [row for row in rows if first[row["id"]][1] in GUESSED]
+    named = [row for row in rows if first[row["id"]][1] in ("register species", "base map genus", "osm")
+             and treegen.FAMILIES[first[row["id"]][0]]["kind"] == "broadleaf"]
+    group = {row["id"]: row["id"] for row in guessed}
+
+    def root(key: str) -> str:
+        while group[key] != key:
+            key = group[key]
+        return key
+
+    def alike(a: dict, b: dict) -> bool:
+        return math.hypot(a["e"] - b["e"], a["n"] - b["n"]) < TOGETHER and 0.7 < a["height"] / b["height"] < 1.43
+
+    for index, a in enumerate(guessed):
+        for b in guessed[index + 1:]:
+            if first[a["id"]][1] == first[b["id"]][1] and alike(a, b):
+                low, high = sorted((root(a["id"]), root(b["id"])))
+                group[high] = low
+    members: dict[str, list[dict]] = {}
+    for row in guessed:
+        members.setdefault(root(row["id"]), []).append(row)
+    out = dict(first)
+    for leader, rows_of in members.items():
+        near = sorted((math.hypot(a["e"] - b["e"], a["n"] - b["n"]), b["id"]) for a in rows_of for b in named if alike(a, b))
+        for row in rows_of:
+            out[row["id"]] = (first[near[0][1]][0], "the species of the register tree beside it") if near else family_of(row, seed_of(leader))
+    return out
+
+
 def grown(height: float) -> float:
     """Height in the photo year from the height in the scan year."""
     rate = 0.35 if height < 6 else 0.25 if height < 10 else 0.15 if height < 16 else 0.05
     return height + rate * GROWTH_YEARS
 
 
-def tree_row(row: dict) -> dict:
+def tree_row(row: dict, chosen: tuple[str, str] | None = None) -> dict:
     seed = seed_of(row["id"])
-    family, why = family_of(row, seed)
+    family, why = chosen or family_of(row, seed)
     height = grown(row["height"])
     stretch = 1 + 0.6 * (height / row["height"] - 1)
     major, minor = row["major"] * stretch + LEAF_MARGIN, row["minor"] * stretch + LEAF_MARGIN
@@ -221,13 +286,19 @@ class Trees:
                 refs = [{"source": "turku-lidar:pistepilvi", "key": f"{cell_key(i, j)}@{census.recipe()}"},
                         *({"source": f"turku-wfs:{layer}", "key": cell_key(i, j)} for layer in ("GIS:Puut", "kanta:Lehtipuu", "kanta:Havupuu"))]
                 wide = (cell[0] - 20.0, cell[1] - 20.0, cell[2] + 20.0, cell[3] + 20.0)
-                stubs.append(Stub(f"trees/{cell_key(i, j)}", cell, refs,
-                                  {"cell": [i, j], "trees": found["trees"], "absent": found["absent"], "cameras": cameras(wide)}))
+                stubs.append(Stub(f"trees/{cell_key(i, j)}", cell, [*refs, {"source": "turku-wfs:GIS:Katualueet", "key": cell_key(i, j)}],
+                                  {"cell": [i, j], "trees": found["trees"], "absent": found["absent"], "cameras": cameras(wide),
+                                   "onStreet": on_street(found["trees"], wide)}))
         return stubs
 
     def describe(self, stub: Stub, stored: dict | None) -> dict:
         stored = stored or {}
-        trees = [tree_row(row) for row in stub.facts["trees"]]
+        street = stub.facts.get("onStreet", {})
+        overrides = stored.get("trees", {})
+        felled = sorted(row["id"] for row in stub.facts["trees"]
+                        if street.get(row["id"], 0.0) > row["width"] / 2 and not overrides.get(row["id"], {}).get("keep"))
+        chosen = families(stub.facts["trees"])
+        trees = [tree_row(row, chosen[row["id"]]) for row in stub.facts["trees"] if row["id"] not in felled]
         absent = []
         for row in stub.facts["absent"]:
             young = planted_since_scan(row)
@@ -235,7 +306,6 @@ class Trees:
                 trees.append(young)
             else:
                 absent.append(row)
-        overrides = stored.get("trees", {})
         kept, cleared = [], []
         for tree in trees:
             change = overrides.get(tree["id"], {})
@@ -248,7 +318,8 @@ class Trees:
         kept += stored.get("add", [])
         kept.sort(key=lambda t: t["id"])
         return {**envelope(self.name, 1, stub, stored, "w2-green"), "cell": stub.facts["cell"],
-                "scan": {"date": "2021-04", "growthYears": GROWTH_YEARS}, "trees": kept, "absent": absent, "cleared": cleared}
+                "scan": {"date": "2021-04", "growthYears": GROWTH_YEARS}, "trees": kept, "absent": absent, "cleared": cleared,
+                "felled": felled}
 
     def compile(self, description: dict) -> Output:
         i, j = description["cell"]
