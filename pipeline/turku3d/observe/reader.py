@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import shutil
 import subprocess
 import time
@@ -28,6 +29,9 @@ END_REACH_M = 2.5  # a facade end the reader places this close to the wall's end
 END_SEEN_M = 0.5  # and the crop's free line of sight must reach this close to it
 SCALE_REACH = 0.06  # a facade read this much longer or shorter than the wall is still the same facade
 U_FIELDS = ("u_m", "u_from_m", "u_to_m", "first_m")
+V_FIELDS = ("v_m", "from_m", "to_m", "ground_floor_m")  # heights above the wall base
+GROUND_REACH_M = 1.5  # a ground line read further than this from the surveyed ground is not that ground
+GROUND_OUT_M = 0.8  # the surveyed ground is taken this far in front of the wall
 
 INSTRUCTIONS = """\
 You measure one real building in Turku, Finland from street photographs, so that a 3D generator can rebuild it and \
@@ -68,7 +72,13 @@ field out when you cannot see it. Never write `src`.
 10. The register facts in the task are priors from the city's records. Storey counts there may follow other rules \
 (basements, attics): report what the photographs show.
 11. For each image fill a `views` entry: whether it was usable, the share of the wall hidden by foreground \
-objects, and what was hidden or wrong.
+objects, and what was hidden or wrong. For a wall crop also give `ground_uv_m`: one point [u, v] read off the \
+rulers where you clearly see the ground (pavement, asphalt, lawn) meet this wall; leave it out when vehicles or \
+planting hide the foot of the wall. The pipeline uses it to correct the camera's height.
+12. Give every wall `ground_floor_m`: the ruler height of the ground storey's floor (the top of the plinth; the \
+door threshold). Before answering, check each wall: every bay and opening lies between the facade's ends that you \
+report, with its full width; from `ground_floor_m` the storey heights add up to where you see the eaves, within \
+0.3 m; no two openings of one storey overlap; windows in a gable or dormer above the eaves are not a wall storey.
 """
 
 
@@ -99,6 +109,7 @@ def reading_schema() -> dict:
                         "usable": {"type": "boolean"},
                         "hidden_share": {"type": "number", "minimum": 0, "maximum": 1},
                         "facade_u_m": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+                        "ground_uv_m": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
                         "hidden_m": {"type": "array", "items": {"type": "array", "items": {"type": "number"},
                                                                "minItems": 4, "maxItems": 4}},
                         "problem": {"type": "string"},
@@ -111,7 +122,7 @@ def reading_schema() -> dict:
     }
 
 
-def task_text(record: dict, packet: Path) -> str:
+def task_text(record: dict, packet: Path, feedback_text: str = "") -> str:
     reg = record["register"]
     lines = [f"The packet directory is {packet}. Read {packet / 'FORMAT.md'} first.", "",
              "Building (register priors): "
@@ -137,14 +148,21 @@ def task_text(record: dict, packet: Path) -> str:
                      f"{p['date']}, camera {c['distance_m']:.0f} m from the wall plane, {c['oblique_deg']:.0f} deg "
                      f"off frontal, {c['px_per_m']:.0f} px/m, line of sight free for u {c['x0_m']:.1f}-"
                      f"{c['x1_m']:.1f} m")
+    if feedback_text:
+        lines += ["", "A first reading of these images was given to the generator, which could not build the parts "
+                  "below (positions on the rulers of the crop each wall was measured on). Look at those places "
+                  "again. Correct what the photographs show was misread (a position, a width, a storey height, a "
+                  "window that belongs to the roof or to a neighbour); keep what the photographs confirm.",
+                  feedback_text]
     lines += ["", "Answer with the description of this building and the per-image report."]
     return "\n".join(lines)
 
 
-def read(record: dict, packet: Path, *, effort: str = EFFORT, model: str = MODEL) -> tuple[dict, dict]:
+def read(record: dict, packet: Path, *, effort: str = EFFORT, model: str = MODEL,
+         feedback_text: str = "") -> tuple[dict, dict]:
     """(reading, meta) for one prepared building. Raises on a failed call."""
     shutil.copyfile(SPEC, packet / "FORMAT.md")
-    task = task_text(record, packet)
+    task = task_text(record, packet, feedback_text)
     (packet / "task.txt").write_text(task)
     args = ["claude", "-p", "--model", model, "--effort", effort, "--system-prompt", INSTRUCTIONS,
             "--tools", "Read", "--allowedTools", "Read", "--add-dir", str(packet), "--strict-mcp-config",
@@ -205,15 +223,47 @@ def registration(length: float, crop: dict, facade) -> tuple[float, float]:
     return 0.0, 1.0
 
 
-def _register(node, offset: float, scale: float):
-    """The wall's fields with every position along the wall moved from the crop's ruler onto the wall."""
+def ground_shift(geometry: dict, seen, offset: float, scale: float, ground) -> float | None:
+    """How far above the true ground line the crop shows the ground: the camera height error on this wall.
+
+    `seen` is the reader's [u, v] of a point where the ground meets the wall; `ground(e, n)` the surveyed ground."""
+    if ground is None or not seen or len(seen) != 2:
+        return None
+    a, b = geometry["a"], geometry["b"]
+    length = math.hypot(b[0] - a[0], b[1] - a[1])
+    if length < 1e-6:
+        return None
+    t = ((b[0] - a[0]) / length, (b[1] - a[1]) / length)
+    u = min(max((seen[0] - offset) * scale, 0.0), length)
+    height = ground(a[0] + t[0] * u + t[1] * GROUND_OUT_M, a[1] + t[1] * u - t[0] * GROUND_OUT_M)
+    if height is None:
+        return None
+    shift = seen[1] - (height - geometry["base_h"])
+    return shift if abs(shift) <= GROUND_REACH_M else None
+
+
+def _register(node, offset: float, scale: float, shift: float = 0.0):
+    """The wall's fields moved from the crop's rulers onto the wall: positions along it, and heights above its
+    base when the crop showed the ground too high or too low."""
     if isinstance(node, dict):
-        return {k: (v if k == "conf"  # confidences are keyed by field name: not positions
-                    else round((v - offset) * scale, 2) if k in U_FIELDS and isinstance(v, (int, float))
-                    else round(v * scale, 3) if k == "pitch_m" and isinstance(v, (int, float))
-                    else _register(v, offset, scale)) for k, v in node.items()}
+        out = {}
+        for k, v in node.items():
+            number = isinstance(v, (int, float)) and not isinstance(v, bool)
+            if k == "conf":  # confidences are keyed by field name: not positions
+                out[k] = v
+            elif k in U_FIELDS and number:
+                out[k] = round((v - offset) * scale, 2)
+            elif k == "pitch_m" and number:
+                out[k] = round(v * scale, 3)
+            elif k in V_FIELDS and number and shift:
+                out[k] = round(v - shift, 2) if k == "v_m" else round(max(0.0, v - shift), 2)
+            elif k == "plinth" and isinstance(v, dict) and shift and isinstance(v.get("height_m"), (int, float)):
+                out[k] = {**_register(v, offset, scale, shift), "height_m": round(max(0.05, v["height_m"] - shift), 2)}
+            else:
+                out[k] = _register(v, offset, scale, shift)
+        return out
     if isinstance(node, list):
-        return [_register(v, offset, scale) for v in node]
+        return [_register(v, offset, scale, shift) for v in node]
     return node
 
 
@@ -229,8 +279,48 @@ def _anchors(node, moved: dict):
     return node
 
 
-def assemble(record: dict, reading: dict, meta: dict) -> dict:
-    """The stored description: the reading in its envelope, with frames, what was seen and where it came from."""
+def wall_registration(record: dict, reading: dict, wall_id: str, ground=None) -> tuple[float, float, float]:
+    """(offset, scale, shift) of a read wall: wall u = (ruler u - offset) * scale, wall v = ruler v - shift."""
+    geometry = next((w for w in record["walls"] if w["id"].split(":")[-1] == wall_id), None)
+    wall = next((w for w in reading["description"].get("walls", []) if w.get("id") == wall_id), None)
+    if geometry is None or wall is None:
+        return 0.0, 1.0, 0.0
+    report = {v["file"]: v for v in reading.get("views", [])}
+    ruler = next((c for c in record["crops"] if c["wall"] == geometry["id"]
+                  and Path(c["file"]).name == wall.get("measured_on")), None)
+    if ruler is None:
+        return 0.0, 1.0, 0.0
+    seen = report.get(Path(ruler["file"]).name, {})
+    offset, scale = registration(geometry["length_m"], ruler, seen.get("facade_u_m"))
+    return offset, scale, ground_shift(geometry, seen.get("ground_uv_m"), offset, scale, ground) or 0.0
+
+
+def feedback(record: dict, reading: dict, complaints: dict, ground=None) -> str:
+    """The generator's complaints about a first reading, in the rulers of the crops it was measured on."""
+    lines = []
+    for wall_id, items in complaints.items():
+        offset, scale, shift = wall_registration(record, reading, wall_id, ground)
+        wall = next((w for w in reading["description"].get("walls", []) if w.get("id") == wall_id), {})
+        geometry = next(w for w in record["walls"] if w["id"].split(":")[-1] == wall_id)
+        lines.append(f"- wall {wall_id} (measured on {wall.get('measured_on', '?')}; the wall is "
+                     f"{geometry['length_m']:.1f} m long, which on that crop's ruler is u {offset:.1f} to "
+                     f"{offset + geometry['length_m'] / scale:.1f} m; eaves at v "
+                     f"{geometry['eaves_h'] - geometry['base_h'] + shift:.1f} m):")
+        for item in items:
+            where = ""
+            if "u_m" in item:
+                where = f" at u {item['u_m'] / scale + offset:.1f} m"
+                if "v_m" in item:
+                    where += f", v {item['v_m'] + shift:.1f} m"
+            lines.append(f"  - {item['what']}{where}: {item['why']}")
+    return "\n".join(lines)
+
+
+def assemble(record: dict, reading: dict, meta: dict, ground=None) -> dict:
+    """The stored description: the reading in its envelope, with frames, what was seen and where it came from.
+
+    `ground(e, n)` gives the surveyed ground height; with it, heights are corrected by the ground line the reader
+    saw at each wall's foot."""
     key = record["building"]
     body = _strip(reading["description"])
     report = {v["file"]: v for v in reading.get("views", [])}
@@ -255,11 +345,9 @@ def assemble(record: dict, reading: dict, meta: dict) -> dict:
         crops = [c for c in record["crops"] if c["wall"] == geometry["id"]]
         usable = [c for c in crops if report.get(Path(c["file"]).name, {}).get("usable", True)] or crops
         length = geometry["length_m"]
-        ruler = next((c for c in crops if Path(c["file"]).name == wall.get("measured_on")), None)
-        offset, scale = registration(length, ruler, report.get(Path(ruler["file"]).name, {}).get("facade_u_m")) \
-            if ruler else (0.0, 1.0)
-        if (offset, scale) != (0.0, 1.0):
-            registered.append(f"{wall['id']} {-offset:+.2f} m x{scale:.3f}")
+        offset, scale, shift = wall_registration(record, reading, wall["id"], ground)
+        if (offset, scale) != (0.0, 1.0) or shift:
+            registered.append(f"{wall['id']} {-offset:+.2f} m x{scale:.3f}" + (f" v{-shift:+.2f} m" if shift else ""))
             moved[wall["id"]] = (offset, scale)
         free = max((c["x1_m"] - c["x0_m"] for c in usable), default=0.0) / max(length, 1e-6)
         hidden_share = min((report.get(Path(c["file"]).name, {}).get("hidden_share", 0.0) for c in usable), default=0.0)
@@ -268,7 +356,7 @@ def assemble(record: dict, reading: dict, meta: dict) -> dict:
         if best is not None:  # hidden rectangles follow the ruler of the crop they were seen in
             off, k = registration(length, best, report.get(Path(best["file"]).name, {}).get("facade_u_m"))
             hidden = [[round((r[0] - off) * k, 2), r[1], round((r[2] - off) * k, 2), r[3]] for r in hidden]
-        wall = _register({k: v for k, v in wall.items() if k != "measured_on"}, offset, scale)
+        wall = _register({k: v for k, v in wall.items() if k != "measured_on"}, offset, scale, shift)
         wall = {
             "id": wall["id"],
             "frame": {"p0": geometry["a"], "p1": geometry["b"], "base_h": geometry["base_h"],

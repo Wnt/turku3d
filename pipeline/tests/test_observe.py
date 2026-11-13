@@ -88,6 +88,8 @@ def test_assembled_description_is_valid_and_framed():
             "wall_defaults": {"material": "wall", "measured_on": "", "bays": {"count": 4, "pitch_m": 3.6}},
             "walls": [{"id": "w00", "measured_on": "w00-1.jpg", "material": "wall",
                        "bays": {"count": 5, "pitch_m": 3.6, "first_m": 2.0, "conf": {"first_m": 0.4}},
+                       "ground_floor_m": 1.2, "plinth": {"height_m": 1.2},
+                       "zones": [{"name": "base", "material": "wall", "from_m": 0.2, "to_m": 4.0}],
                        "storeys": [{"kind": "upper", "count": 3, "height_m": 3.1, "window": "w", "src": "invented"}],
                        "conf": {"*": 0.7}},
                       {"id": "w77", "like": "w00"}],
@@ -96,20 +98,24 @@ def test_assembled_description_is_valid_and_framed():
         },
         # The picture lies a metre to the left of the wall on the ruler: the facade is seen from u -1 to 19.
         "views": [{"file": "w00-1.jpg", "usable": True, "hidden_share": 0.25, "facade_u_m": [-1.0, 19.0],
+                   "ground_uv_m": [5.0, 0.9],  # the ground shows 0.4 m above where the survey has it (0.5)
                    "hidden_m": [[3.0, 0.0, 5.0, 2.0]]}],
     }
     meta = {"model": "m", "effort": "low", "seconds": 1.0, "cost_usd": 0.1, "images": 1, "at": "2026-11-12T22:00:00Z"}
-    doc = reader.assemble(record, reading, meta)
+    doc = reader.assemble(record, reading, meta, ground=lambda e, n: wall.base + 0.5)
     assert fmt.errors(doc) == []
     assert doc["id"] == "building/100000000A" and doc["tier"] == "observed"
     assert [w["id"] for w in doc["walls"]] == ["w00"]  # a wall the building does not have is dropped
     only = doc["walls"][0]
     assert only["frame"]["p0"] == [0.0, 0.0] and only["frame"]["p1"] == [20.0, 0.0]
     assert only["observed"]["visible_share"] == 0.75
+    assert only["ground_floor_m"] == 0.8 and only["plinth"]["height_m"] == 0.8  # heights follow the ground line
+    assert only["zones"][0]["from_m"] == 0.0 and only["zones"][0]["to_m"] == 3.6
+    assert only["storeys"][0]["height_m"] == 3.1  # a storey's own height is not a position
     assert only["bays"]["conf"] == {"first_m": 0.4}  # a confidence keyed by a position's name is left alone
     assert only["bays"]["first_m"] == 3.0 and only["observed"]["hidden_m"] == [[4.0, 0.0, 6.0, 2.0]]
     assert doc["roof"]["chimneys"][0]["anchor"]["u_m"] == 10.0  # roof parts follow their wall
-    assert "measured_on" not in only and "w00 +1.00 m" in doc["provenance"][0]["note"]
+    assert "measured_on" not in only and "w00 +1.00 m x1.000 v-0.40 m" in doc["provenance"][0]["note"]
     assert doc["wall_defaults"]["bays"] == {"pitch_m": 3.6}  # a default grid fits walls of any length
     assert "google:abc" in only["src"] and "src" not in only["storeys"][0]
 

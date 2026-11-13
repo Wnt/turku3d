@@ -24,7 +24,7 @@ import numpy as np
 
 from turku3d import config
 
-from . import lod2, reader
+from . import check, lod2, reader
 from .panoramas import REPO, Panoramas
 from .prepare import prepare
 
@@ -46,15 +46,50 @@ def finish(record: dict, reading: dict, meta: dict, packet: Path, root: Path) ->
     """Assemble a reading into its description, check it, write and store it; the facts for the run's report."""
     from turku3d.world.kinds.building import description as fmt
 
-    doc = reader.assemble(record, reading, meta)
+    from turkutex.streetview.height import ground_height  # the survey lidar; on sys.path through .panoramas
+
+    doc = reader.assemble(record, reading, meta, ground=ground_height)
     problems = fmt.errors(doc)
     target = root / "descriptions/building" / f"{record['building']}.json"
     target.parent.mkdir(parents=True, exist_ok=True)
     (target if not problems else packet / "invalid-description.json").write_text(
         json.dumps(doc, indent=1, ensure_ascii=False))
-    return {"building": record["building"], "read_s": meta["seconds"], "cost_usd": meta["cost_usd"],
+    line = {"building": record["building"], "read_s": meta["seconds"], "cost_usd": meta["cost_usd"],
             "invalid": problems[:5] or None, "description": str(target) if not problems else None,
             "stored": store(doc) if not problems else None}
+    if not problems:
+        try:
+            report = check.build_report(doc)
+        except Exception as error:  # noqa: BLE001 - the generator is another track's code: its failure is a finding
+            line["build_error"] = f"{type(error).__name__}: {error}"[:200]
+        else:
+            (packet / "build-report.json").write_text(json.dumps(report, indent=1, ensure_ascii=False))
+            line.update(dropped=check.count(report), dropped_reader=check.count(report, reader_only=True),
+                        unmatched_walls=report["unmatched"] or None)
+    return line
+
+
+def second_look(record: dict, packet: Path, root: Path, reading: dict, meta: dict, first: dict, effort: str):
+    """Ask the reader about the parts the generator dropped; keep whichever reading loses fewer parts."""
+    from turkutex.streetview.height import ground_height
+
+    report = json.loads((packet / "build-report.json").read_text())
+    asked = {wall: [i for i in items if i["reader"]] for wall, items in report["walls"].items()}
+    text = reader.feedback(record, reading, {w: i for w, i in asked.items() if i}, ground_height)
+    try:
+        again, meta_again = reader.read(record, packet, effort=effort, feedback_text=text)
+    except Exception as error:  # noqa: BLE001 - the first reading stands
+        return reading, meta, {**first, "second_look": f"failed: {error}"[:120]}
+    (packet / "reading-first.json").write_text(json.dumps({"reading": reading, "meta": meta}, indent=1,
+                                                          ensure_ascii=False))
+    total = {"seconds": round(meta["seconds"] + meta_again["seconds"], 1),
+             "cost_usd": (meta["cost_usd"] or 0) + (meta_again["cost_usd"] or 0)}
+    second = finish(record, again, {**meta_again, **total}, packet, root)
+    note = f"{first['dropped_reader']} -> {second.get('dropped_reader')} parts the generator drops"
+    if second.get("invalid") or second.get("dropped_reader", 1e9) >= first["dropped_reader"]:
+        kept = finish(record, reading, {**meta, **total}, packet, root)  # the first reading stays stored
+        return reading, {**meta, **total}, {**kept, "second_look": note + " (first kept)"}
+    return again, {**meta_again, **total}, {**second, "second_look": note}
 
 
 def visible_in_view(view: dict, scene: lod2.Scene, grid=(96, 72), reach: float = 250.0) -> dict:
@@ -115,6 +150,8 @@ def main(argv=None) -> int:
     ap.add_argument("--out", type=Path, default=None, help="root (default $TURKU3D_WORK/observe)")
     ap.add_argument("--jobs", type=int, default=4, help="readings in parallel")
     ap.add_argument("--force", action="store_true", help="read again even when a description exists")
+    ap.add_argument("--no-second-look", action="store_true",
+                    help="keep the first reading even when the generator drops parts of it")
     a = ap.parse_args(argv)
     root = a.out or config.work_root() / "observe"
     if a.command == "assemble":
@@ -164,9 +201,12 @@ def main(argv=None) -> int:
         except Exception as error:  # noqa: BLE001 - one failed building must not stop the others
             line["error"] = str(error)[:300]
         else:
+            first = finish(record, reading, meta, packet, root)
+            if first.get("dropped_reader") and not a.no_second_look:
+                reading, meta, first = second_look(record, packet, root, reading, meta, first, a.effort)
             (packet / "reading.json").write_text(json.dumps({"reading": reading, "meta": meta}, indent=1,
                                                             ensure_ascii=False))
-            line.update(finish(record, reading, meta, packet, root))
+            line.update(first)
         print(json.dumps(line, ensure_ascii=False), flush=True)
 
     if jobs:
