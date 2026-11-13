@@ -3,7 +3,7 @@
 // directory a judge can read (docs/design/world-pipeline.md, section 7).
 //
 //   node scripts/dev/world-set.mjs --views FILE --out DIR [--baseline DIR]... [--build-host local|air|osg]
-//     [--jobs N] [--data REL]... [--capture-host auto|mac|air] [--background 400] [--only AREA,AREA]
+//     [--jobs N] [--data REL]... [--capture-host auto|mac|air|mac,air] [--background 400] [--only AREA,AREA]
 //     [--build-only | --skip-build] [--drop] [--label TEXT] [--ready-timeout 600]
 //
 // Every registry `area` of the set's views is one location: its query is the circle that covers the area's cameras
@@ -11,7 +11,7 @@
 // `world build --at E,N --radius R --name AREA` on the build host, --jobs at a time (`scripts/dev/on-host`: the
 // store merges back; --data REL names what the host needs from $TURKU3D_DATA besides the stored descriptions).
 // Then each is captured with `scene-capture.mjs --world AREA --area AREA` in a leased browser (`auto`: the Mac
-// when a slot is free, else the Air). --build-only stops after the builds, so the points of one set can be built on
+// when a slot is free, else the Air; `mac,air`: one browser on each at once, the manifest says which shot what). --build-only stops after the builds, so the points of one set can be built on
 // several hosts at once into the same DIR; --skip-build then captures what is built and reads the build logs
 // already in DIR. --drop removes the set's manifests and meshes from this store when everything is captured.
 // DIR gets current/<view>.png, manifest.json (every view, and per location its query, build and capture hosts,
@@ -139,12 +139,13 @@ async function main() {
   }
   const server = await devServer(base, path.join(out, 'logs/vite.log'));
   try {
-    for (const row of rows) {
+    const pending = [...rows];
+    await Promise.all(wantedCapture.split(',').map(async wanted => { for (let row = pending.shift(); row; row = pending.shift()) {
       const { area } = row;
       row.build ??= buildOf(buildLog(area));
       if (row.build?.exit) { row.failure = `build exited ${row.build.exit} (logs/build-${area}.log)`; write(); continue; }
       if (!fs.existsSync(path.join(worldStore, 'locations', `${area}.json`))) { row.failure = 'no manifest of the location in this store after the build'; write(); continue; }
-      const host = wantedCapture === 'auto' ? captureHost() : wantedCapture, dir = path.join(out, 'locations', area);
+      const host = wanted === 'auto' ? captureHost() : wanted, dir = path.join(out, 'locations', area);
       const session = ['run', host, host === 'mac' ? sandbox : `${sandbox}-${host}`, '--kind', 'func', '--window-size', '1920,1080', '--load-timeout', String(readyTimeout + 100),
         ...(host === 'mac' ? [] : ['--headless', '--forward', String(port())]), '--',
         'node', 'scripts/dev/scene-capture.mjs', '--mode', 'render', '--world', area, '--area', area, '--views', viewsFile, '--base', base,
@@ -163,7 +164,7 @@ async function main() {
       }
       console.error(`[world-set] captured ${area} on ${host}: ${row.failure ?? `${part.views.length} views, load ${part.timings?.loadMs} ms`}`);
       write();
-    }
+    } }));
     if (argv.includes('--drop')) {
       // Only what a capture needs stays on this machine: everything is captured, the set's manifests and meshes go.
       for (const row of rows) fs.rmSync(path.join(worldStore, 'locations', `${row.area}.json`), { force: true });
