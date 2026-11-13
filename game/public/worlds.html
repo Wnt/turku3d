@@ -1,0 +1,76 @@
+<!doctype html>
+<!-- The start page of a host that serves locations of the new world (VITE_START_PAGE, tools/share/publish-w2.sh):
+     every location in world/index.json with a link to play it and one to look around it. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Turku3D · new world</title>
+<style>
+  :root { color-scheme: dark; --bg: #0b1d24; --panel: #12303a; --line: #2c6b76; --text: #e9f4f2; --dim: #9fc4c2; --accent: #7fe3c8; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 40px 16px 64px; }
+  .eyebrow { color: var(--accent); letter-spacing: .18em; font-size: 12px; text-transform: uppercase; }
+  h1 { margin: 6px 0 8px; font-size: 32px; line-height: 1.15; }
+  p { margin: 0 0 12px; color: var(--dim); max-width: 64ch; }
+  ul { list-style: none; margin: 28px 0 0; padding: 0; display: grid; gap: 10px; }
+  li { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 14px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+  .name { flex: 1 1 220px; min-width: 0; }
+  .name strong { display: block; font-size: 18px; }
+  .name span { color: var(--dim); font-size: 13px; font-variant-numeric: tabular-nums; }
+  a.button { display: inline-block; padding: 8px 16px; border: 1px solid var(--line); border-radius: 6px; color: var(--text); text-decoration: none; font-weight: 600; }
+  a.button.play { background: var(--accent); border-color: var(--accent); color: #06231f; }
+  a.button:hover, a.button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .note { color: var(--dim); font-size: 13px; }
+  footer { margin-top: 36px; color: var(--dim); font-size: 14px; }
+  footer a { color: var(--accent); }
+  kbd { font: 12px ui-monospace, monospace; padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--text); }
+</style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">Turku3D · new world</div>
+  <h1>Pick a location</h1>
+  <p>Each location is built by the new world pipeline. Play walks and drives with the normal game (alone for now);
+    Look around is a free camera.</p>
+  <p class="note">Play: controller, or <kbd>WASD</kbd> move, mouse look, <kbd>F</kbd> enter or exit the car, <kbd>W</kbd>/<kbd>S</kbd> drive.
+    Look around: <kbd>WASD</kbd>, drag to look, <kbd>Q</kbd>/<kbd>E</kbd> down and up, <kbd>Shift</kbd> fast, wheel for speed.
+    A location takes one to two minutes to load.</p>
+  <ul id="locations"><li class="note">Loading the list…</li></ul>
+  <footer>
+    <div id="published"></div>
+    <div><a href="classic/">The old next-generation build</a> stays here as it was before the new world.</div>
+  </footer>
+</main>
+<script>
+  const list = document.getElementById('locations');
+  const title = name => name.replace(/-/g, ' ').replace(/^./, c => c.toUpperCase());
+  const row = location => {
+    const item = document.createElement('li'), name = document.createElement('div');
+    name.className = 'name';
+    const strong = document.createElement('strong'), detail = document.createElement('span');
+    strong.textContent = title(location.name);
+    detail.textContent = `${location.entities.toLocaleString('en')} objects · radius ${Math.round(location.query.radius)} m · built ${location.built.replace('T', ' ').replace('Z', ' UTC')}`;
+    name.append(strong, detail);
+    item.append(name);
+    const link = (text, href, kind) => { const a = document.createElement('a'); a.className = `button ${kind}`; a.textContent = text; a.href = href; item.append(a); };
+    // Daylight (?time=14:00 holds the clock): the game's own day runs with the shared clock and may be night.
+    if (location.playable) link('Play', `./?world=${location.name}&time=14:00`, 'play');
+    else { const note = document.createElement('span'); note.className = 'note'; note.textContent = 'not playable yet'; item.append(note); }
+    link('Look around', `./?world=${location.name}&preview=1`, 'look');
+    return item;
+  };
+  fetch('world/index.json', { cache: 'no-store' }).then(response => {
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
+  }).then(index => {
+    // The described pilot locations first, then the automatic points.
+    const rows = [...index.locations].sort((a, b) => /^dev-/.test(a.name) - /^dev-/.test(b.name) || a.name.localeCompare(b.name));
+    list.replaceChildren(...rows.map(row));
+    if (!rows.length) list.innerHTML = '<li class="note">No location is published yet.</li>';
+    document.getElementById('published').textContent = `List published ${index.published.replace('T', ' ').replace('Z', ' UTC')}.`;
+  }).catch(error => { list.innerHTML = ''; const item = document.createElement('li'); item.className = 'note'; item.textContent = `The list of locations did not load (${error.message}).`; list.append(item); });
+</script>
+</body>
+</html>

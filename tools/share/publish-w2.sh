@@ -10,7 +10,8 @@
 #
 # What one run does:
 #  1. Client: builds REV (default local/loop-integration) on this Mac in a detached worktree with the share-host
-#     settings of the lab (VITE_SHARE_HOSTS, VITE_PUBLIC_RELEASE) and uploads the dist to
+#     settings of the lab (VITE_SHARE_HOSTS, VITE_PUBLIC_RELEASE; VITE_START_PAGE=worlds.html makes the root open
+#     the list of locations, game/public/worlds.html) and uploads the dist to
 #     ~/turku3d-local/city/releases/w2-<sha>/dist (files the running release already has are hard-linked, not sent).
 #     A sha that is already built is not built again; --no-client skips the client altogether.
 #  2. Locations: the world stores that location builds left ON THE HOST (default: this track's
@@ -69,7 +70,7 @@ if [ "$CLIENT" = 1 ]; then
     git -C "$REPO" worktree add -q --detach "$WT" "$SHA"
     ln -s "$(cd "$REPO/game/node_modules" && pwd -P)" "$WT/game/node_modules"
     say "building the client on the Mac (share host $PUBLIC_HOST)"
-    (cd "$WT/game" && TURKU3D_BUILD_COMMIT="$SHA" TURKU3D_WORK="$BUILD/work" VITE_SHARE_HOSTS=$PUBLIC_HOST VITE_PUBLIC_RELEASE=1 \
+    (cd "$WT/game" && TURKU3D_BUILD_COMMIT="$SHA" TURKU3D_WORK="$BUILD/work" VITE_SHARE_HOSTS=$PUBLIC_HOST VITE_PUBLIC_RELEASE=1 VITE_START_PAGE=worlds.html \
       ./node_modules/.bin/vite build --logLevel warn --outDir "$BUILD/dist")
     git -C "$REPO" worktree remove --force "$WT"
     phase 'built the client'
@@ -116,7 +117,8 @@ for name in sorted(os.listdir(f'{root}/locations')):
         continue
     missing = sum(1 for e in m['entities'] if e.get('url') and not os.path.exists(f"{root}/{e['url']}"))
     rows.append(dict(name=m['name'], revision=m['revision'], built=m['built'], query=m['query'], focus=m['focus'],
-                     entities=m['stats']['entities'], triangles=m['stats']['triangles'], bytes=m['stats']['bytes'], missing=missing))
+                     entities=m['stats']['entities'], triangles=m['stats']['triangles'], bytes=m['stats']['bytes'], missing=missing,
+                     playable=bool(m.get('collision')), failures=len(m.get('failures', []))))
     print(f"location {m['name']} r{m['revision']} built {m['built']}: {m['stats']['entities']} entities, {missing} missing objects")
 tmp = f'{root}/index.json.tmp'
 json.dump(dict(schema='turku-world-index/1', published=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), locations=rows), open(tmp, 'w'), indent=1)
@@ -164,7 +166,8 @@ curl -fsS -m 10 "https://$PUBLIC_HOST/world/index.json" | python3 -c '
 import json, sys
 index = json.load(sys.stdin)
 for row in index["locations"]:
-    print("  https://city.lab.madekivi.fi/?world=%s   r%s, built %s, %s entities%s" % (row["name"], row["revision"], row["built"], row["entities"], ", %d OBJECTS MISSING" % row["missing"] if row["missing"] else ""))
+    print("  https://city.lab.madekivi.fi/?world=%s   r%s, built %s, %s entities%s%s" % (row["name"], row["revision"], row["built"], row["entities"],
+          "" if row.get("playable") else ", LOOK-AROUND ONLY (&preview=1): built without collision", ", %d OBJECTS MISSING" % row["missing"] if row["missing"] else ""))
 '
 phase 'verified the public site'
 say "live at https://$PUBLIC_HOST/"

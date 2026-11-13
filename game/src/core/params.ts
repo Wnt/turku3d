@@ -75,9 +75,9 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
   if (world !== null && !/^[a-z0-9-]+$/.test(world)) throw new Error(`bad ?world= (a location name): ${world}`);
   // ?preview=1: the generation preview (qa/preview.ts): free-fly camera above the spawn at once, no player,
   // physics, traffic or walkers, and no wait for the start set; draws whatever tiles and scenery exist.
-  // A location of the world pipeline (?world=NAME) is looked at with that camera unless a pose (?cam=), a bench or
-  // play (?play=1) is asked for; main.ts then places the camera from the location's focus.
-  const preview = p.get('preview') === '1' || (world !== null && !cam && !p.has('bench') && p.get('play') !== '1');
+  // A location of the world pipeline (?world=NAME) is played; with ?preview=1 it is looked at with that camera, which
+  // main.ts then places on the location's street.
+  const preview = p.get('preview') === '1';
   if (preview && !qa) {
     const sp0 = nums(p.get('spawn'));
     qa = { E: sp0?.[0] ?? CITY.spawn.E, N: (sp0?.[1] ?? CITY.spawn.N) - 260, H: 150, yawDeg: 0, pitchDeg: -30, fovDeg: 60, rollDeg: 0 };
