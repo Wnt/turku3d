@@ -38,6 +38,7 @@ READ_AREA_M2 = 40.0  # less facade than this in sight: not read, the building st
 VIEW_SHARE = 0.02  # a building filling this much of an asked view is read however small its street front
 # A second look is a whole second reading (0.5 to 1.3 USD notional): one or two lost openings do not pay for it.
 SECOND_LOOK_FROM = 3
+STORE = True  # --no-store: descriptions stay in the run's own root (comparisons against what is stored)
 REVIEW_FRONTAGE_M = 8.0  # a street frontage at least this long is reviewed against its drawing after the reading
 
 
@@ -74,7 +75,7 @@ def finish(record: dict, reading: dict, meta: dict, packet: Path, root: Path) ->
         json.dumps(doc, indent=1, ensure_ascii=False))
     line = {"building": record["building"], "read_s": meta["seconds"], "cost_usd": meta["cost_usd"],
             "invalid": problems[:5] or None, "description": str(target) if not problems else None,
-            "stored": store(doc) if not problems else None}
+            "stored": store(doc) if not problems and STORE else None}
     if not problems:
         try:
             report = check.build_report(doc)
@@ -228,11 +229,14 @@ def main(argv=None) -> int:
                     help="buildings whose views are prepared in parallel")
     ap.add_argument("--force", action="store_true", help="read again even when a description exists")
     ap.add_argument("--no-review", action="store_true", help="stop at tier observed")
+    ap.add_argument("--no-store", action="store_true", help="do not write to the shared description store")
     ap.add_argument("--budget", type=float, default=None,
                     help="notional USD: no reading starts once this much is spent (most visible buildings first)")
     ap.add_argument("--no-second-look", action="store_true",
                     help="keep the first reading even when the generator drops parts of it")
     a = ap.parse_args(argv)
+    global STORE
+    STORE = not a.no_store
     root = a.out or config.work_root() / "observe"
     if a.command == "review":
         from concurrent.futures import ThreadPoolExecutor
