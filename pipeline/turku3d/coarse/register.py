@@ -98,7 +98,9 @@ def read_osm(tile, path):
 
     from turku3d.spatial import rows
 
-    buildings, shops, entrances, streets, doors = [], [], [], [], []
+    from .premises import premise
+
+    buildings, shops, entrances, streets, doors, premises = [], [], [], [], [], []
     raised, grounded = [], []
     window = shapely.box(*tile.bbox.buffered(100).as_tuple())
     classes = {
@@ -152,6 +154,8 @@ def read_osm(tile, path):
             continue
         if tags.get("shop") not in (None, "no", "vacant"):
             shops.append(geom.representative_point())
+        if (found := premise(geom, tags)) is not None:
+            premises.append(found)  # a customer premise: coarse.premises finds its building
         if not tags.get("building"):
             if tags.get("amenity") not in (None, "no") or tags.get("office") not in (None, "no"):
                 entrances.append(
@@ -223,6 +227,7 @@ def read_osm(tile, path):
         entrances=entrances,
         doors=doors,
         streets=streets,
+        premises=premises,
         open_ground=open_ground(raised, grounded),
     )
 
@@ -340,6 +345,12 @@ def enrich(building, registered, osm):
         d["wall_colour_source"] = "measured"
     if any(footprint.distance(point) <= 1 for point in osm.get("shops", [])):
         d["ground_floor"] = "shops"
+    if osm.get("milieus"):
+        # The city's milieu typing of its centre (coarse.milieus): which rules' area scope holds here.
+        from .milieus import milieu_of
+
+        if milieu := milieu_of(footprint, osm["milieus"]):
+            d["milieu"] = milieu
     for point, evidence in osm.get("entrances", []):
         if footprint.distance(point) <= 1:
             for key, value in evidence.items():

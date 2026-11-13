@@ -480,7 +480,7 @@ def _save(path: Path, key: str, value) -> None:
 
 def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[str, list | None]:
     """Raw files per prepared dataset (None for an empty WFS layer); None while not on disk."""
-    from . import bridge_survey, measured_walls, street_survey, piers
+    from . import bridge_survey, measured_walls, milieus, street_survey, piers
     from .harbour import source_paths as harbour_sources
 
     laz, missing = sources.lidar_paths(tile)
@@ -550,6 +550,7 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
                 for name in ("kanta:Rakennus", "GIS:Rakennukset")
                 if (p := sources.wfs_source(name, tile)[1])
             ],
+            *milieus.source_paths(),
         ],
         "register": [
             *(
@@ -689,10 +690,15 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
 
         return prepare_inputs(tile, *paths)
     if dataset == "appearance":
+        from .milieus import DATASET as MILIEUS, read as read_milieus
         from .register import dated_footprints, read_osm, read_register
 
+        zones = [p for p in paths[2:] if p and p.name == MILIEUS.name]
+        registers = [p for p in paths[2:] if p and p.name != MILIEUS.name]
         appearance = read_osm(tile, paths[0]) if paths[0] else {}
-        appearance["dated_footprints"] = dated_footprints(tile, paths[1], read_register(paths[2:]))
+        appearance["dated_footprints"] = dated_footprints(tile, paths[1], read_register(registers))
+        if zones:
+            appearance["milieus"] = read_milieus(zones[0])
         return appearance
     if dataset == "register":
         from .register import read_register
@@ -1017,7 +1023,7 @@ def gather(
         else values["water"]
     )
     from .register import enrich, open_ground_levels, period_evidence, settle_base
-    from . import soffits
+    from . import premises, soffits
 
     for building in [*wfs["buildings"], *wfs.get("wall_context", [])]:
         settle_base(building, ground["points"])
@@ -1034,6 +1040,8 @@ def gather(
                 if a.get("construction_year")
             ],
         )
+    # Premises need every building's milieu and the whole neighbourhood (coarse.premises).
+    premises.apply(wfs["buildings"], wfs.get("wall_context", []), values["appearance"] or {})
     from .boat_inputs import separate, separate_attachments
 
     values["attachments"] = separate_attachments(values.get("attachments") or (), values["boats"])

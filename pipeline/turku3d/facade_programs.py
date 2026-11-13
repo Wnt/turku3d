@@ -344,6 +344,37 @@ def classical(program, attrs, evidence):
             base["variant"] = v("windows")
 
 
+PREMISES = "mapped customer premises in the town"
+
+
+def on_front(points, front, tolerance=0.2):
+    """Whether a wall quad's ground line lies along a footprint edge ``(x0, z0, x1, z1)``."""
+    a, b = np.asarray(front[:2], float), np.asarray(front[2:], float)
+    p0, p1 = np.asarray(points[0])[[0, 2]], np.asarray(points[1])[[0, 2]]
+    edge, wall = b - a, p1 - p0
+    length, width = float(np.linalg.norm(edge)), float(np.linalg.norm(wall))
+    if length < 1e-6 or width < 1e-6 or abs(float(edge @ wall)) < 0.995 * length * width:
+        return False
+    middle = (p0 + p1) / 2 - a
+    along = float(middle @ edge) / length
+    across = abs(float(middle[0] * edge[1] - middle[1] * edge[0])) / length
+    return across <= tolerance and -tolerance <= along <= length + tolerance
+
+
+def premise_shopfronts(program, vertices, fronts):
+    """Open the street storey of the walls on a mapped premise's front (``coarse.premises``) as
+    shopfronts, as a mapped shop opens its building's. Reviewed walls keep what was read; walls
+    without bays (blank or too narrow) stay closed. The storey heights are the building's own."""
+    from turkutex.facade_program import value
+
+    for index, wall in enumerate(program["walls"]):
+        if wall.get("measured_wall_id") or not wall["bays"]["count"]:
+            continue
+        if any(on_front(vertices[index * 4 : index * 4 + 4], front) for front in fronts):
+            wall["base"].update(variant=value("shops", PREMISES, 0.6), shopfront=value(True, PREMISES, 0.6))
+            wall["premise_front"] = True
+
+
 def resolve(building, vertices, eaves, *, layout_height=None):
     renderer()  # Make the shared textures package importable in the OCI pipeline interpreter.
     from turkutex.facade_archetypes import MASONRY, MEASURED_PIGMENT, MONOLITH, sample
@@ -560,6 +591,8 @@ def resolve(building, vertices, eaves, *, layout_height=None):
                 ),
             )
         finish_material(wall, family, own, record, d, building.facade_key)
+    if attrs.get("premise_fronts") and not d and program["archetype"] not in (MASONRY, MONOLITH):
+        premise_shopfronts(program, vertices, attrs["premise_fronts"])
     if program["archetype"] == MONOLITH:
         facade_monolith.apply(program, building.facade_key, vertices, observed, d,
                               getattr(building, "entrances", ()), building.footprint)
