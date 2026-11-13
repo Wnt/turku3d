@@ -81,9 +81,10 @@ def test_measured_colour_fills_the_palette_fallback_below_a_mapped_osm_colour():
 
 
 def test_spot_rebuild_class_is_the_exported_tile_list():
-    from turku3d.migrations import measured_walls, registry
+    from turku3d.migrations import measured_walls, pole_support, registry
 
-    assert registry.CHAIN[-1] is measured_walls.MIGRATION
+    # Appended after the final terrain edit (later steps may follow it).
+    assert registry.CHAIN.index(measured_walls.MIGRATION) > registry.CHAIN.index(pole_support.MIGRATION)
     assert measured_walls.affected(dict(tile="t0_0_0", building_keys=["x"]))
     assert not measured_walls.affected(dict(tile="t0_3_3", building_keys=["x"]))
     assert not measured_walls.affected({})
