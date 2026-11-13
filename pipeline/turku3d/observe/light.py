@@ -42,7 +42,8 @@ from .against import colour_class, median_colour
 MODEL = "claude-fable-5-2"
 EFFORT = "low"
 TIMEOUT_S = 10 * 60
-VERSION = "light-1"
+VERSION = "light-2"  # 2: storeys are full storeys under the eaves, rooms in the roof are `attic`
+EARLIER = ("light-1",)  # answers to these instructions are reused as they are: an image is not paid for twice
 BY = "w2-observe light reader 1"
 REACH_M = 250.0
 LEAST_SHARE = 0.004  # of the photograph's pixels: a building smaller than this is not named to the reader
@@ -65,8 +66,9 @@ Method
 long, a lane 3 m wide).
 3. Buildings: the task lists the buildings the city model puts in view, each with a letter and its `x` range. \
 Describe each one you can see, under its letter; say `seen: false` for one that is hidden. A building in the \
-picture that the list lacks (a shed, a garage, a new block) gets `label: null`. Wall and roof colours are the \
-paint or material in overcast daylight as sRGB hex: correct for sun, shade and the camera.
+picture that the list lacks (a shed, a garage, a new block) gets `label: null`. `storeys` counts the full storeys \
+under the eaves; rooms in the roof (gable windows, dormers) are `attic: true`, not a storey. Wall and roof \
+colours are the paint or material in overcast daylight as sRGB hex: correct for sun, shade and the camera.
 4. Fences, walls, hedges: one entry per run. A fence's `family`: board (closed boards), picket (spaced boards), \
 iron (metal bars), mesh (wire mesh, chain link), railing (a low rail on posts), stone-wall (stone, brick or \
 concrete wall). A hedge with no fence in it is a `planting` entry, not a fence.
@@ -103,7 +105,7 @@ SCHEMA = {
             "label": {"type": ["string", "null"]}, "seen": {"type": "boolean"},
             "type": {"enum": ["detached_house", "row_house", "wooden_house", "apartment_block", "tower_block", "hall",
                               "commercial", "office", "public", "church", "outbuilding", "garage", "kiosk"]},
-            "storeys": {"type": "integer", "minimum": 1},
+            "storeys": {"type": "integer", "minimum": 1}, "attic": {"type": "boolean"},
             "wall": _material(WALL_FAMILIES), "wall2": _material(WALL_FAMILIES),
             "roof": {"type": "object", "additionalProperties": False, "properties": {
                 "form": {"enum": ["flat", "shed", "gable", "hip", "half_hip", "mansard", "pyramid", "complex"]},
@@ -208,8 +210,10 @@ def ask(view: dict, buildings: list, cache: Path, *, model: str = MODEL, effort:
     picture = image_path(view)
     digest = hashlib.sha256(picture.read_bytes()).hexdigest()
     kept = cache / f"{digest[:24]}-{VERSION}.json"
-    if kept.exists():
-        return {**json.loads(kept.read_text()), "reused": True}
+    for version in (VERSION, *EARLIER):
+        earlier = cache / f"{digest[:24]}-{version}.json"
+        if earlier.exists():
+            return {**json.loads(earlier.read_text()), "reused": True}
     task = task_text(view, buildings)
     args = ["claude", "-p", "--model", model, "--effort", effort, "--system-prompt", INSTRUCTIONS,
             "--tools", "Read", "--allowedTools", "Read", "--add-dir", str(picture.parent), "--strict-mcp-config",

@@ -317,14 +317,14 @@ def rate(rows: list, agrees) -> tuple[int, int]:
     return sum(verdicts), len(verdicts)
 
 
-def confusions(rows: list, agrees, pair, limit: int = 4) -> str:
+def confusions(rows: list, agrees, pair, limit: int = 4, words=("drawn", "read")) -> str:
     if not pair:
         return ""
     wrong = collections.Counter((r.get(pair[0]), r.get(pair[1])) for r in rows if agrees(r) is False)
-    return "; ".join(f"{a} drawn, {b} read ×{n}" for (a, b), n in wrong.most_common(limit))
+    return "; ".join(f"{a} {words[0]}, {b} {words[1]} ×{n}" for (a, b), n in wrong.most_common(limit))
 
 
-def table(rows: list, attributes: list, split: str | None, minimum: int = 4) -> list[str]:
+def table(rows: list, attributes: list, split: str | None, minimum: int = 4, words=("drawn", "read")) -> list[str]:
     groups = [("all", rows)]
     if split:
         by = collections.defaultdict(list)
@@ -345,7 +345,7 @@ def table(rows: list, attributes: list, split: str | None, minimum: int = 4) -> 
         else:
             good, total = rate(rows, agrees)
             share = f"{100 * good / total:.0f} %" if total else "-"
-            lines.append(f"| {name} | {good} | {total} | {share} | {confusions(rows, agrees, pair)} |")
+            lines.append(f"| {name} | {good} | {total} | {share} | {confusions(rows, agrees, pair, words=words)} |")
     return lines
 
 
@@ -428,6 +428,51 @@ def fence_rows(store: Path, sources) -> list:
     return rows
 
 
+def light_rows(store: Path, buildings: list) -> list:
+    """Buildings a light reading of a judged photograph described (location files), beside the full reading and
+    the automatic tier of the same building: one row per building, from the view that saw it best."""
+    full = {row["key"]: row for row in buildings}
+    best = {}
+    for path in sorted((store / "location").glob("*.json")):
+        for item in json.loads(path.read_text()).get("items", []):
+            key = item.get("entity", "").removeprefix("building/")
+            if item["kind"] == "building" and key in full and (key not in best or item["conf"] > best[key]["conf"]):
+                best[key] = {**item, "location": path.stem}
+    rows = []
+    for key, item in best.items():
+        row, wall, roof = full[key], item.get("wall", {}), item.get("roof", {})
+        out = {"key": key, "location": item["location"], "view": item["view"], "conf": item["conf"], "share": item.get("share"),
+               "wall_family_light": wall.get("family"), "wall_family_read": row["wall_family_read"],
+               "wall_family_auto": row["wall_family_auto"],
+               "wall_colour_light": wall.get("colour"), "wall_colour_read": row["wall_colour_read"],
+               "storeys_light": item.get("storeys"), "storeys_read": row["storeys_read"], "storeys_auto": row["storeys_auto"],
+               "roof_family_light": roof.get("family"), "roof_family_read": row["roof_family_read"],
+               "roof_family_auto": row["roof_family_auto"], "wall_dE_auto": row.get("wall_dE")}
+        if wall.get("colour") and row.get("wall_colour_read"):
+            out["wall_dE_light"] = round(delta_e(wall["colour"], row["wall_colour_read"]), 1)
+        if roof.get("colour") and row.get("roof_colour_read"):
+            out["roof_dE_light"] = round(delta_e(roof["colour"], row["roof_colour_read"]), 1)
+        rows.append(out)
+    return rows
+
+
+LIGHT_ATTRIBUTES = [
+    ("wall family, light = full reading", _same("wall_family_light", "wall_family_read"), ("wall_family_light", "wall_family_read")),
+    ("wall family, automatic = full reading", _same("wall_family_auto", "wall_family_read"), None),
+    (f"wall colour within dE {COLOUR_CLOSE:.0f}, light to full",
+     lambda r: None if r.get("wall_dE_light") is None else r["wall_dE_light"] <= COLOUR_CLOSE, None),
+    (f"wall colour within dE {COLOUR_CLOSE:.0f}, automatic to full",
+     lambda r: None if r.get("wall_dE_light") is None or r.get("wall_dE_auto") is None else r["wall_dE_auto"] <= COLOUR_CLOSE, None),
+    ("storeys, light = full reading", lambda r: None if r.get("storeys_light") is None else r["storeys_light"] == r["storeys_read"],
+     ("storeys_light", "storeys_read")),
+    ("storeys, automatic = full reading", lambda r: None if r.get("storeys_light") is None else r["storeys_auto"] == r["storeys_read"], None),
+    ("roofing family, light = full reading", lambda r: None if r.get("roof_family_light") is None else r["roof_family_light"] == r["roof_family_read"],
+     ("roof_family_light", "roof_family_read")),
+    ("roofing family, automatic = full reading",
+     lambda r: None if r.get("roof_family_light") is None else r["roof_family_auto"] == r["roof_family_read"], None),
+]
+
+
 def write_csv(path: Path, rows: list):
     columns = list(dict.fromkeys(k for row in rows for k in row))
     with path.open("w", newline="") as handle:
@@ -446,6 +491,8 @@ def run(out: Path | None = None, store: Path | None = None) -> dict:
         row = building_row(key, stored, sources)
         (buildings if row else missing).append(row or key)
     fences = fence_rows(store, sources)
+    light = light_rows(store, buildings)
+    write_csv(out / "light.csv", light)
     write_csv(out / "buildings.csv", buildings)
     write_csv(out / "fences.csv", fences)
     summary = {
@@ -519,6 +566,14 @@ def run(out: Path | None = None, store: Path | None = None) -> dict:
     for r in fences:
         text.append(f"| {r['key']} | {r['setting']} | {r['family_auto']} | {r['family_read']}{' + hedge' if r['hedge_read'] else ''} | "
                     f"{r['height_auto']} / {r['height_read']} | {r['colour_auto']} / {r['colour_read']} | {r['guessed']} |")
+    sure = [r for r in light if r["conf"] >= 0.5]
+    text += ["", f"## Light readings of judged photographs against full readings ({len(light)} buildings; rows in light.csv)", "",
+             "One cheap call per photograph (observe light) against the full reading of the same building, with the "
+             "automatic tier on the same buildings beside it.", "",
+             "### All", "", *table(light, LIGHT_ATTRIBUTES, None, words=("light", "full")), "",
+             f"### Light confidence 0.5 or more ({len(sure)})", "", *table(sure, LIGHT_ATTRIBUTES, None, words=("light", "full")), "",
+             f"Wall colour, light to full: {spread(light, 'wall_dE_light')}; at confidence 0.5 or more: {spread(sure, 'wall_dE_light')}. "
+             f"Roof colour, light to full: {spread(light, 'roof_dE_light')}."]
     if missing:
         text += ["", f"Not found in the sources at their first wall frame: {', '.join(missing)}."]
     (out / "report.md").write_text("\n".join(text) + "\n")
