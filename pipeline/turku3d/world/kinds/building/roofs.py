@@ -263,7 +263,7 @@ def build(
                 )
 
     for chimney in roof.get("chimneys", []):
-        _chimney(soup, shell, chimney, palette, facade_by_wall, report)
+        _chimney(soup, shell, chimney, palette, facade_by_wall, doc or {}, report)
     for index, dormer in enumerate(roof.get("dormers", [])):
         _dormer(
             soup,
@@ -415,16 +415,17 @@ def _dormer(
         soup.place(template, frame, u0, v0, extra=extra)
 
 
-def _chimney(soup, shell, chimney, palette: Palette, facade_by_wall, report):
+def _chimney(soup, shell, chimney, palette: Palette, facade_by_wall, doc, report):
     anchor = chimney.get("anchor", {})
     if "at" in anchor:
         centre = np.asarray(anchor["at"], float)
         u_dir = shell.facades[0].u_dir if shell.facades else np.array([1.0, 0.0, 0.0])
     elif anchor.get("wall") in facade_by_wall:
         facade = facade_by_wall[anchor["wall"]]
-        centre = facade.point(
-            anchor.get("u_m", facade.width / 2), 0.0, -anchor.get("setback_m", 3.0)
-        )[:2]
+        # The anchor's u is measured on the described wall's own frame, like the wall's openings.
+        wall = next((w for w in doc.get("walls", []) if w.get("id") == anchor["wall"]), {})
+        u = u_mapping(facade, wall)(anchor["u_m"]) if "u_m" in anchor else facade.width / 2
+        centre = facade.point(u, 0.0, -anchor.get("setback_m", 3.0))[:2]
         u_dir = facade.u_dir
     else:
         report.append("chimney without a usable anchor")
