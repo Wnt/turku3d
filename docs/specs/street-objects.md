@@ -94,6 +94,15 @@ line is the planting behind it.
 A register line that the lidar does not confirm (coverage under the family's threshold) and that was surveyed
 before the scan is left out: an object in the wrong place is worse than a missing one.
 
+### Gates and mapped fence types
+
+`fence/o<OSM node>` is a gate (`family: "gate"`): an OpenStreetMap `barrier=gate` node moved onto the register fence
+line within 2 m of it, turned along that line (`bearing`), as tall and of the same `colour` as that fence, `leaf`
+`board` or `iron` after the fence's family, `width` 3 m (two leaves) where a driveway passes through it and 1 m
+where a path does (`guessed: ["width", "leaf"]`). A gate on no register fence is not drawn. A register line that
+runs within 1.5 m of a mapped fence carrying `fence_type`, `height` or `material` keeps those tags in `osm`; a
+mapped `fence_type` decides between open bars and boards before the lidar density does.
+
 ## `turku-description/furniture/1`
 
 | Field | Meaning |

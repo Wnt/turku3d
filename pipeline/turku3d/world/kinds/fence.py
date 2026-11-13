@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import colorsys
 import math
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
+import shapely
 
 from ..api import Area, Instances, Output, Stub
 from ..frame import to_engine
@@ -37,6 +39,11 @@ IRON = "#1b1c1e"
 # only tell a warm paint from the rest, so a board fence is cream, the commonest paint, unless they are clearly warm.
 PAINTS = {"cream": "#d8d0b6", "ochre": "#c9a35a", "red": "#8c3b2c", "brown": "#6b4a36"}
 DEFAULT_WOOD = PAINTS["cream"]
+OPEN_TYPES = ("bars", "metal", "railing", "chain_link", "wire")  # OSM fence_type values of a fence one sees through
+MAPPED = 1.5  # m: a register line this near a mapped fence along its length is that fence
+GATE_REACH = 2.0  # m from a mapped gate to the fence line it stands in
+GATE_WIDTH = {"drive": 3.0, "walk": 1.0}  # m: a double gate across a driveway, a single leaf across a path
+DRIVES = ("service", "residential", "unclassified", "track", "living_street")
 
 
 def _paint(rgb: np.ndarray | None) -> tuple[str, bool]:
@@ -134,6 +141,35 @@ def post(family: str, height: float, colour: str) -> Mesh:
     return mesh
 
 
+@lru_cache(maxsize=256)
+def gate(leaf: str, height: float, width: float, colour: str) -> tuple:
+    """A gate in a fence line, its length along +X and centred: two posts that stand above the fence and one leaf
+    (two when it is wider than 2 m). A board leaf is thicker than the fence's boards and rails and an iron leaf's
+    frame thicker than its rails, so the fence the register draws through the opening is inside the gate."""
+    mesh = Mesh()
+    material = painted_metal(IRON) if leaf == "iron" else painted_wood(colour)
+    thick = 0.08 if leaf == "iron" else 0.14
+    for side in (-1, 1):
+        mesh.box("posts", material, [side * (width / 2 + thick / 2), (height + 0.25 - BURY) / 2, -0.015], [thick, height + 0.25 + BURY, thick])
+    leaves = 2 if width > 2.0 else 1
+    span = width / leaves
+    for k in range(leaves):
+        x = -width / 2 + span * (k + 0.5)
+        if leaf == "iron":
+            for y in (0.12, height - 0.04):
+                mesh.box("frame", material, [x, y, 0], [span - 0.02, 0.045, 0.045])
+            for edge in (-1, 1):
+                mesh.box("frame", material, [x + edge * (span / 2 - 0.033), height / 2 + 0.04, 0], [0.045, height - 0.2, 0.045])
+            count = max(round((span - 0.14) / 0.11), 1)
+            for j in range(count):
+                mesh.box("bars", material, [x - (span - 0.14) / 2 + (span - 0.14) * (j + 0.5) / count, height / 2 + 0.04, 0], [0.02, height - 0.2, 0.02])
+        else:
+            mesh.box("leaf", material, [x, height / 2 + 0.05, -0.015], [span - 0.02, height - 0.06, 0.11])
+            for y in (0.3, height - 0.25):  # the ledges a board gate is nailed on, proud of its face
+                mesh.box("ledges", material, [x, y, 0.05], [span - 0.06, 0.12, 0.03])
+    return tuple(mesh.parts())
+
+
 def gate_post(height: float) -> Mesh:
     mesh = Mesh()
     mesh.box("pillar", GRANITE, [0, (height - BURY) / 2, 0], [0.36, height + BURY, 0.36])
@@ -148,7 +184,9 @@ class Fence:
     def discover(self, area: Area, sources) -> list[Stub]:
         lines, posts = registers.barriers(sources, area.bbox(2.0))
         lidar = registers.lidar_of(sources)
+        gates, mapped = registers.mapped_barriers(sources, area.bbox(GATE_REACH + 2.0))
         stubs = []
+        built = []  # (line, facts) of the fences a gate can stand in
         for row in lines:
             line = np.array(row["line"])
             box = (line[:, 0].min(), line[:, 1].min(), line[:, 0].max(), line[:, 1].max())
@@ -171,15 +209,21 @@ class Fence:
             family = {"stone-fence": "stone-wall", "railing": "railing"}.get(kind) or ("board" if height >= 1.25 else "picket")
             guessed.append("family")
             near = np.zeros((0, 7))
+            path = shapely.LineString(line)
+            samples = [path.interpolate(t, normalized=True) for t in (0.25, 0.5, 0.75)]
+            tags = next((row["tags"] for row in mapped if all(row["line"].distance(point) <= MAPPED for point in samples)), {})
             if kind == "wood-fence":
-                import shapely
-
                 points = lidar.box(box[0] - 0.4, box[1] - 0.4, box[2] + 0.4, box[3] + 0.4, rgb=True)
                 points = points[(points[:, 2] > 0.3) & (points[:, 2] < 3.0) & (points[:, 3] != 5)]
-                path = shapely.LineString(line)
                 near = points[shapely.distance(path, shapely.points(points[:, :2])) <= 0.3] if len(points) else near
                 density = len(near) / max(path.length, 0.5)
-                if density < OPEN and path.length >= 4.0:
+                # A mapper's fence type decides between bars and boards; without one, how much the scan sees does.
+                see_through = tags["fence_type"] in OPEN_TYPES if "fence_type" in tags else density < OPEN and path.length >= 4.0
+                if "fence_type" in tags:
+                    guessed.remove("family")
+                    if not see_through and tags["fence_type"] == "wood":
+                        guessed.append("family")  # boards or pickets is still read from the height
+                if see_through:
                     # Boards return the scan all along; a fence it barely sees is open bars. What stands higher over
                     # such a line is the planting behind it, so its height is read from the low returns only.
                     family = "iron"
@@ -199,6 +243,8 @@ class Fence:
                                        "height_p60": round(float(np.percentile(standing, 60)), 2) if len(standing) else None}},
                 "register": {"code": row["code"], "surveyed": row["surveyed"]},
             }
+            if tags:
+                facts["osm"] = tags
             if kind == "wood-fence":
                 facts["measured"]["lidar"]["returns_per_m"] = round(float(density), 1)
                 if family == "iron":
@@ -214,6 +260,33 @@ class Fence:
             facts["interaction"] = interaction(behaviour, "box", [PANEL[family], height, 0.4 if family == "stone-wall" else 0.1],
                                                None if behaviour == "fixed" else 18.0 * height, per="panel")
             stubs.append(Stub(f"fence/{row['id']}", tuple(float(v) for v in box), [row["source"]], facts))
+            if family in ("board", "picket", "iron"):
+                built.append((shapely.LineString(np.array(facts["line"])[:, :2]), facts))
+        for row in gates:
+            # A mapped gate stands in the fence line it is on, as tall and of the same paint; one that is on no
+            # fence (a gateway through a building, a boom) is not drawn.
+            point = shapely.Point(row["e"], row["n"])
+            if not built or not area.touches((row["e"] - 0.5, row["n"] - 0.5, row["e"] + 0.5, row["n"] + 0.5)):
+                continue
+            path, fence = min(built, key=lambda item: item[0].distance(point))
+            if path.distance(point) > GATE_REACH:
+                continue
+            along = path.project(point)
+            a, b = path.interpolate(max(along - 0.5, 0.0)), path.interpolate(min(along + 0.5, path.length))
+            foot = path.interpolate(along)
+            ground = registers.ground_height(sources, foot.x, foot.y)
+            if not math.isfinite(ground) or a.distance(b) < 0.1:
+                continue
+            width = GATE_WIDTH["drive" if row["way"] in DRIVES else "walk"]
+            height = fence["height"]
+            facts = {"at": [round(foot.x, 2), round(foot.y, 2), round(ground, 2)], "type": "gate", "family": "gate",
+                     "leaf": "iron" if fence["family"] == "iron" else "board", "height": height, "width": width,
+                     "bearing": round(math.degrees(math.atan2(b.x - a.x, b.y - a.y)) % 360, 1), "colour": fence.get("colour", DEFAULT_WOOD),
+                     "osm": {"way": row["way"], **{k: v for k, v in row["tags"].items() if k in ("material", "access", "height")}},
+                     "basis": "OSM gate node moved onto the register fence line it stands in; as tall as that fence",
+                     "guessed": ["width", "leaf"],
+                     "interaction": interaction("breakable", "box", [width, height, 0.14], 25.0 * height * width)}
+            stubs.append(Stub(f"fence/{row['id']}", (foot.x - width, foot.y - width, foot.x + width, foot.y + width), [row["source"]], facts))
         for row in posts:
             e, n = row["e"], row["n"]
             if not area.touches((e - 0.5, n - 0.5, e + 0.5, n + 0.5)):
@@ -244,6 +317,13 @@ class Fence:
             e, n, h = description["at"]
             item = Instances(gate_post(height).parts(), np.array([[0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0]]), ids=[entity],
                              behaviour=block.get("behaviour"), collision=block.get("collision"))
+            return Output(tuple(float(v) for v in to_engine(e, n, h)), [], [item])
+        if family == "gate":
+            e, n, h = description["at"]
+            width = round(float(description.get("width", 1.0)) * 4) / 4
+            item = Instances(list(gate(description.get("leaf", "board"), height, width, colour)),
+                             np.array([[0.0, 0.0, 0.0, round(yaw_of_run(float(description.get("bearing", 0.0))), 4), 1.0, 1.0, 1.0]]),
+                             ids=[entity], behaviour=block.get("behaviour"), collision=block.get("collision"), mass=block.get("mass"))
             return Output(tuple(float(v) for v in to_engine(e, n, h)), [], [item])
         line = np.array(description["line"], dtype=float)
         origin = np.array(to_engine(*line[0]), dtype=float)

@@ -8,13 +8,10 @@ from __future__ import annotations
 
 import json
 import math
-from functools import lru_cache
-from pathlib import Path
 
 import numpy as np
 import shapely
 
-from ... import config
 from .lidar import ObjectLidar
 
 Box = tuple[float, float, float, float]
@@ -25,7 +22,6 @@ GATE_POST = "66114"
 LAMP_LAYERS = ("Kiilai:uv-pylväs mitattu", "rr:js,pylväs,valaisin", "rr:js,uv-pylväs", "Kiilai:uv-pylväs digitoitu")
 LAMP_DUPLICATE = 1.5
 CAR_PARTS = ("Ajorata", "Pyöräkaista")
-OSM_SQUARE = 2000.0
 
 
 def lidar_of(sources) -> ObjectLidar:
@@ -195,51 +191,29 @@ class Streets:
 
 # -- OpenStreetMap ------------------------------------------------------------------------------------------------
 
-@lru_cache(maxsize=1)
-def _osm_extracts() -> list[tuple[Box, Path]]:
-    """The OSM extracts of the raw mirror and the shared cache: (bbox, parquet)."""
-    found = []
-    for root in (config.raw_dir("osm"), Path(config.data_root()) / "world" / "sources" / "osm"):
-        if not root.is_dir():
-            continue
-        for summary in sorted(root.glob("*/*.summary.json")):
-            parquet = summary.with_name(summary.name.replace(".summary.json", ".parquet"))
-            name = summary.parent.name
-            if not parquet.exists():
-                continue
-            box = None
-            if name.startswith("coarse-osm-"):  # a 2 km square named by its west and north edges
-                e, n = (float(v) for v in name.removeprefix("coarse-osm-").split("_"))
-                box = (e, n - OSM_SQUARE, e + OSM_SQUARE, n)
-            if box is not None:
-                found.append((box, parquet))
-    return found
+FENCE_TAGS = ("fence_type", "height", "material")
 
 
-_osm_frames: dict[Path, object] = {}
-
-
-def osm(box: Box, keys: tuple[str, ...]) -> list[dict]:
-    """OSM objects in the box that carry any of the tag keys: {id, tags, geometry (EPSG:3877)}. Empty where no
-    extract covers the box yet."""
-    import geopandas as gpd
-
-    rows, seen = [], set()
-    query = shapely.box(*box)
-    for cover, path in _osm_extracts():
-        if not (cover[0] <= box[0] and cover[1] <= box[1] and cover[2] >= box[2] and cover[3] >= box[3]):
-            continue
-        if path not in _osm_frames:
-            _osm_frames[path] = gpd.read_parquet(path, columns=["osm_type", "osm_id", "tags", "geometry"])
-        frame = _osm_frames[path]
-        hit = frame[frame.geometry.intersects(query)]
-        for kind, ident, tags, geometry in zip(hit.osm_type, hit.osm_id, hit.tags, hit.geometry):
+def mapped_barriers(sources, box: Box) -> tuple[list[dict], list[dict]]:
+    """What OpenStreetMap knows of barriers in a box: gates {id, e, n, way (the highway class through the gate),
+    tags, source} and the fence lines that carry a type, height or material {line, tags}."""
+    frame = sources.osm.features(box)
+    gates, fences = [], []
+    if not len(frame):
+        return gates, fences
+    ways = [(shapely.force_2d(g), str(h)) for g, h in zip(frame.geometry, frame.highway) if g.geom_type == "LineString" and isinstance(h, str)]
+    tree = shapely.STRtree([line for line, _ in ways]) if ways else None
+    for kind, ident, tags, barrier, geometry in zip(frame.osm_type, frame.osm_id, frame.tags, frame.barrier, frame.geometry):
+        if barrier == "gate" and geometry.geom_type == "Point":
+            through = [ways[int(k)] for k in tree.query(geometry.buffer(0.5))] if tree is not None else []
+            through = sorted((line.distance(geometry), name) for line, name in through)
+            gates.append({"id": f"o{ident}", "e": round(float(geometry.x), 2), "n": round(float(geometry.y), 2),
+                          "way": through[0][1] if through and through[0][0] <= 0.5 else "",
+                          "tags": json.loads(tags) if isinstance(tags, str) else dict(tags or {}),
+                          "source": {"source": "osm", "key": f"{kind}/{ident}"}})
+        elif barrier == "fence" and geometry.geom_type == "LineString":
             tags = json.loads(tags) if isinstance(tags, str) else dict(tags or {})
-            ref = f"{kind[0]}{ident}"
-            if ref in seen or not any(k in tags for k in keys):
-                continue
-            seen.add(ref)
-            rows.append({"id": ref, "tags": tags, "geometry": geometry, "source": {"source": "osm", "key": f"{kind}/{ident}"}})
-        break
-    rows.sort(key=lambda row: row["id"])
-    return rows
+            if any(name in tags for name in FENCE_TAGS):
+                fences.append({"line": shapely.force_2d(geometry), "tags": {name: tags[name] for name in FENCE_TAGS if name in tags}})
+    gates.sort(key=lambda row: row["id"])
+    return gates, fences

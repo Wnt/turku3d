@@ -27,6 +27,8 @@ ASSETS = {
     "lamp street-arm": lambda: lamp_parts(family="street-arm", height=10.1, arm={"bearing": 40.0, "reach": 2.6}),
     "lamp street-top": lambda: lamp_parts(family="street-top", height=8.0),
     "lamp park": lambda: lamp_parts(family="park", height=4.6),
+    "board gate": lambda: fence.gate("board", 1.8, 3.0, "#d8d0b6"),
+    "iron gate": lambda: fence.gate("iron", 1.0, 1.0, "#1b1c1e"),
     "signal post": signal.post_asset,
     "signal vehicle head": lambda: signal.head_asset("vehicle"),
     "signal pedestrian head": lambda: signal.head_asset("pedestrian"),
