@@ -352,17 +352,25 @@ LIGHTNESS = {
 
 def measured_colour(material: dict, measured: dict | None) -> dict:
     """A wall material in the colour measured for it (a robust sample of the building's wall in a street photo):
-    the hue and chroma as measured, the lightness within the family's range. Under confidence 0.4 it is ignored."""
+    the hue and chroma as measured, the lightness within the family's range, weighed by the measurement's
+    confidence against the colour the kind and decade give. Under confidence 0.2 it is ignored; from 0.2 it counts
+    half, rising to all of it at 0.5. On the 139 read buildings (`observe against --measured`) this beat a hard cut
+    at 0.4 on the mean and the upper quartile (dE 13.7 -> 13.1, 17.0 -> 15.8) with the same median."""
     if not measured or "colour" not in measured:
         return material
     confidence = measured.get("conf", 1.0)
     if isinstance(confidence, dict):
         confidence = confidence.get("colour", confidence.get("*", 1.0))
-    if confidence < 0.4:
+    if confidence < 0.2:
         return material
+    weight = 0.5 + 0.5 * min(1.0, (confidence - 0.2) / 0.3)
     lightness, a, b = lab(measured["colour"])
     low, high = LIGHTNESS.get(material.get("family"), (20.0, 93.0))
-    out = {**material, "colour": from_lab(min(high, max(low, lightness)), a, b)}
+    lightness = min(high, max(low, lightness))
+    if weight < 1.0 and material.get("colour"):
+        base = lab(material["colour"])
+        lightness, a, b = (p + (q - p) * weight for p, q in zip(base, (lightness, a, b)))
+    out = {**material, "colour": from_lab(lightness, a, b)}
     if material.get("family") == "brick":
         out["colour2"] = "#cfc9bb" if lightness > 62 else "#b9b2a5"
     return out

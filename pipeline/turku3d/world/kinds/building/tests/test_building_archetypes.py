@@ -63,8 +63,12 @@ def test_a_measured_wall_colour_replaces_the_palette_pick_within_the_familys_lig
     measured = automatic(register, stored={"measured": {"wall": {"colour": "#7a4234", "conf": {"*": 0.7}}}})
     assert measured["materials"]["wall"]["family"] == picked["family"] == "brick"
     assert measured["materials"]["wall"]["colour"] == "#7a4234"
-    unsure = automatic(register, stored={"measured": {"wall": {"colour": "#7a4234", "conf": {"*": 0.2}}}})
+    unsure = automatic(register, stored={"measured": {"wall": {"colour": "#7a4234", "conf": {"*": 0.15}}}})
     assert unsure["materials"]["wall"]["colour"] == picked["colour"]
+    # Between 0.2 and 0.5 the measurement counts half to all: the colour lies between the pick and the measurement.
+    half = automatic(register, stored={"measured": {"wall": {"colour": "#7a4234", "conf": {"*": 0.2}}}})
+    lp, lm, lh = (archetypes.lab(c) for c in (picked["colour"], "#7a4234", half["materials"]["wall"]["colour"]))
+    assert all(abs(h - (p + m) / 2) < 1.0 for p, m, h in zip(lp, lm, lh))
     # Pixels in deep shade keep their hue; the wall is not drawn darker than brick is.
     dark = automatic(register, stored={"measured": {"wall": {"colour": "#2a1612"}}})
     assert archetypes.lab(dark["materials"]["wall"]["colour"])[0] >= 29.0
