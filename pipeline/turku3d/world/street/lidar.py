@@ -1,7 +1,7 @@
 """Ground and vegetation rasters from the city's lidar, one small file per 500 m LAZ tile.
 
 The point cloud is the only measured relief. Every kind that needs a height (ground, trees, wall bases) reads it
-here, so that things meet. A raster file is derived data: it is rebuilt from the LAZ tile when this module changes.
+here, so that things meet. A raster file is derived data: it is rebuilt from the LAZ tile when `RECIPE` changes.
 
 Layers, all on one grid of `CELL` metres whose cell (row, col) of the tile with south-west corner (E0, N0) is centred at
 E0 + (col + 0.5) * CELL, N0 + (row + 0.5) * CELL:
@@ -18,15 +18,14 @@ nearest measured cell on the edge of a neighbouring tile, sea level where there 
 """
 from __future__ import annotations
 
-import hashlib
 import os
-import subprocess
 from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
 
 from turku3d import config as C
+from turku3d.world.sources import lidar as shared
 
 CELL = 0.5
 TILE = C.LAZ_TILE_SIZE
@@ -54,30 +53,11 @@ class NotSurveyed(FileNotFoundError):
 
 
 def laz_path(name: str) -> Path:
-    """The LAZ tile: the read-only raw mirror first, else fetched once into the shared source cache.
-
-    The server's 404 is remembered beside the fetched tiles (`<name>.absent`) and raises `NotSurveyed`.
-    """
-    fetched = sources_root() / 'laz' / 'pistepilvi' / f'{name}.laz'
-    absent = fetched.with_suffix('.absent')
-    for path in (C.raw_dir('laz') / 'pistepilvi' / f'{name}.laz', C.raw_dir('laz-3x3') / f'{name}.laz', fetched):
-        if path.exists():
-            return path
-    if absent.exists():
+    """The LAZ tile (`sources.lidar.laz_path`); raises `NotSurveyed` where the survey has none."""
+    path = shared.laz_path(name)
+    if path is None:
         raise NotSurveyed(f'The survey has no lidar tile {name}')
-    fetched.parent.mkdir(parents=True, exist_ok=True)
-    part = fetched.with_name(fetched.name + f'.{os.getpid()}.part')
-    url = C.LAZ_URL.format(dataset='pistepilvi', name=name)
-    done = subprocess.run(['curl', '-L', '--fail', '--silent', '--show-error', '--max-time', '900', '-o', str(part), url],
-                          capture_output=True, text=True, timeout=930)
-    if done.returncode:
-        part.unlink(missing_ok=True)
-        if 'returned error: 404' in done.stderr:   # curl exits 22 or 56 for it, by version
-            absent.write_text('404\n')
-            raise NotSurveyed(f'The survey has no lidar tile {name}')
-        raise FileNotFoundError(f'No lidar tile {name}: {done.stderr.strip()}')
-    part.replace(fetched)
-    return fetched
+    return path
 
 
 def _cell_groups(index, order_key):
@@ -114,10 +94,8 @@ def _fill(grid, known):
 
 def build(name: str) -> dict:
     """Rasterise one LAZ tile. About two seconds for 17 million returns."""
-    import laspy
-
     e0, n0 = tile_corner(name)
-    las = laspy.read(laz_path(name))
+    las = shared.read(laz_path(name))
     cls = np.asarray(las.classification)
     use = np.isin(cls, (GROUND, LOW_VEG, MEDIUM_VEG, HIGH_VEG))
     cls = cls[use]
@@ -185,14 +163,23 @@ def unsurveyed(name: str) -> dict:
                 shrub=blank, rgb=np.zeros((SIDE, SIDE, 3), np.uint8), intensity=blank)
 
 
-def _recipe() -> str:
-    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:16]
+# Names the rasters' content. Change it when `build` or `unsurveyed` would give other layers; an edit that leaves
+# them as they are must not rasterise a city's worth of tiles again.
+RECIPE = '53a8ebc55ca041e8'
+
+
+def tile_path(name: str) -> Path:
+    return sources_root() / 'lidar-rasters' / RECIPE / f'{name}.npz'
+
+
+def tile_done(name: str) -> bool:
+    return tile_path(name).exists()
 
 
 @lru_cache(maxsize=12)
 def tile(name: str) -> dict:
     """The rasters of one LAZ tile, built on first use and kept in the shared source cache."""
-    path = sources_root() / 'lidar-rasters' / _recipe() / f'{name}.npz'
+    path = tile_path(name)
     if path.exists():
         with np.load(path) as data:
             return {key: data[key] for key in data.files}

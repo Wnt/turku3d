@@ -121,12 +121,20 @@ def find(points: np.ndarray, cars: list, roofed, ground) -> tuple[list[dict], li
     return spans, lamps
 
 
+def tile_path(name: str):
+    return data_root() / "sources" / "object-spans" / VERSION / f"{name}.json"
+
+
+def tile_done(name: str) -> bool:
+    return tile_path(name).exists()
+
+
 def tile(sources, te: float, tn: float) -> dict:
     """The stored spans of the survey tile whose south-west corner is (te, tn), found on first use."""
     from . import registers
 
     name = f"{int(te)}_{int(tn + TILE)}"
-    path = data_root() / "sources" / "object-spans" / VERSION / f"{name}.json"
+    path = tile_path(name)
     if path.exists():
         return json.loads(path.read_text())
     lidar = registers.lidar_of(sources)

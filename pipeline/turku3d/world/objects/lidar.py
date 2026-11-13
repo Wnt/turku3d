@@ -21,6 +21,7 @@ from pathlib import Path
 import numpy as np
 
 from ... import config
+from ..sources import lidar as shared
 
 VERSION = "4"
 TILE = 500.0
@@ -30,7 +31,6 @@ TWIN_RETURNS, TWIN_SPREAD = 10, 35.0  # returns in the layer of two arms; degree
 SIDE = int(TILE / CELL)
 GROUND, BUILDING, NOISE = 2, 6, 7
 MIN_HAG, MAX_HAG = 0.25, 40.0
-URL = "https://turku.asiointi.fi/3d/pistepilvi/{name}.laz"
 
 
 def data_root() -> Path:
@@ -39,33 +39,13 @@ def data_root() -> Path:
 
 
 def laz_path(name: str, fetch: bool = True) -> Path | None:
-    """The full point cloud tile named by its north-west corner: the raw mirror first, else the shared cache."""
-    cached = data_root() / "sources" / "laz" / "pistepilvi" / f"{name}.laz"
-    for path in (config.raw_dir("laz") / "pistepilvi" / f"{name}.laz", config.raw_dir("laz-3x3") / f"{name}.laz", cached):
-        if path.exists():
-            return path
-    if not fetch or cached.with_suffix(".missing").exists():
-        return None
-    import subprocess
-
-    cached.parent.mkdir(parents=True, exist_ok=True)
-    part = cached.with_name(f"{cached.name}.{os.getpid()}.part")
-    done = subprocess.run(["curl", "-L", "--fail", "--silent", "--show-error", "--max-time", "900", "-o", str(part), URL.format(name=name)],
-                          capture_output=True, text=True, timeout=930)
-    if done.returncode:
-        part.unlink(missing_ok=True)
-        if "404" in done.stderr:
-            cached.with_suffix(".missing").write_text("404\n")
-            return None
-        raise OSError(f"lidar tile {name}: {done.stderr.strip()}")
-    part.replace(cached)
-    return cached
+    """The full point cloud tile named by its north-west corner (`sources.lidar.laz_path`)."""
+    return shared.laz_path(name, fetch)
 
 
 def build_tile(name: str) -> dict | None:
     """The object returns of one tile: x, y (m from the tile's south-west corner), hag (m above ground), z, class,
     sorted by 1 m cell, with the cell offsets and the 1 m ground grid."""
-    import laspy
     from scipy.ndimage import distance_transform_edt, maximum_filter
 
     path = laz_path(name)
@@ -73,7 +53,7 @@ def build_tile(name: str) -> dict | None:
         return None
     east, north = (float(v) for v in name.split("_"))
     e0, n0 = east, north - TILE
-    las = laspy.read(path)
+    las = shared.read(path)
     x, y, z = np.asarray(las.x) - e0, np.asarray(las.y) - n0, np.asarray(las.z)
     cls = np.asarray(las.classification)
     col, row = np.clip(np.floor(x / CELL).astype(np.int64), 0, SIDE - 1), np.clip(np.floor(y / CELL).astype(np.int64), 0, SIDE - 1)
@@ -106,26 +86,54 @@ def build_tile(name: str) -> dict | None:
     }
 
 
-def _metres(tile: dict) -> dict:
-    """A stored tile (centimetres as uint16) as the arrays the queries use."""
-    return {**tile, **{key: tile[key].astype(np.float32) * 0.01 for key in ("x", "y", "hag")}}
+def tile_path(name: str) -> Path:
+    return data_root() / "sources" / "object-lidar" / VERSION / f"{name}.npz"
+
+
+def tile_done(name: str) -> bool:
+    path = tile_path(name)
+    return path.exists() or path.with_suffix(".missing").exists()
+
+
+def _cut(tile: dict, clip: tuple[float, float, float, float] | None, e0: float, n0: float) -> dict:
+    """A stored tile with only the returns of the cells a survey box touches (all of them without a box); the
+    cell rows and columns kept are remembered so that a read beyond them can tell."""
+    if clip is None:
+        return {**tile, "kept": (0, SIDE - 1, 0, SIDE - 1)}
+    c0, c1 = int(np.clip(np.floor((clip[0] - e0) / CELL), 0, SIDE - 1)), int(np.clip(np.floor((clip[2] - e0) / CELL), 0, SIDE - 1))
+    r0, r1 = int(np.clip(np.floor((clip[1] - n0) / CELL), 0, SIDE - 1)), int(np.clip(np.floor((clip[3] - n0) / CELL), 0, SIDE - 1))
+    starts = tile["starts"].astype(np.int64)
+    a, b = int(starts[r0 * SIDE]), int(starts[(r1 + 1) * SIDE])
+    cell = np.repeat(np.arange(r0 * SIDE, (r1 + 1) * SIDE, dtype=np.int64), np.diff(starts[r0 * SIDE:(r1 + 1) * SIDE + 1]))
+    keep = (cell % SIDE >= c0) & (cell % SIDE <= c1)
+    cut = {key: np.ascontiguousarray(tile[key][a:b][keep]) for key in ("x", "y", "hag", "cls", "rgb")}
+    cut["starts"] = np.searchsorted(cell[keep], np.arange(SIDE * SIDE + 1)).astype(np.uint32)
+    return {**cut, "ground": tile["ground"], "roof": tile["roof"], "kept": (r0, r1, c0, c1)}
 
 
 class ObjectLidar:
-    """Object returns by area, tile by tile, built on first use."""
+    """Object returns by area, tile by tile, built on first use.
 
-    def __init__(self, log=print, fetch: bool = True):
+    A tile holds up to 16 million returns. With `clip` (a survey box: a build's whole area with a margin) only
+    the returns inside it stay in memory, as the centimetres they are stored in; a read that reaches beyond the
+    box loads that tile whole, so the answer never depends on the box."""
+
+    def __init__(self, log=print, fetch: bool = True, clip: tuple[float, float, float, float] | None = None):
         self.tiles: dict[str, dict | None] = {}
         self.log = log
         self.fetch = fetch
+        self.clip = clip
         self.cache = data_root() / "sources" / "object-lidar" / VERSION
 
-    def tile(self, e0: float, n0: float) -> dict | None:
+    def tile(self, e0: float, n0: float, whole: bool = False) -> dict | None:
         name = f"{int(e0)}_{int(n0 + TILE)}"
-        if name not in self.tiles:
+        held = self.tiles.get(name)
+        if name not in self.tiles or (whole and held is not None and held["kept"] != (0, SIDE - 1, 0, SIDE - 1)):
+            clip = None if whole else self.clip
             path = self.cache / f"{name}.npz"
             if path.exists():
-                self.tiles[name] = _metres(dict(np.load(path)))
+                with np.load(path) as data:
+                    self.tiles[name] = _cut({key: data[key] for key in data.files}, clip, e0, n0)
             elif path.with_suffix(".missing").exists() or (not self.fetch and laz_path(name, fetch=False) is None):
                 self.tiles[name] = None
             else:
@@ -138,12 +146,13 @@ class ObjectLidar:
                     np.savez_compressed(tmp, **built)
                     tmp.replace(path)
                     self.log(f"  object lidar tile {name}: {len(built['x'])} returns above ground")
-                self.tiles[name] = built and _metres(built)
+                self.tiles[name] = built and _cut(built, clip, e0, n0)
         return self.tiles[name]
 
     def box(self, e0: float, n0: float, e1: float, n1: float, rgb: bool = False) -> np.ndarray:
         """Returns in a survey box as rows (E, N, hag, class), with the scan's own colour (r, g, b: 0..255) on demand."""
         out = []
+        metres = lambda values: values.astype(np.float32) * 0.01  # noqa: E731 - stored as centimetres
         for te in np.arange(np.floor(e0 / TILE) * TILE, e1, TILE):
             for tn in np.arange(np.floor(n0 / TILE) * TILE, n1, TILE):
                 tile = self.tile(te, tn)
@@ -151,11 +160,14 @@ class ObjectLidar:
                     continue
                 c0, c1 = int(max(np.floor((e0 - te) / CELL), 0)), int(min(np.floor((e1 - te) / CELL), SIDE - 1))
                 r0, r1 = int(max(np.floor((n0 - tn) / CELL), 0)), int(min(np.floor((n1 - tn) / CELL), SIDE - 1))
+                kept = tile["kept"]
+                if r0 <= r1 and c0 <= c1 and (r0 < kept[0] or r1 > kept[1] or c0 < kept[2] or c1 > kept[3]):
+                    tile = self.tile(te, tn, whole=True)
                 starts = tile["starts"]
                 for row in range(r0, r1 + 1):
                     a, b = int(starts[row * SIDE + c0]), int(starts[row * SIDE + c1 + 1])
                     if b > a:
-                        columns = [tile["x"][a:b] + te, tile["y"][a:b] + tn, tile["hag"][a:b], tile["cls"][a:b]]
+                        columns = [metres(tile["x"][a:b]) + te, metres(tile["y"][a:b]) + tn, metres(tile["hag"][a:b]), tile["cls"][a:b]]
                         out.append(np.column_stack(columns + ([tile["rgb"][a:b]] if rgb else [])))
         if not out:
             return np.zeros((0, 7 if rgb else 4))

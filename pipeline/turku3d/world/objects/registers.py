@@ -27,7 +27,7 @@ CAR_PARTS = ("Ajorata", "Pyöräkaista")
 def lidar_of(sources) -> ObjectLidar:
     """One object-lidar reader per Sources instance."""
     if not hasattr(sources, "_object_lidar"):
-        sources._object_lidar = ObjectLidar(log=sources.log)
+        sources._object_lidar = ObjectLidar(log=sources.log, clip=getattr(sources, "clip", None))
     return sources._object_lidar
 
 

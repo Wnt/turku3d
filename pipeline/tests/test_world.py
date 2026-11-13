@@ -139,6 +139,12 @@ def test_a_kind_whose_discover_raises_costs_the_location_one_failure_row(posts, 
             self.wfs = types.SimpleNamespace(fetched=[])
             self.terrain = types.SimpleNamespace(heights=lambda e, n: np.array([5.0]))
 
+        def prepare(self, box, jobs=None):
+            return {}
+
+        def release(self):
+            pass
+
     monkeypatch.setattr(KINDS["posts"], "discover", lambda area, sources: [stub], raising=False)
     monkeypatch.setattr(driver, "KINDS", {"unreadable": Unreadable(), "posts": KINDS["posts"]})
     monkeypatch.setattr(driver, "Sources", NoSources)
@@ -146,6 +152,13 @@ def test_a_kind_whose_discover_raises_costs_the_location_one_failure_row(posts, 
     assert [row["id"] for row in manifest["entities"]] == ["posts/p1"]
     assert manifest["failures"] == [{"id": "unreadable/*", "error": "discover: FileNotFoundError: No lidar tile 1_2"}]
     assert store.location("t")["failures"] == manifest["failures"]
+    # Nothing stored was read: the manifest says the build is cold, and where it spent its time.
+    assert manifest["descriptions"]["stage"] == "cold" and manifest["descriptions"]["used"] == []
+    assert {"lidar", "discover:posts", "describe", "compile", "collision"} <= set(manifest["timings"]["stages"])
+    world_store.write_description({"schema": "turku-description/posts/1", "id": "posts/p1", "tier": "observed", "provenance": [], "height": 3.0}, by="test")
+    used = driver.build("t", Area(2.0, 2.0, 10.0), 50.0, store, log=lambda *_: None)["descriptions"]
+    assert used["stage"] == "characterised" and used["byTier"] == {"observed": 1}
+    assert [(row["id"], row["tier"], row["role"]) for row in used["used"]] == [("posts/p1", "observed", "scene")]
 
 
 def test_osm_table_has_one_row_per_point_line_and_area(tmp_path):

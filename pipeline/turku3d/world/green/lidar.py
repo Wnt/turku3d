@@ -14,14 +14,13 @@ shared source cache, `$TURKU3D_WORLD_DATA/sources/green/lidar-<RECIPE>/<tile>.np
 north-west corner, as the city names it.
 
 The survey ends at the city's edge: a tile the city's server does not have (HTTP 404) is unsurveyed, not an error.
-It is remembered as `<tile>.unsurveyed` beside the fetched tiles, holds no returns, and a window that reaches into
-it takes its ground from the nearest measured cells.
+It is remembered beside the fetched tiles (`sources.lidar`), holds no returns, and a window that reaches into it
+takes its ground from the nearest measured cells.
 """
 
 from __future__ import annotations
 
 import os
-import subprocess
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -29,6 +28,7 @@ from pathlib import Path
 import numpy as np
 
 from ... import config
+from ..sources import lidar as shared
 
 TILE = config.LAZ_TILE_SIZE
 GRID = 0.5  # ground, roof and hits rasters
@@ -66,27 +66,11 @@ def tile_corner(name: str) -> tuple[float, float]:
 
 
 def laz_path(name: str) -> Path:
-    """The LAZ tile: the read-only raw mirror first, else fetched once into the shared source cache."""
-    fetched = sources_root() / "laz" / "pistepilvi" / f"{name}.laz"
-    for path in (config.raw_dir("laz") / "pistepilvi" / f"{name}.laz", config.raw_dir("laz-3x3") / f"{name}.laz", fetched):
-        if path.exists():
-            return path
-    missing = fetched.with_suffix(".unsurveyed")
-    if missing.exists():
+    """The LAZ tile (`sources.lidar.laz_path`); raises `Unsurveyed` where the survey has none."""
+    path = shared.laz_path(name)
+    if path is None:
         raise Unsurveyed(name)
-    fetched.parent.mkdir(parents=True, exist_ok=True)
-    part = fetched.with_name(f"{fetched.name}.{os.getpid()}.part")
-    url = config.LAZ_URL.format(dataset="pistepilvi", name=name)
-    done = subprocess.run(["curl", "-L", "--fail", "--silent", "--show-error", "--max-time", "900", "-o", str(part), url],
-                          capture_output=True, text=True, timeout=930)
-    if done.returncode:
-        part.unlink(missing_ok=True)
-        if "returned error: 404" in done.stderr:
-            missing.write_text(f"{url}\n{done.stderr.strip()}\n")
-            raise Unsurveyed(name)
-        raise FileNotFoundError(f"No lidar tile {name}: {done.stderr.strip()}")
-    part.replace(fetched)
-    return fetched
+    return path
 
 
 def fill(grid: np.ndarray, known: np.ndarray) -> np.ndarray:
@@ -103,10 +87,8 @@ def fill(grid: np.ndarray, known: np.ndarray) -> np.ndarray:
 
 def reduce(name: str) -> dict[str, np.ndarray]:
     """Reads one LAZ tile (about a second) and reduces it (about two more)."""
-    import laspy
-
     e0, n0 = tile_corner(name)
-    las = laspy.read(laz_path(name))
+    las = shared.read(laz_path(name))
     cls = np.asarray(las.classification)
     x, y, z = np.asarray(las.x), np.asarray(las.y), np.asarray(las.z)
     col = np.clip(np.floor((x - e0) / GRID).astype(np.int64), 0, SIDE - 1)
@@ -150,10 +132,18 @@ def reduce(name: str) -> dict[str, np.ndarray]:
     }
 
 
+def tile_path(name: str) -> Path:
+    return sources_root() / "green" / f"lidar-{RECIPE}" / f"{name}.npz"
+
+
+def tile_done(name: str) -> bool:
+    return tile_path(name).exists() or shared.absent(name)
+
+
 @lru_cache(maxsize=12)
 def tile(name: str) -> dict[str, np.ndarray] | None:
     """The reduction of a tile, or None where the city was not surveyed."""
-    path = sources_root() / "green" / f"lidar-{RECIPE}" / f"{name}.npz"
+    path = tile_path(name)
     if path.exists():
         with np.load(path) as data:
             return {key: data[key] for key in data.files}

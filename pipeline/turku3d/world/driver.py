@@ -10,6 +10,7 @@ import json
 import os
 import time
 from concurrent.futures import ProcessPoolExecutor
+from multiprocessing import get_context
 from pathlib import Path
 
 import numpy as np
@@ -20,9 +21,10 @@ from .roads import location_roads
 from .frame import ORIGIN, to_engine
 from .glb import pack
 from .kinds import KINDS, code_hash
+from .meter import Meter
 from .sources import Sources
 from .sources.ortho import DEFAULT as ORTHO_LAYER
-from .store import Store, canonical, read_description, sha256
+from .store import READ, Store, canonical, descriptions_used, read_description, sha256
 
 FORMAT = 2  # the record and GLB layout; a change rebuilds everything
 VIEWS = Path(__file__).resolve().parents[3] / "qa/views/views.jsonl"
@@ -255,42 +257,29 @@ def source_cover(area: Area, sources: Sources, log=print) -> dict:
     return cover
 
 
-def build(name: str, area: Area, background: float, store: Store, log=print) -> dict:
-    """Discovers and compiles a location; writes and returns its manifest."""
-    started = time.perf_counter()
-    sources = Sources(log=log)
-    wide = area.grown(max(background, area.radius))
-    stubs: list[Stub] = []
-    timings: dict[str, float] = {}
-    unread = []
-    for kind in KINDS.values():
-        t0 = time.perf_counter()
-        try:
-            stubs += kind.discover(wide, sources)
-        except Exception as error:  # one kind's sources failing here must not cost the location its other kinds
-            unread.append({"id": f"{kind.name}/*", "error": f"discover: {type(error).__name__}: {error}"})
-            log(f"  FAILED {kind.name}/*: discover: {type(error).__name__}: {error}")
-        timings[f"discover:{kind.name}"] = time.perf_counter() - t0
-    cover = source_cover(area, sources, log)
-    discovered = time.perf_counter()
-    rows, work, planned = [], {}, []
-    for stub in sorted(stubs, key=lambda s: s.id):
-        store.put_facts(stub.id, {"id": stub.id, "box": list(stub.box), "sources": stub.sources, "facts": stub.facts})
-        t0 = time.perf_counter()
-        planned.append([stub, *plan(store, stub)])
-        per_kind = work.setdefault(stub.kind, {})
-        per_kind["describe"] = per_kind.get("describe", 0.0) + time.perf_counter() - t0
-    described = time.perf_counter()
-    # Compile is pure, so the entities that need it are spread over TURKU3D_JOBS processes when there are enough.
+def compile_all(store: Store, stubs: list[Stub], meter: Meter, log=print) -> tuple[list, dict, list[dict], int]:
+    """Describes every stub and compiles those whose description or generator is new, in TURKU3D_JOBS processes
+    when there are enough. Returns ([stub, record | None], seconds per kind, failures, how many compiled)."""
+    work: dict[str, dict] = {}
+    planned = []
+    with meter.stage("describe"):
+        for stub in sorted(stubs, key=lambda s: s.id):
+            t0 = time.perf_counter()
+            planned.append([stub, *plan(store, stub)])
+            per_kind = work.setdefault(stub.kind, {})
+            per_kind["describe"] = per_kind.get("describe", 0.0) + time.perf_counter() - t0
+    # Compile is pure, so the entities that need it are spread over the processes.
     missing = [entry for entry in planned if entry[3] is None]
     jobs = max(1, int(os.environ.get("TURKU3D_JOBS") or 1))
     tasks = [(str(store.root), stub, description, key) for stub, description, key, _ in missing]
-    if jobs > 1 and len(tasks) >= 8 * jobs:
-        with ProcessPoolExecutor(jobs) as pool:
-            done = list(pool.map(compile_job, tasks, chunksize=4))
-    else:
-        done = [compile_job(task) for task in tasks]
-    failures = list(unread)
+    with meter.stage("compile"):
+        if jobs > 1 and len(tasks) >= 8 * jobs:
+            # Fresh processes: a forked worker would carry everything discover left in this one.
+            with ProcessPoolExecutor(jobs, mp_context=get_context("spawn")) as pool:
+                done = list(pool.map(compile_job, tasks, chunksize=4))
+        else:
+            done = [compile_job(task) for task in tasks]
+    failures = []
     for entry, (record, seconds, error) in zip(missing, done):
         entry[3] = record
         per_kind = work[entry[0].kind]
@@ -299,9 +288,67 @@ def build(name: str, area: Area, background: float, store: Store, log=print) -> 
         if error:
             failures.append({"id": entry[0].id, "error": error})
             log(f"  FAILED {entry[0].id}: {error}")
-    for stub, _, _, record in planned:
-        if record is not None:
-            rows.append(manifest_row(record, "scene" if area.box_distance(stub.box) <= area.radius else "background"))
+    return [(stub, record) for stub, _, _, record in planned], work, failures, len(missing)
+
+
+def finish(manifest: dict, store: Store, meter: Meter, log=print, collide: bool = True, start=None) -> None:
+    """The parts of a manifest that follow from its entity rows: the totals, which stored descriptions the build
+    read, and (`collide`) what the player walks and drives on (collision.py; `start()` gives where they start; a
+    failure there costs the location its play mode, never its build)."""
+    rows = manifest["entities"]
+    manifest["stats"] = stats_of(rows)
+    manifest["descriptions"] = descriptions_used({row["id"]: row["role"] for row in rows})
+    if not collide:
+        return
+    with meter.stage("collision"):
+        try:
+            manifest["collision"] = collision_cells(store, rows, log)
+            place = start() if start else None
+            if place:
+                manifest["start"] = place
+        except Exception as error:  # noqa: BLE001
+            manifest["failures"] = [row for row in manifest["failures"] if row["id"] != "collision/*"]
+            manifest["failures"].append({"id": "collision/*", "error": f"{type(error).__name__}: {error}"[:300]})
+            log(f"  FAILED collision/*: {type(error).__name__}: {error}")
+    manifest.setdefault("timings", {})["collisionMs"] = round(meter.stages["collision"]["s"] * 1000)
+
+
+def build(name: str, area: Area, background: float, store: Store, log=print) -> dict:
+    """Discovers and compiles a location; writes and returns its manifest."""
+    started = time.perf_counter()
+    meter = Meter(log)
+    READ.clear()
+    sources = Sources(log=log)
+    wide = area.grown(max(background, area.radius))
+    jobs = max(1, int(os.environ.get("TURKU3D_JOBS") or 1))
+    stubs: list[Stub] = []
+    timings: dict[str, float] = {}
+    unread = []
+    # The lidar products of every tile the location touches, made ahead in worker processes (sources/lidar.py);
+    # the kinds then read small windows of them and keep only what lies in the location's box.
+    with meter.stage("lidar"):
+        try:
+            prepared = sources.prepare(wide.bbox(), jobs)
+        except Exception as error:  # noqa: BLE001 - the kinds make what is missing on first use, and report it
+            prepared = {"error": f"{type(error).__name__}: {error}"[:300]}
+            log(f"  lidar stage failed, the kinds read tiles as they go: {prepared['error']}")
+    for kind in KINDS.values():
+        with meter.stage(f"discover:{kind.name}"):
+            try:
+                stubs += kind.discover(wide, sources)
+            except Exception as error:  # one kind's sources failing here must not cost the location its other kinds
+                unread.append({"id": f"{kind.name}/*", "error": f"discover: {type(error).__name__}: {error}"})
+                log(f"  FAILED {kind.name}/*: discover: {type(error).__name__}: {error}")
+        timings[f"discover:{kind.name}"] = meter.stages[f"discover:{kind.name}"]["s"]
+    with meter.stage("sources:cover"):
+        cover = source_cover(area, sources, log)
+    discovered = time.perf_counter()
+    for stub in stubs:
+        store.put_facts(stub.id, {"id": stub.id, "box": list(stub.box), "sources": stub.sources, "facts": stub.facts})
+    sources.release()
+    planned, work, failed, compiled_count = compile_all(store, stubs, meter, log)
+    rows = [manifest_row(record, "scene" if area.box_distance(stub.box) <= area.radius else "background")
+            for stub, record in planned if record is not None]
     compiled = time.perf_counter()
     ground = sources.terrain.heights(area.e, area.n)[0]
     previous = store.location(name)
@@ -310,39 +357,29 @@ def build(name: str, area: Area, background: float, store: Store, log=print) -> 
         "query": {"crs": "EPSG:3877", "at": [area.e, area.n], "radius": area.radius, "background": wide.radius},
         "origin": list(ORIGIN),
         "focus": [round(float(v), 3) for v in to_engine(area.e, area.n, float(ground) if np.isfinite(ground) else 0.0)],
-        "entities": rows, "stats": stats_of(rows), "sources": cover, "failures": failures,
+        "entities": rows, "sources": cover, "failures": unread + failed,
         "timings": {
             "sourcesMs": round(sum(sources.timings.values()) * 1000),
             "discoverMs": round((discovered - started) * 1000),
-            "describeMs": round((described - discovered) * 1000),
-            "compileMs": round((compiled - described) * 1000),
+            "describeMs": round(meter.stages["describe"]["s"] * 1000),
+            "compileMs": round(meter.stages["compile"]["s"] * 1000),
             "totalMs": 0,
         },
     }
-    # What the player walks and drives on, and where they start (collision.py); a failure costs the location its
-    # play mode, never its build.
-    began = time.perf_counter()
-    try:
-        manifest["collision"] = collision_cells(store, rows, log)
-        start = street_start(area, sources, log)
-        if start:
-            manifest["start"] = start
-    except Exception as error:  # noqa: BLE001
-        failures.append({"id": "collision/*", "error": f"{type(error).__name__}: {error}"[:300]})
-        log(f"  FAILED collision/*: {type(error).__name__}: {error}")
-    manifest["timings"]["collisionMs"] = round((time.perf_counter() - began) * 1000)
+    finish(manifest, store, meter, log, start=lambda: street_start(area, sources, log))
     # Street graphs per 250 m tile (roads.py): the car's start on a street, walkers, the map. A failure costs the
     # location its streets, never its build.
-    began = time.perf_counter()
-    try:
-        roads = location_roads(store, rows, sources, log)
-        if roads:
-            manifest["roads"] = roads
-    except Exception as error:  # noqa: BLE001
-        failures.append({"id": "roads/*", "error": f"{type(error).__name__}: {error}"[:300]})
-        log(f"  FAILED roads/*: {type(error).__name__}: {error}")
-    manifest["timings"]["roadsMs"] = round((time.perf_counter() - began) * 1000)
-    manifest["timings"]["totalMs"] = round((time.perf_counter() - started) * 1000)
+    with meter.stage("roads"):
+        try:
+            roads = location_roads(store, rows, sources, log)
+            if roads:
+                manifest["roads"] = roads
+        except Exception as error:  # noqa: BLE001
+            manifest["failures"].append({"id": "roads/*", "error": f"{type(error).__name__}: {error}"[:300]})
+            log(f"  FAILED roads/*: {type(error).__name__}: {error}")
+    meter.close()
+    manifest["timings"].update(totalMs=round((time.perf_counter() - started) * 1000), stages=meter.stages,
+                               roadsMs=round(meter.stages["roads"]["s"] * 1000), peakMb=round(meter.peak_mb), lidar=prepared)
     store.put_location(manifest)
     log(f"location {name}: E {area.e} N {area.n} radius {area.radius:g} m, background {wide.radius:g} m, revision {manifest['revision']}")
     log(f"  sources   {sum(sources.timings.values()):7.2f} s  " + ", ".join(f"{k} {v:.2f}" for k, v in sorted(sources.timings.items())))
@@ -354,7 +391,11 @@ def build(name: str, area: Area, background: float, store: Store, log=print) -> 
         count = sum(1 for r in rows if r["kind"] == kind.name)
         log(f"  {kind.name:<9} discover {timings[f'discover:{kind.name}']:6.2f} s, describe {w.get('describe', 0):6.2f} s, "
             f"compile {w.get('compile', 0):6.2f} s: {count} entities, {w.get('compiled', 0)} compiled")
-    log(f"  compile   {compiled - described:7.2f} s wall for {len(missing)} entities in {jobs if len(tasks) >= 8 * jobs else 1} process(es), {len(failures)} failed")
+    log(f"  compile   {compiled - discovered:7.2f} s wall for {compiled_count} entities in {jobs if compiled_count >= 8 * jobs else 1} process(es), "
+        f"{len(manifest['failures'])} failed")
+    used = manifest["descriptions"]
+    log(f"  stored    {used['stage']}: " + (", ".join(f"{count} {tier}" for tier, count in sorted(used["byTier"].items())) or "no stored description read"))
+    log(f"  memory    {meter.peak_mb:7.0f} MB at its highest (the build's whole process tree)")
     stats = manifest["stats"]
     log(f"  total     {time.perf_counter() - started:7.2f} s: {stats['entities']} entities, {stats['triangles']} triangles, "
         f"{stats['instances']} instances, {stats['bytes'] / 1e6:.1f} MB -> {store.location_path(name)}")
@@ -362,29 +403,48 @@ def build(name: str, area: Area, background: float, store: Store, log=print) -> 
 
 
 def refresh(name: str, store: Store, ids: list[str] | None = None, log=print) -> dict:
-    """Recompiles entities of a built location from their cached source facts (all, or `ids`), and rewrites the
-    manifest when anything a client draws changed. Returns {revision, changed, ms}."""
+    """Recompiles entities of a built location from their cached source facts (all, or `ids`), without reading
+    sources, and rewrites the manifest when anything a client draws changed: the rebuild after a stored
+    description or a generator changed. Returns {revision, changed, failures, ms}."""
     started = time.perf_counter()
     manifest = store.location(name)
     if manifest is None:
         raise SystemExit(f"location {name!r} is not built in {store.root}")
-    known = {row["id"] for row in manifest["entities"]}
-    missing = [i for i in ids or [] if i not in known]
-    if missing:
-        raise SystemExit(f"not in location {name}: {', '.join(missing)}")
+    index = {row["id"]: k for k, row in enumerate(manifest["entities"])}
+    unknown = [i for i in ids or [] if i not in index]
+    if unknown:
+        raise SystemExit(f"not in location {name}: {', '.join(unknown)}")
+    if ids is None:
+        READ.clear()
+    else:  # the rest of the location keeps what its last build read
+        READ.update({row["id"]: {k: v for k, v in row.items() if k in ("tier", "sha256")}
+                     for row in manifest.get("descriptions", {}).get("used", []) if row["id"] not in ids})
+    stubs = []
+    for row in manifest["entities"]:
+        if ids is None or row["id"] in ids:
+            saved = store.facts(row["id"])
+            stubs.append(Stub(saved["id"], tuple(saved["box"]), saved["sources"], saved["facts"]))
+    meter = Meter(lambda *_: None)
+    planned, _, failures, _ = compile_all(store, stubs, meter, log)
     changed = []
-    for index, row in enumerate(manifest["entities"]):
-        if ids is not None and row["id"] not in ids:
-            continue
-        saved = store.facts(row["id"])
-        stub = Stub(saved["id"], tuple(saved["box"]), saved["sources"], saved["facts"])
-        fresh = manifest_row(entity_record(store, stub), row["role"])
+    for stub, record in planned:
+        if record is None:
+            continue  # the entity keeps its last output; the failure is reported
+        row = manifest["entities"][index[stub.id]]
+        fresh = manifest_row(record, row["role"])
         if fresh != row:
-            manifest["entities"][index] = fresh
-            changed.append(row["id"])
+            manifest["entities"][index[stub.id]] = fresh
+            changed.append(stub.id)
     if changed:
-        manifest.update(revision=manifest["revision"] + 1, built=now(), stats=stats_of(manifest["entities"]))
+        tried = {stub.id for stub in stubs}
+        manifest.update(revision=manifest["revision"] + 1, built=now(),
+                        failures=[row for row in manifest.get("failures", []) if row["id"] not in tried] + failures)
+        # A whole refresh makes the play collision again (the start stays where the build put it); the rebuild of
+        # single entities is the live path and leaves it to the next whole one.
+        finish(manifest, store, meter, log, collide=ids is None and "collision" in manifest)
         store.put_location(manifest)
+    meter.close()
     ms = round((time.perf_counter() - started) * 1000)
-    log(f"location {name}: revision {manifest['revision']}, {len(changed)} changed in {ms} ms" + (f": {', '.join(changed[:6])}" if changed else ""))
-    return {"revision": manifest["revision"], "changed": changed, "ms": ms}
+    log(f"location {name}: revision {manifest['revision']}, {len(changed)} changed in {ms} ms" + (f": {', '.join(changed[:6])}" if changed else "")
+        + (f"; {len(failures)} failed" if failures else ""))
+    return {"revision": manifest["revision"], "changed": changed, "failures": failures, "ms": ms}

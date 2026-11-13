@@ -573,24 +573,26 @@ TILE = 500.0
 
 
 def _returns(e0: float, n0: float, e1: float, n1: float, fetch: bool):
-    """Survey returns (E, N, H, class) in a box from the LAZ tiles it touches."""
-    import laspy
-
-    from .lidar import laz_path
+    """Survey returns (E, N, H, class) in a box, those the detection can use (`sources.lidar.wire_returns` drops the
+    ground below its lowest per cell and what stands under 0.8 m: about half of a tile)."""
+    from ..sources import lidar as shared
 
     out = []
     for te in np.arange(np.floor(e0 / TILE) * TILE, e1, TILE):
         for tn in np.arange(np.floor(n0 / TILE) * TILE, n1, TILE):
-            # The tile itself is fetched when missing; a neighbour only lends its 60 m edge, so it is read when present.
+            # The tile itself is decoded, and fetched when missing. A neighbour only lends its 60 m edge: that is
+            # read from the ring stored for it, which exists or is made when this machine has the neighbour.
             own = te <= (e0 + e1) / 2 < te + TILE and tn <= (n0 + n1) / 2 < tn + TILE
-            path = laz_path(f"{int(te)}_{int(tn + TILE)}", fetch=fetch and own)
-            if path is None:
-                continue
-            las = laspy.read(path)
-            e, n = np.asarray(las.x), np.asarray(las.y)
-            keep = (e >= e0) & (e < e1) & (n >= n0) & (n < n1)
-            if keep.any():
-                out.append(np.column_stack([e[keep], n[keep], np.asarray(las.z)[keep], np.asarray(las.classification)[keep]]))
+            name = f"{int(te)}_{int(tn + TILE)}"
+            if own:
+                rows = shared.tile_wire_returns(name, (e0, n0, e1, n1), fetch=fetch)
+            else:
+                rows = shared.ring(name)
+                if rows is None:
+                    continue
+                rows = rows[(rows[:, 0] >= e0) & (rows[:, 0] < e1) & (rows[:, 1] >= n0) & (rows[:, 1] < n1)]
+            if len(rows):
+                out.append(rows)
     return np.concatenate(out) if out else np.zeros((0, 4))
 
 
@@ -610,14 +612,22 @@ def build_tile(name: str, fetch: bool = True) -> dict:
     }
 
 
+def tile_path(name: str):
+    from .lidar import data_root
+
+    return data_root() / "sources" / "object-wires" / VERSION / f"{name}.json"
+
+
+def tile_done(name: str) -> bool:
+    return tile_path(name).exists()
+
+
 def tile(name: str, log=print, fetch: bool = True) -> dict:
     """The stored record of a survey tile, detected on first use."""
     import json
     import os
 
-    from .lidar import data_root
-
-    path = data_root() / "sources" / "object-wires" / VERSION / f"{name}.json"
+    path = tile_path(name)
     if path.exists():
         return json.loads(path.read_text())
     record = build_tile(name, fetch)

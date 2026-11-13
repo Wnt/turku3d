@@ -20,6 +20,7 @@ class Sources:
         self.cache = cache or data_root() / "sources"
         self.log = log
         self.timings: dict[str, float] = {}
+        self.clip: tuple[float, float, float, float] | None = None  # a build's box: lidar readers keep only this
         self.wfs = Wfs(self.cache / "wfs", self)
         self.terrain = Terrain(self.cache, self)
         self.osm = Osm(self.cache / "osm", self)
@@ -32,6 +33,25 @@ class Sources:
         from ...observe.panoramas import Panoramas
 
         return Panoramas()
+
+    def prepare(self, box: tuple[float, float, float, float], jobs: int | None = None) -> dict:
+        """Makes ahead what the readers of a survey box would otherwise make one by one on first use: the lidar
+        products of its tiles (lidar.py). From then on the lidar readers keep only the box in memory."""
+        from . import lidar
+
+        self.clip = (box[0] - lidar.RING, box[1] - lidar.RING, box[2] + lidar.RING, box[3] + lidar.RING)
+        return lidar.prepare(box, self.log, jobs)
+
+    def release(self) -> None:
+        """Drops what the readers hold in memory for discover (lidar tiles and windows): compile needs none of it."""
+        from ..green import lidar as green
+        from ..street import lidar as street
+
+        self.__dict__.pop("_object_lidar", None)
+        green.tile.cache_clear()
+        street.tile.cache_clear()
+        self.terrain.grids.clear()
+        self.terrain.points.clear()
 
     @contextmanager
     def timed(self, name: str):

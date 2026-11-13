@@ -155,13 +155,34 @@ def description_path(entity: str, root: Path | None = None) -> Path:
     return (root or description_roots()[0]) / f"{entity}.json"
 
 
+# Every stored description this process has read, by entity id: {tier, sha256}. A build writes the list into its
+# manifest, so that a judged score can say without doubt whether a vision reading was in it.
+READ: dict[str, dict] = {}
+
+
 def read_description(entity: str) -> dict | None:
     """The stored description of an entity: the first description root that has one."""
     for root in description_roots():
         path = description_path(entity, root)
         if path.exists():
-            return json.loads(path.read_bytes())
+            data = path.read_bytes()
+            description = json.loads(data)
+            READ[entity] = {"tier": description.get("tier", "auto"), "sha256": sha256(data)}
+            return description
     return None
+
+
+def descriptions_used(roles: dict[str, str] | None = None) -> dict:
+    """What `READ` holds, for a manifest: the roots, every description read with its tier and (for an entity of
+    the location) its role, the counts by tier, and `stage`: "cold" when nothing above the automatic tier was
+    read, else "characterised"."""
+    used = [{"id": entity, **entry, **({"role": roles[entity]} if roles and entity in roles else {})}
+            for entity, entry in sorted(READ.items())]
+    tiers: dict[str, int] = {}
+    for row in used:
+        tiers[row["tier"]] = tiers.get(row["tier"], 0) + 1
+    return {"roots": [str(root) for root in description_roots()], "used": used, "byTier": tiers,
+            "stage": "characterised" if any(tier != "auto" for tier in tiers) else "cold"}
 
 
 def write_description(description: dict, by: str, note: str = "") -> Path:
