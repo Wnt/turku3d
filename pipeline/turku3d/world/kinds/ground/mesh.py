@@ -398,6 +398,11 @@ def compile_cell(description: dict) -> Output:
     # last triangles fall to it (the quay or bank face until a wall of its own stands there).
     bed_vertex = np.zeros(len(points), bool)
     bed_vertex[triangles[roles[owner] == 'bed'].ravel()] = True
+    # A bridge deck keeps its level to its edge: the bed's first triangles beside it rise to the deck (a bank under
+    # the deck's side, until bridges are solids of their own with the water passing under).
+    spans = [local_shape(deck['rings'], e0, n1) for deck in description.get('decks', [])]
+    if spans:
+        bed_vertex &= ~(shapely.distance(shapely.points(points), shapely.unary_union(spans)) < 0.02)
     heights = np.where(bed_vertex, np.minimum(heights, WATER_LEVEL - BED_DEPTH), heights)
     vertex_normals = np.where(low_vertex[:, None], low_normal(px, pz), high_normal(px, pz))
     vertex_normals /= np.linalg.norm(vertex_normals, axis=1, keepdims=True)

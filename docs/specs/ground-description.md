@@ -55,3 +55,10 @@ A stored description (`descriptions/ground/c_<i>_<j>.json`) replaces what the re
   rough`, key `...:verge`) beside it wherever nothing else is mapped.
 - **Verges and woodland.** The green register's `Kasvillisuus` and `Metsä` and OpenStreetMap woods and scrub are
   unmown grass (`mown` 0.2 and 0), not bare soil; soil stays for planting beds.
+- **Bridges over water** (`kinds/ground/decks.py`, field `decks`: `key` and `rings` of each deck outline in the
+  cell). A way with a `bridge` tag that crosses mapped water is a deck: its outline is the register's `Silta`
+  polygons around the way (the one a street's centre line runs along is carriageway level, the others footway
+  level), or a strip as wide as the way's class with the surface `osm:way/<id>:deck` where the register has none.
+  Relief nodes on it take the straight line between the ground just beyond its two ends, so the street crosses at
+  the banks' level instead of dipping to the water the scan saw. The deck is still part of the single-valued skin:
+  its sides fall to the river bed as a bank and nothing passes under it. Bridges over land stay as scanned.

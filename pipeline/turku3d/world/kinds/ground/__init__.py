@@ -17,7 +17,7 @@ from ...api import Area, Output, Stub, envelope
 from ...frame import CELL, cell_at, cell_box_en, cell_key
 from ...street import lidar, osm, registers
 from .. import rail
-from . import aerial, banks, covers
+from . import aerial, banks, covers, decks
 from .mesh import compile_cell
 
 VERSION = 1
@@ -35,6 +35,8 @@ LANE_GAP = 9.0          # gap of the dashed line between lanes of one direction 
 LANE_WIDTHS = (2.6, 4.6)  # a lane count is believed where the measured carriageway gives lanes this wide
 SECTION = 8.0           # m between the cross sections a carriageway's width is measured at
 REACH = 16.0            # m either side of a way a cross section looks for the carriageway's edges
+DECK_DRIVEN = 5.0       # m of a street's centre line on a register bridge polygon that makes it the carriageway
+DECK_RANK = 1.2         # a bridge deck the register does not map lies over the water and green, under the register
 RAIL_VERGE = 3.0        # m of unmown verge beside a track bed
 RAIL_RANK = 1.5         # a track bed lies over green and unmapped land and under everything the street register maps
 CROSSING_WIDTH = 4.0
@@ -83,12 +85,19 @@ def _polygons(shape) -> list:
 def _surfaces(box) -> list[tuple]:
     """(shape, row) of every polygon that says what the ground is, in the survey frame."""
     found = []
+    mapped = osm.features(box)
+    driven = shapely.unary_union(list(mapped[(mapped.geom_type == 'LineString') & mapped.highway.isin(ROADS)].geometry)) \
+        if mapped is not None else shapely.LineString()
     streets = registers.layer('GIS:Katualueet', box)
     for row in streets.itertuples():
         if row.geometry.geom_type != 'Polygon':
             continue
         use = _text(row, 'Katuosalaji')
         level = 'low' if use.lower() in covers.LOW_USES else 'high'
+        # The register calls every part of a bridge "Silta": the part a street's centre line runs along is its
+        # carriageway (no kerb across the street at the ends of the span), the others its footways.
+        if use.lower() == 'silta' and driven.intersection(row.geometry).length > DECK_DRIVEN:
+            level = 'low'
         found.append((shapely.make_valid(shapely.force_2d(row.geometry)), {
             'key': f'street:{row.feature_key}', 'source': 'street', 'level': level, 'use': use,
             'surface': _text(row, 'Pintamateriaali'), 'rank': 0 if level == 'low' else 1}))
@@ -100,7 +109,6 @@ def _surfaces(box) -> list[tuple]:
             'key': f'green:{row.feature_key}', 'source': 'green', 'level': 'high',
             'use': _text(row, 'Viheralueosalaji'), 'surface': _text(row, 'Pintamateriaali'),
             'rank': 2}))
-    mapped = osm.features(box)
     if mapped is not None:
         areas = mapped[mapped.geom_type.isin(('Polygon', 'MultiPolygon')) & mapped.building.isna()]
         rows = []
@@ -359,7 +367,13 @@ class Ground:
         wet, quays = banks.quay_lines(box)
         quays = None if quays is None or quays.is_empty else quays
         with sources.timed('street:lidar'):
-            window = lidar.Window(*box)
+            window = lidar.Window(*area.bbox(CELL + MARGIN + decks.BEYOND[-1] + 1.0))
+        # Bridges over water: the deck's level across the span, and its surface where the register maps none.
+        bridges = decks.spans(box, window)
+        for deck in bridges:
+            if not deck['mapped']:
+                surfaces.append((deck['area'], {'key': f"{deck['key']}:deck", 'source': 'osm', 'level': 'high', 'use': 'asphalt-yard',
+                                                'surface': '', 'rank': DECK_RANK}))
         tree = shapely.STRtree([shape for shape, _ in surfaces])
         (i0, j1), (i1, j0) = cell_at(box[0], box[1]), cell_at(box[2], box[3])
         side = int(CELL / STEP) + 1 + 2 * HALO
@@ -374,6 +388,7 @@ class Ground:
                 heights = window.sample('ground', east.ravel(), north.ravel())
                 if quays is not None:
                     heights = banks.held(heights, east.ravel(), north.ravel(), wet, quays, window)
+                heights = decks.held(heights, east.ravel(), north.ravel(), bridges)
                 wide = shapely.box(cell[0] - MARGIN, cell[1] - MARGIN, cell[2] + MARGIN, cell[3] + MARGIN)
                 rows = []
                 for k in sorted(tree.query(wide, predicate='intersects')):
@@ -384,6 +399,8 @@ class Ground:
                     'cell': [i, j],
                     'relief': {'step': STEP, 'halo': HALO, 'side': side, 'heights_mm': np.rint(heights * 1000).astype(int).tolist()},
                     'surfaces': rows,
+                    'decks': [{'key': deck['key'], 'rings': _rings(part)} for deck in bridges
+                              for part in _polygons(deck['area'].intersection(wide))],
                     'crossings': [{'key': key, 'line': np.asarray(line.coords).tolist(), 'width': CROSSING_WIDTH}
                                   for line, key in crossings if line.intersects(wide)],
                     'lanes': [{'key': key, 'line': np.asarray(part.coords).tolist(),

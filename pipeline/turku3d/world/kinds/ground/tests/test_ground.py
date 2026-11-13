@@ -122,3 +122,19 @@ def test_a_carriageway_is_measured_across_its_way():
     # A way outside any carriageway, and one on a square too wide to have edges, are not measured.
     assert _section(carriageway, shapely.LineString([(5, 20), (95, 20)])) is None
     assert _section(shapely.box(0, -50, 100, 50), shapely.LineString([(5, 0), (95, 0)])) is None
+
+
+def test_a_deck_holds_its_level_across_the_water():
+    """Relief nodes on a bridge deck take the straight line between the levels of its two ends; nodes beside it keep
+    the scan's water level, and ground the scan found above the deck (an abutment) stays."""
+    import shapely
+
+    from turku3d.world.kinds.ground import decks
+
+    deck = {'key': 'osm:way/1', 'area': shapely.box(0, -4, 40, 4), 'axis': shapely.LineString([(0, 0), (40, 0)]), 'ends': (3.0, 5.0), 'mapped': True}
+    east = np.array([0.0, 10.0, 20.0, 40.0, 20.0, 20.0, 2.0])
+    north = np.array([0.0, 0.0, 3.9, 0.0, 4.5, 6.0, 0.0])
+    scan = np.array([0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 3.6])
+    held = decks.held(scan, east, north, [deck])
+    assert np.allclose(held, [3.0, 3.5, 4.0, 5.0, 4.0, 0.2, 3.6])
+    assert decks.held(scan, east, north, []) is scan
