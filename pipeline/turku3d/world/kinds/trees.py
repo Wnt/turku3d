@@ -53,6 +53,10 @@ ROAD_TALL = 7.0  # metres: a lower tree cannot be pruned that high; its crown st
 ROAD_HALF = 2.5  # metres: half the carriageway of a street only OpenStreetMap draws
 WALK_CLEAR, WALK_TALL = 2.6, 5.0  # metres: the crown base over ground people walk on, of a tree at least this tall
 VERGE = 0.6  # metres from the carriageway's edge to a trunk moved off it
+OVERHANG = 0.3  # metres a low crown may hang over the carriageway's edge
+NARROWEST = 0.45  # a conifer cut to less than this share of its width is limbed up over the carriageway instead
+STRETCH = 1.8  # the long side of a crown cut at a carriageway, in its short sides
+THUJA_LEAST = 0.5  # metres: a narrower column has no room and is left out
 # Garden conifers the scan shows green and no register names are thuja columns far more often than young spruces
 # (the photos of the detached-house dev points): a narrow column each, and a long or wide crown is a row or a clump.
 THUJA_MAX = 9.0  # metres in the scan
@@ -123,8 +127,9 @@ def on_street(rows: list[dict], box: tuple[float, float, float, float]) -> dict[
 
 def carriageway(rows: list[dict], box: tuple[float, float, float, float]) -> dict[str, dict]:
     """Trees at a carriageway or at paving: id -> {"d": metres from the trunk to the carriageway (negative: the trunk
-    stands this far inside it), "to": [e, n] the nearest ground VERGE off it, for a trunk inside, "w": metres from
-    the trunk to ground people walk on (0 on it)}, each when within 15 m. Carriageways are the street register's
+    stands this far inside it), "b": the bearing from its edge into it there (degrees east of north), "to": [e, n]
+    the nearest ground VERGE off it, for a trunk inside, "w": metres from the trunk to ground people walk on (0 on
+    it)}, each when within 15 m. Carriageways are the street register's
     (GIS:Katualueet, Ajorata and Pyöräkaista) and, where it draws none, the mapped roads at ROAD_HALF; walked
     ground is every hard-surfaced part of the street and green registers."""
     from ..green.census import PAVED
@@ -151,13 +156,15 @@ def carriageway(rows: list[dict], box: tuple[float, float, float, float]) -> dic
             at["w"] = round(walk, 2)
         distance = float(area.distance(trunk)) if area is not None else 99.0
         if 0.0 < distance <= 15.0:
-            at["d"] = round(distance, 2)
+            (_, _), (near_e, near_n) = shapely.shortest_line(trunk, area).coords
+            at.update({"d": round(distance, 2), "b": round(math.degrees(math.atan2(near_e - trunk.x, near_n - trunk.y)) % 360, 1)})
         elif distance <= 0.0:
             edge = area.boundary
             inside = float(edge.distance(trunk))
             to = edge.interpolate(edge.project(trunk))
             out = np.array([to.x - trunk.x, to.y - trunk.y]) / max(inside, 1e-6)
-            at.update({"d": round(-inside, 2), "to": [round(float(to.x + out[0] * VERGE), 2), round(float(to.y + out[1] * VERGE), 2)]})
+            at.update({"d": round(-inside, 2), "to": [round(float(to.x + out[0] * VERGE), 2), round(float(to.y + out[1] * VERGE), 2)],
+                       "b": round(math.degrees(math.atan2(-out[0], -out[1])) % 360, 1)})
         if at:
             found[row["id"]] = at
     return found
@@ -322,9 +329,10 @@ def tree_row(row: dict, chosen: tuple[str, str] | None = None) -> dict:
     return out
 
 
-def thuja_columns(tree: dict, row: dict) -> list[dict]:
+def thuja_columns(tree: dict, row: dict, at: dict | None = None) -> list[dict]:
     """The columns of a thuja crown only the lidar shows: one column as wide as the crown's short axis and at most
-    THUJA_SPREAD of its height, and as many of them along (and across) the crown as it is long (and wide)."""
+    THUJA_SPREAD of its height, and as many of them along (and across) the crown as it is long (and wide). Beside a
+    carriageway (`at` from `carriageway`) a column stands off it and is no wider than its place allows."""
     # The crown as measured: the described one is limited to what one model can be stretched to.
     crown = {**tree["crown"], "major": row.get("major", tree["crown"]["major"]), "minor": row.get("minor", tree["crown"]["minor"])}
     width = max(min(crown["minor"], THUJA_SPREAD * tree["height"]), 0.8)
@@ -343,22 +351,33 @@ def thuja_columns(tree: dict, row: dict) -> list[dict]:
             v = (b - (across - 1) / 2) * crown["minor"] / across
             size = 0.88 + 0.12 * ((seed >> 4) % 100) / 99 if along * across > 1 else 1.0  # the tallest of a row was measured
             wide = round(width * (0.9 + 0.2 * ((seed >> 12) % 100) / 99), 2)
-            out.append({**tree, "id": key, "seed": seed, "e": round(centre[0] + axis[0] * u + side[0] * v, 2),
-                        "n": round(centre[1] + axis[1] * u + side[1] * v, 2), "height": round(tree["height"] * size, 2),
+            e, n = centre[0] + axis[0] * u + side[0] * v, centre[1] + axis[1] * u + side[1] * v
+            if at is not None and "b" in at:
+                # Metres from this column's stem to the carriageway, its edge taken as straight near the tree.
+                bearing = math.radians(at["b"])
+                room = at["d"] - ((e - row["e"]) * math.sin(bearing) + (n - row["n"]) * math.cos(bearing))
+                wide = round(min(wide, 2 * (room + OVERHANG) / treegen.ENVELOPE[0]), 2)
+                if wide < THUJA_LEAST:
+                    continue
+            out.append({**tree, "id": key, "seed": seed, "e": round(e, 2), "n": round(n, 2), "height": round(tree["height"] * size, 2),
                         "crown": {"major": wide, "minor": wide, "angle": 0.0, "base": 0.3}})
     return out
 
 
 def off_carriageway(tree: dict, at: dict | None) -> dict | None:
-    """The tree as it stands beside a carriageway (`at` from `carriageway`): None when it cannot stand there at all."""
+    """The tree as it stands beside a carriageway or over paving (`at` from `carriageway`): None when it cannot stand
+    there at all. Vehicles pass on a carriageway and people on paving, so nothing of a tree is in that space: a tall
+    broadleaf or pine has its boughs lifted over it (`clear`: the model's crown base is then at least the described
+    one), a low tree and a conifer green to the ground end at its edge, narrowed on the side that faces it."""
     if at is None:
         return tree
     crown = dict(tree["crown"])
-    reach = (crown["major"] + crown["minor"]) / 4
-    if reach > at.get("w", 99.0) and tree["height"] >= WALK_TALL:
+    lifts = treegen.FAMILIES[tree["family"]]["kind"] in ("broadleaf", "pine")
+    reach = treegen.ENVELOPE[0] * (crown["major"] + crown["minor"]) / 4 + treegen.ENVELOPE[1]
+    if reach > at.get("w", 99.0) and tree["height"] >= WALK_TALL and lifts:
         # Boughs over a footway, a square or a park path are cut to walking height: what the scan returns under
         # such a crown is people, stalls and parked things.
-        crown["base"] = round(max(crown["base"], min(WALK_CLEAR, 0.5 * tree["height"])), 2)
+        crown.update({"base": round(max(crown["base"], min(WALK_CLEAR, 0.5 * tree["height"])), 2), "clear": True})
     distance = at.get("d", 99.0)
     if distance < 0:
         if tree["source"] != "lidar":
@@ -368,10 +387,15 @@ def off_carriageway(tree: dict, at: dict | None) -> dict | None:
         else:
             return None
     if reach > distance:
-        if tree["height"] >= ROAD_TALL:
-            crown["base"] = round(max(crown["base"], min(ROAD_CLEAR, 0.6 * tree["height"])), 2)
+        wide = max(2 * (distance + OVERHANG) / treegen.ENVELOPE[0], 1.0)
+        narrow = wide / min(crown["major"], crown["minor"])
+        if tree["height"] >= ROAD_TALL and (lifts or narrow < NARROWEST):
+            crown.update({"base": round(max(crown["base"], min(ROAD_CLEAR, 0.6 * tree["height"])), 2), "clear": True})
+        elif "b" in at:
+            # Its long side lies along the carriageway and keeps what the scan measured, at most STRETCH of the short.
+            long = min(max(crown["major"], wide), STRETCH * wide)
+            crown.update({"major": round(long, 2), "minor": round(min(wide, long), 2), "angle": round((at["b"] + 90.0) % 180.0, 1)})
         else:
-            wide = max(2 * (distance + 0.3), 1.0)
             crown["major"], crown["minor"] = round(min(crown["major"], wide), 2), round(min(crown["minor"], wide), 2)
     return {**tree, "crown": crown}
 
@@ -400,7 +424,9 @@ def model_of(tree: dict) -> treegen.Shape:
     height = nearest(HEIGHTS, tree["height"])
     radius = math.sqrt(tree["crown"]["major"] * tree["crown"]["minor"]) / 2
     spread = nearest(SPREADS, radius / tree["height"])
-    base = nearest(BASES, max(tree["crown"]["base"], 0.3) / tree["height"])
+    share = max(tree["crown"]["base"], 0.3) / tree["height"]
+    # A crown lifted clear of a carriageway or a footway takes the class at or above its base, not the nearest.
+    base = min((b for b in BASES if b >= 0.97 * share), default=BASES[-1]) if tree["crown"].get("clear") else nearest(BASES, share)
     if treegen.FAMILIES[tree["family"]]["kind"] == "shrub":
         base = 0.0
     if tree["family"] == "thuja":
@@ -452,11 +478,15 @@ class Trees:
         for row in stub.facts["trees"]:
             if row["id"] in felled:
                 continue
-            tree = off_carriageway(tree_row(row, chosen[row["id"]]), None if overrides.get(row["id"], {}).get("keep") else roads.get(row["id"]))
+            tree, at = tree_row(row, chosen[row["id"]]), None if overrides.get(row["id"], {}).get("keep") else roads.get(row["id"])
+            if tree["family"] == "thuja" and row["source"] == "lidar":
+                columns = thuja_columns(tree, row, at)  # each column is placed against the carriageway by itself
+                trees += columns
+                felled += [] if columns else [row["id"]]
+                continue
+            tree = off_carriageway(tree, at)
             if tree is None:
                 felled.append(row["id"])
-            elif tree["family"] == "thuja" and row["source"] == "lidar":
-                trees += thuja_columns(tree, row)
             else:
                 trees.append(tree)
         felled.sort()

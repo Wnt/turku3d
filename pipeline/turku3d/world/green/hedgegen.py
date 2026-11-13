@@ -178,11 +178,14 @@ def shell(surface: dict, form: str, evergreen: bool, rng, far: bool = False) -> 
         return None
     count = int(np.clip(surface["area"] * DENSITY[form] * (EVERGREEN if evergreen else 1.0) * (FAR[0] if far else 1.0), 6, 16000))
     grid_p, grid_n, grid_s = surface["p"].reshape(rows, cols, 3), surface["n"].reshape(rows, cols, 3), surface["shade"].reshape(rows, cols)
-    u = rng.random(count) * (rows - 1)
-    v = rng.random(count) * (cols if surface["closed"] else cols - 1)
-    r0, c0 = np.minimum(u.astype(int), rows - 2), v.astype(int) % cols
-    c1 = (c0 + 1) % cols if surface["closed"] else np.minimum(c0 + 1, cols - 1)
-    fu, fv = (u - r0)[:, None], (v - np.floor(v))[:, None]
+    # Evenly by area: each quad of the grid gets sprays in proportion to its size, so that the tall lower side of a
+    # mass and the flanks of a hedge are covered like its top and no dark body shows through.
+    span = cols if surface["closed"] else cols - 1
+    ahead = np.roll(grid_p, -1, axis=1)[:, :span]
+    quads = np.linalg.norm(np.cross(grid_p[1:, :span] - grid_p[:-1, :span], ahead[:-1] - grid_p[:-1, :span]), axis=-1).ravel() + 1e-9
+    r0, c0 = np.divmod(rng.choice(len(quads), count, p=quads / quads.sum()), span)
+    c1 = (c0 + 1) % cols
+    fu, fv = rng.random(count)[:, None], rng.random(count)[:, None]
 
     def at(grid):
         g = grid[..., None] if grid.ndim == 2 else grid

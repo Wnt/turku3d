@@ -200,3 +200,31 @@ def test_a_meadow_grows_grass_and_flowers_on_its_ground_but_not_on_the_path_thro
     meadow, forest = (east < 30).sum() / 30, (east > 30).sum() / 32.5
     assert meadow > 1.8 * forest and len(tufts.cards(cover, 3, far=True)["triangles"]) < 0.4 * len(grown["triangles"])
     assert tufts.cover(box, FakeWindow((-16.0, -16.0, 78.5, 78.5), [], [], []), [("m", shapely.box(100, 100, 120, 120))], None) is None
+
+
+def test_nothing_of_a_tree_reaches_into_a_carriageway_under_lorry_height():
+    from turku3d.world.green import treegen
+
+    # A model fills its measured crown and no more: every spray and bough inside the envelope, none under the base.
+    for shape in (treegen.Shape("spruce", 16.0, 4.8, 2.6), treegen.Shape("maple", 10.0, 4.6, 2.8), treegen.Shape("birch", 16.0, 4.8, 4.5)):
+        floor, reach = treegen.envelope(shape)
+        for part in treegen.build(shape, 0):
+            crown = part.positions[np.hypot(part.positions[:, 0], part.positions[:, 2]) > 1.0]  # off the stem
+            assert crown[:, 1].min() >= floor - 0.01 and np.hypot(crown[:, 0], crown[:, 2]).max() <= reach + 0.01, (shape, part.name)
+    spruce = census_row("lidar-s", 23459500.0, 6704500.0, 14.0, green=0.2, major=8.0, minor=7.0)
+    apple = census_row("lidar-a", 23459520.0, 6704500.0, 4.0, major=5.0, minor=4.0, base=0.6)
+    lime = census_row("puut-3", 23459540.0, 6704500.0, 9.0, source="register+lidar", register={"species": "Tilia"})
+    hedge = census_row("lidar-t", 23459560.0, 6704500.0, 5.0, green=0.2, major=2.0, minor=6.0, angle=90.0, centre=[23459560.0, 6704500.0])
+    stub = trees.Stub("trees/c_0_0", (0, 0, 1, 1), [], {
+        "cell": [0, 0], "trees": [spruce, apple, lime, hedge], "absent": [], "cameras": [], "onStreet": {},
+        "carriageway": {"lidar-s": {"d": 2.5, "b": 0.0}, "lidar-a": {"d": 1.0, "b": 0.0}, "puut-3": {"d": 0.8, "b": 0.0}, "lidar-t": {"d": 1.6, "b": 90.0}}})
+    found = {tree["id"]: tree for tree in trees.Trees().describe(stub, None)["trees"]}
+    for key, room in (("lidar-s", 2.5), ("lidar-a", 1.0)):
+        crown = found[key]["crown"]  # the carriageway lies north: the short side faces it, the long side lies east to west
+        assert crown["angle"] == 90.0 and crown["major"] > crown["minor"]
+        assert treegen.ENVELOPE[0] * crown["minor"] / 2 <= room + trees.OVERHANG + 0.01
+    lifted = found["puut-3"]
+    assert lifted["crown"]["clear"] and trees.model_of(lifted).base / trees.model_of(lifted).height >= 0.45  # the class above, not the nearest
+    columns = [tree for key, tree in found.items() if key.startswith("lidar-t")]
+    assert columns and len(columns) < 3  # the column that would stand in the carriageway east of the row is left out
+    assert all(tree["e"] + treegen.ENVELOPE[0] * tree["crown"]["major"] / 2 <= 23459561.6 + trees.OVERHANG + 0.01 for tree in columns)

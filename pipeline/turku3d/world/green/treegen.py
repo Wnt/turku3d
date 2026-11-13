@@ -94,10 +94,12 @@ FAMILIES: dict[str, dict] = {
                    cards=1250, ref=(16.5, 3.0), trunk=0.9, card_up=-0.15, card_along=1.0, card_out=0.35, card_roll=0.5,
                    card_sky=1.2, aspect=1.0, flat=0.55),
     # A thuja column: a closed flame of upright sprays, green to the ground; its stem and boughs are never seen.
-    "thuja": dict(tone=(1.3, 0.07), kind="spruce", column=True, cell="spruce", bark="spruce", whorl=0.35, per_whorl=(4, 6), elev=(35, 70),
-                  ratio=0.3, up1=0.3, droop1=0.0, noise=0.05, d2=4.0, l2ratio=0.5, hang=-0.3, droop2=0.0, card=0.55, spacing=0.2,
-                  cards=480, ref=(6.0, 1.1), trunk=0.7, card_up=0.9, card_along=0.2, card_out=0.45, card_roll=0.5,
-                  card_sky=0.3, aspect=1.0, flat=0.0),
+    # Its sprays are small and many (a thuja's foliage is fine-grained, yellower and duller than a spruce's), flat cards:
+    # a fold in a hand-sized spray is never seen.
+    "thuja": dict(tone=(1.08, 0.12), kind="spruce", column=True, cell="spruce", bark="spruce", whorl=0.35, per_whorl=(4, 6), elev=(35, 70),
+                  ratio=0.3, up1=0.3, droop1=0.0, noise=0.05, d2=4.0, l2ratio=0.5, hang=-0.3, droop2=0.0, card=0.3, spacing=0.2,
+                  cards=1000, ref=(6.0, 1.1), trunk=0.7, card_up=0.9, card_along=0.2, card_out=0.45, card_roll=0.5,
+                  card_sky=0.3, aspect=1.0, flat=0.0, fold=False),
     "lilac": dict(tone=(0.95, 0.0), kind="shrub", cell="lilac", bark="smooth", stems=8, spread=0.09, elev=(55, 82), stem=0.035, up=0.0,
                   droop=0.12, d2=3.6, l2=1.0, start=0.3, card=0.6, spacing=0.17, cards=700, ref=(3.4, 1.8),
                   card_up=0.2, card_along=0.6, card_out=0.6, card_roll=0.9, card_sky=1.2, aspect=1.0),
@@ -314,7 +316,7 @@ def conifer(shape: Shape, sp: dict, rng) -> dict:
             f = np.clip((np.asarray(y, float) - 0.25 * H) / (0.77 * H), 0.0, 1.0)
             return R * (1 - f ** 1.8) ** 0.75 * np.clip(np.asarray(y, float) / 0.25 + 0.75, 0.75, 1.0)
 
-        budget = card_budget(sp, shape, CARD_DENSITY, 120, 1400)
+        budget = card_budget(sp, shape, CARD_DENSITY, 120, 2000)
         outer = shell(flame, 0.0, H * 0.97, budget - budget // 4, rng)
         inner = shell(lambda y: 0.55 * flame(y), 0.0, H * 0.9, budget // 4, rng)
         # The stem is drawn as the column's dark inside: a closed solid at three quarters of the outline, which is
@@ -526,7 +528,18 @@ def tubes(b: Branches, segs: int, rings: int, slot: str, tint, ao, v0: float, ca
             "wind": np.concatenate([wind.reshape(-1, 4), cap_wind]), "triangles": np.concatenate([faces, caps])}
 
 
-def cards(anchors: dict, sp: dict, crown, conifer_crown: bool, rng, fold: bool, grow_by: float, seed: int = 0) -> dict:
+ENVELOPE = (1.1, 0.1)  # no leaf lies farther from the stem than this many measured crown radii plus this many metres
+UNDER = 0.25  # metres a leaf may hang under the measured crown base
+
+
+def envelope(shape: Shape) -> tuple[float, float]:
+    """(floor, reach) of a model: nothing of its foliage lies lower (metres above the ground) or farther from the stem.
+    The measured crown is the space the tree fills; what stands beside it (a carriageway, a footway, a camera) relies
+    on that, so a spray that would end outside is moved in whole, towards the stem or up."""
+    return max(shape.base - UNDER, -0.3), ENVELOPE[0] * shape.radius + ENVELOPE[1]
+
+
+def cards(anchors: dict, sp: dict, crown, conifer_crown: bool, rng, fold: bool, grow_by: float, seed: int = 0, within: tuple[float, float] | None = None) -> dict:
     y0, yc, hc, R = crown
     n = len(anchors["p"])
     p, direction, tuft = anchors["p"], anchors["dir"], anchors["tuft"]
@@ -566,6 +579,16 @@ def cards(anchors: dict, sp: dict, crown, conifer_crown: bool, rng, fold: bool, 
     bulge = np.where(grid[:, 0] == 0, 0.16, 0.0) - 0.05 if fold else np.zeros(k)
     positions = (p[:, None] + side[:, None] * (grid[:, 0][None, :, None] * w[:, None, None]) + up[:, None] * (grid[:, 1][None, :, None] * h[:, None, None])
                  + normal[:, None] * (bulge[None, :, None] * w[:, None, None]))
+    if within is not None and n:
+        floor, reach = within
+        for _ in range(2):  # the second pass catches the corner that became the farthest
+            out_by = np.hypot(positions[..., 0], positions[..., 2])
+            worst = out_by.argmax(axis=1)
+            far = out_by[np.arange(n), worst]
+            pull = np.maximum(far - reach, 0.0) / np.maximum(far, 1e-6)
+            positions[..., 0] -= (positions[np.arange(n), worst, 0] * pull)[:, None]
+            positions[..., 2] -= (positions[np.arange(n), worst, 2] * pull)[:, None]
+        positions[..., 1] += np.maximum(floor - positions[..., 1].min(axis=1), 0.0)[:, None]
     flat_positions = positions.reshape(-1, 3)
     normals = unit(np.repeat(normal, k, axis=0) * 0.2 + radial(flat_positions) * 0.8)
     u0, u1, v0, v1 = cell_uv(sp["cell"])
@@ -639,7 +662,14 @@ def build(shape: Shape, lod: int = 0) -> list[Part]:
         keep = b.radius[:, 0] >= minimum[level]
         if not keep.any():
             continue
-        chosen = Branches(b.level, b.points[keep], b.radius[keep], b.sway[keep], b.length[keep], b.phase[keep])
+        points = b.points[keep]
+        if level:
+            # Boughs stay inside the crown's envelope like the sprays they carry.
+            floor, reach = envelope(shape)
+            out_by = np.hypot(points[..., 0], points[..., 2])
+            squeeze = np.minimum(1.0, reach / np.maximum(out_by, 1e-6))
+            points = np.stack([points[..., 0] * squeeze, np.maximum(points[..., 1], min(floor + 0.1, shape.height)), points[..., 2] * squeeze], axis=-1)
+        chosen = Branches(b.level, points, b.radius[keep], b.sway[keep], b.length[keep], b.phase[keep])
         solids.append(tubes(chosen, segs[level], rings[level], sp["bark"], tint, bark_ao, v, capped=True))
         v += 0.37 * keep.sum()
     # The cards in a seeded shuffle: any prefix is an even thinning of the crown, and the far level is the prefix
@@ -651,7 +681,7 @@ def build(shape: Shape, lod: int = 0) -> list[Part]:
         share = FAR_SHARE
         anchors = {key: value[:max(int(np.ceil(share * len(order))), min(len(order), 10))] for key, value in anchors.items()}
         grow_by = 1 / np.sqrt(share) * 0.8
-    leaves = cards(anchors, sp, sk["crown"], sk["conifer"], rng, fold=lod == 0, grow_by=grow_by, seed=shape.seed)
+    leaves = cards(anchors, sp, sk["crown"], sk["conifer"], rng, fold=lod == 0 and sp.get("fold", True), grow_by=grow_by, seed=shape.seed, within=envelope(shape))
     bark_material, leaf_material = materials(shape)
     out = []
     bark = join(solids)
