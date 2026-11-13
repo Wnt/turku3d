@@ -231,15 +231,16 @@ def _ground_line(facade: Facade, terrain: list) -> np.ndarray:
     return out
 
 
-def match(facades: list, p0, p1, tolerance_m: float = 1.5, tolerance_deg: float = 15.0):
-    """The facade a described wall frame lies on: same direction, close to its plane, largest overlap along it."""
+def matches(facades: list, p0, p1, tolerance_m: float = 1.5, tolerance_deg: float = 15.0) -> list:
+    """The facades a described wall frame lies on, the one with the largest overlap first: same direction, close
+    to its plane. A frame read as one wall often runs over several shell walls (a step in the eaves, a wing)."""
     p0, p1 = np.asarray(p0, float), np.asarray(p1, float)
     direction = p1 - p0
     length = np.linalg.norm(direction)
     if length < 1e-6:
-        return None
+        return []
     direction /= length
-    best, best_overlap = None, 0.0
+    found = []
     for facade in facades:
         if float(direction @ facade.u_dir[:2]) < np.cos(np.radians(tolerance_deg)):
             continue
@@ -249,6 +250,11 @@ def match(facades: list, p0, p1, tolerance_m: float = 1.5, tolerance_deg: float 
         a = float((p0 - facade.origin[:2]) @ facade.u_dir[:2])
         b = float((p1 - facade.origin[:2]) @ facade.u_dir[:2])
         overlap = min(b, facade.width) - max(a, 0.0)
-        if overlap > best_overlap:
-            best, best_overlap = facade, overlap
-    return best
+        if overlap > 0.0:
+            found.append((overlap, facade))
+    return [facade for _, facade in sorted(found, key=lambda item: -item[0])]
+
+
+def match(facades: list, p0, p1, tolerance_m: float = 1.5, tolerance_deg: float = 15.0):
+    """The facade a described wall frame lies on: the one of `matches` with the largest overlap along it."""
+    return next(iter(matches(facades, p0, p1, tolerance_m, tolerance_deg)), None)

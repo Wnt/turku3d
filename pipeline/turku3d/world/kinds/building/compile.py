@@ -107,6 +107,23 @@ def compile(description: dict) -> Output:  # noqa: A001 - the contract's name
             described[hit.index] = wall
             if "id" in wall:
                 facade_by_wall[wall["id"]] = hit
+    # A frame read as one wall may run over further shell walls (a lower wing, a step in the eaves): each one
+    # nobody described that lies mostly under the frame takes the same description, and the openings that fall on it.
+    shared = set()
+    for wall in doc.get("walls", []):
+        frame = wall.get("frame")
+        if (
+            not frame
+            or described.get(getattr(facade_by_wall.get(wall.get("id")), "index", None)) is not wall
+        ):
+            continue
+        for other in shell_module.matches(shell.facades, frame["p0"], frame["p1"])[1:]:
+            a = float((np.asarray(frame["p0"], float) - other.origin[:2]) @ other.u_dir[:2])
+            b = float((np.asarray(frame["p1"], float) - other.origin[:2]) @ other.u_dir[:2])
+            overlap = min(b, other.width) - max(a, 0.0)
+            if other.index not in described and overlap >= max(1.5, 0.6 * other.width):
+                described[other.index] = wall
+                shared.update((other.index, facade_by_wall[wall["id"]].index))
     templates = {}
     neighbours = doc["shell"].get("neighbours", [])
     wall_family = "plaster"
@@ -130,7 +147,9 @@ def compile(description: dict) -> Output:  # noqa: A001 - the contract's name
         if facade.index == 0 or facade.index in described:
             wall_family = palette.record(wall.get("material"))["family"]
         blocked = facades_module.blocked_region(facade, neighbours) if neighbours else None
-        facades_module.build(soup, facade, wall, doc, palette, report, blocked, templates)
+        facades_module.build(
+            soup, facade, wall, doc, palette, report, blocked, templates, facade.index in shared
+        )
     roofs.build(
         soup,
         shell,

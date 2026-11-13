@@ -426,8 +426,10 @@ def build(
     report: list,
     blocked=None,
     templates=None,
+    shared=False,
 ):
-    """Add one facade's geometry to the soup."""
+    """Add one facade's geometry to the soup. `shared`: the wall's frame runs over several shell walls, so what
+    lies beyond this one's ends belongs to another of them."""
     templates = {} if templates is None else templates
     trim = priors.trim_colour(doc)
     plan = layout(facade, wall, doc, report)
@@ -441,6 +443,8 @@ def build(
     recesses = _recesses(facade, wall, plan, inside, blocked)
     kept, holes, misfits = [], [], []
     for p in plan.placed:
+        if shared and (p.u0 + p.width / 2 < 0.0 or p.u0 + p.width / 2 > width):
+            continue
         shape = affinity.translate(openings.outline(p.spec, p.width, p.height), p.u0, p.v0)
         # What stands on the ground reaches the wall's lower edge, so only its upper part is tested; an opening
         # read a little past a wall end is moved in rather than lost.
