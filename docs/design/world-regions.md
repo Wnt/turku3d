@@ -46,11 +46,12 @@ contracts of [world-pipeline.md](world-pipeline.md); entities, records and the s
 
 - `?world=NAME` loads `locations/NAME.json`; a `turku-region/1` index starts the loader in **region mode**: the
   same chunked drawing, styling, tree levels and refresh as a location, with the set of chunks following the camera.
-- **Streaming by distance:** chunks within the view range (quality tier, about 700 m at medium) are fetched nearest
-  first, a few at a time, and drawn; chunks beyond range + 150 m are released (meshes disposed, shared assets
-  kept). Ranges are per renderer layer: ground and buildings to the view range; trees and planting as instances
-  near and as their far mesh (level 1) beyond, as in a location; street objects (signs, lamps, fences, furniture)
-  within about 300 m. Rows draw level 1 beyond about 250 m where they have one (`levels`).
+- **Streaming by distance:** a 250 m chunk is fetched (nearest first, a few at a time) and drawn while the nearest
+  edge of its square is within its layer's range, and released beyond range + 150 m (meshes disposed, shared assets
+  kept). Ranges (`REGION_RANGE`, region.ts): ground and buildings 350 m, trees and planting 250 m (instances near,
+  their far mesh beyond, as in a location), street objects 150 m; a chunk's far corner lies up to ~350 m beyond its
+  range. Measured on the M1 Max (headed, Kauppatori): 700/700/600/300 m drew 3,600 draws and 11 M triangles at
+  24 fps, CPU-bound.
 - **Collision near the player only:** every cell of the index is listed in the game's collision manifest by url,
   nothing is fetched up front; the existing collision streamer loads the cells within its radius and along the
   travel ahead and puts edge walls where no cell exists (the region's outer border).

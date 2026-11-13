@@ -26,9 +26,10 @@ export interface RegionIndex {
   stats: LocationManifest['stats'];
 }
 
-/** Metres from the camera to which a renderer layer's chunks are drawn (ground and buildings to the horizon of the
- *  region, trees at their far mesh beyond the near range, street objects only near). */
-export const REGION_RANGE: Record<string, number> = { ground: 700, buildings: 700, vegetation: 600, structures: 300 };
+/** Metres from the camera to the nearest edge of a 250 m chunk that a renderer layer still draws, so a layer covers
+ *  at least this far and its farthest chunk corner lies up to ~350 m beyond. At 700/700/600/300 the M1 Max drew
+ *  3,600 draws and 11 M triangles at Kauppatori (24 fps, CPU-bound); a location draws about 640 m. */
+export const REGION_RANGE: Record<string, number> = { ground: 350, buildings: 350, vegetation: 250, structures: 150 };
 /** A drawn chunk stays until it is this much farther than its range, so a player at a border does not reload it. */
 export const REGION_SLACK = 150;
 /** The camera moves this far (m) before the wanted chunks are looked for again. */
