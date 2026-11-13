@@ -83,3 +83,15 @@ def test_repeated_register_rows_give_one_entity():
 
     stubs = [Stub("fence/r1", (0, 0, 1, 1), [], {}), Stub("fence/r1", (0, 0, 1, 1), [], {"again": True}), Stub("fence/r2", (0, 0, 1, 1), [], {})]
     assert [(stub.id, stub.facts) for stub in unique(stubs)] == [("fence/r1", {}), ("fence/r2", {})]
+
+
+def test_every_furniture_model_is_closed_and_register_labels_pick_models():
+    from turku3d.world.kinds import furniture
+
+    for model in [*furniture.SIZE, "bike-rack"]:
+        bad, flipped, total = open_edges(list(furniture.model_parts(model, "4" if model == "bike-rack" else "")))
+        assert total > 0 and bad == 0 and flipped == 0, model
+    row = {"kind": None, "type": "Roskis", "species": "Roskakori", "model": "Vihreä 60 l", "places": ""}
+    assert furniture.classify(row) == ("bin", "green")
+    assert furniture.classify({"kind": "bike-rack", "type": "", "species": "", "model": "", "places": "10"}) == ("bike-rack", "5")
+    assert furniture.classify({"kind": None, "type": "Penkki", "species": "Leikkikaluste", "model": "", "places": ""})[0] is None
