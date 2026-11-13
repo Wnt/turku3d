@@ -12,6 +12,9 @@ E0 + (col + 0.5) * CELL, N0 + (row + 0.5) * CELL:
 - `shrub`    height above ground of the highest low or medium vegetation return, 0 where none
 - `rgb`      mean colour of the ground returns (the scan's own imagery, April 2021, leaf-off)
 - `intensity` median return intensity of the ground returns
+
+A tile the survey does not have (the city's edge, open sea) is not an error: its ground continues level from the
+nearest measured cell on the edge of a neighbouring tile, sea level where there is none, and nothing grows on it.
 """
 from __future__ import annotations
 
@@ -46,12 +49,22 @@ def tile_corner(name: str) -> tuple[float, float]:
     return float(east), float(north) - TILE
 
 
+class NotSurveyed(FileNotFoundError):
+    """The city's survey has no tile there."""
+
+
 def laz_path(name: str) -> Path:
-    """The LAZ tile: the read-only raw mirror first, else fetched once into the shared source cache."""
+    """The LAZ tile: the read-only raw mirror first, else fetched once into the shared source cache.
+
+    The server's 404 is remembered beside the fetched tiles (`<name>.absent`) and raises `NotSurveyed`.
+    """
     fetched = sources_root() / 'laz' / 'pistepilvi' / f'{name}.laz'
+    absent = fetched.with_suffix('.absent')
     for path in (C.raw_dir('laz') / 'pistepilvi' / f'{name}.laz', C.raw_dir('laz-3x3') / f'{name}.laz', fetched):
         if path.exists():
             return path
+    if absent.exists():
+        raise NotSurveyed(f'The survey has no lidar tile {name}')
     fetched.parent.mkdir(parents=True, exist_ok=True)
     part = fetched.with_name(fetched.name + f'.{os.getpid()}.part')
     url = C.LAZ_URL.format(dataset='pistepilvi', name=name)
@@ -59,6 +72,9 @@ def laz_path(name: str) -> Path:
                           capture_output=True, text=True, timeout=930)
     if done.returncode:
         part.unlink(missing_ok=True)
+        if 'returned error: 404' in done.stderr:   # curl exits 22 or 56 for it, by version
+            absent.write_text('404\n')
+            raise NotSurveyed(f'The survey has no lidar tile {name}')
         raise FileNotFoundError(f'No lidar tile {name}: {done.stderr.strip()}')
     part.replace(fetched)
     return fetched
@@ -142,6 +158,33 @@ def build(name: str) -> dict:
                 intensity=intensity.reshape(SIDE, SIDE))
 
 
+def unsurveyed(name: str) -> dict:
+    """Rasters of a tile the survey lacks, decided per tile so that every window over it reads the same heights."""
+    from scipy.ndimage import distance_transform_edt
+
+    e0, n0 = tile_corner(name)
+    ground = np.zeros((SIDE + 2, SIDE + 2), np.float32)
+    known = np.zeros(ground.shape, bool)
+    inner = slice(1, -1)
+    # (east step, north step): where the neighbour's facing edge lies in the padded grid, and that edge.
+    edges = {(-1, 0): ((inner, 0), lambda g: g[:, -1]), (1, 0): ((inner, -1), lambda g: g[:, 0]),
+             (0, -1): ((0, inner), lambda g: g[-1, :]), (0, 1): ((-1, inner), lambda g: g[0, :])}
+    for (east, north), (place, edge) in edges.items():
+        near = tile_name(e0 + east * TILE, n0 + north * TILE)
+        try:
+            laz_path(near)
+        except NotSurveyed:
+            continue
+        ground[place] = edge(tile(near)['ground'])
+        known[place] = True
+    if known.any():
+        row, column = distance_transform_edt(~known, return_distances=False, return_indices=True)
+        ground = ground[row, column]
+    blank = np.zeros((SIDE, SIDE), np.uint16)
+    return dict(ground=np.ascontiguousarray(ground[1:-1, 1:-1]), measured=np.zeros((SIDE, SIDE), bool), canopy=blank,
+                shrub=blank, rgb=np.zeros((SIDE, SIDE, 3), np.uint8), intensity=blank)
+
+
 def _recipe() -> str:
     return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:16]
 
@@ -153,7 +196,10 @@ def tile(name: str) -> dict:
     if path.exists():
         with np.load(path) as data:
             return {key: data[key] for key in data.files}
-    layers = build(name)
+    try:
+        layers = build(name)
+    except NotSurveyed:
+        layers = unsurveyed(name)
     path.parent.mkdir(parents=True, exist_ok=True)
     part = path.with_name(f'{path.stem}.{os.getpid()}.part.npz')
     np.savez_compressed(part, **layers)
