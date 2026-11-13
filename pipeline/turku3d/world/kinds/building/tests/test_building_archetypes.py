@@ -127,7 +127,6 @@ def test_town_rules_hold_in_the_towns_milieus_only_and_a_customer_door_never_goe
 def test_a_mapped_premise_belongs_to_the_building_that_holds_it_or_the_nearest_on_its_street():
     import numpy as np
     import shapely
-
     from turku3d.world.kinds import building_shell
 
     found = [{"outline": shapely.box(0.0, 0.0, 10.0, 10.0), "address": "Linnankatu 29"},
