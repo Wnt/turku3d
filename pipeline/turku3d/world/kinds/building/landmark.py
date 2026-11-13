@@ -439,7 +439,12 @@ def layer(key: str, doc: dict, stored: dict | None = None, d: dict | None = None
             body = top
             break
     rows = window_rows(d.get("windows") or {}, body, (doc.get("register") or {}).get("storeys"))
-    for facade, low, high in pieces:
+    style = style_type(d, priors.style_type(doc))
+    # Without measured elevations the description's walls are one window and a tower: a church's arched or pointed
+    # windows and tower stages, which nothing else gives. Other landmarks keep the walls the automatic rules draw
+    # (shopfronts, doors, storeys) in the description's materials.
+    drawn = bool(elevations) or style == "church"
+    for facade, low, high in pieces if drawn else ():
         absolute = _absolute(facade, origin)
         if elevations:
             normal = np.array([facade.normal[0], -facade.normal[1]])  # survey normal in the old engine's x/z
@@ -455,24 +460,27 @@ def layer(key: str, doc: dict, stored: dict | None = None, d: dict | None = None
         walls.append(generic_wall(absolute, low, high, base, d, types, rows, facade.index, tower))
     named = materials(d)
     out = {
-        "style": {"type": style_type(d, priors.style_type(doc)), "conf": {"*": 0.8}},
         "provenance": [{"source": "landmark-description", "key": f"landmark/{key}", "by": BY,
                         "name": d.get("name", ""), "style": d.get("style", ""), "tier": d["_tier"]}],
         "materials": {"roof_metal": named["roof_metal"]},
     }
+    if drawn:
+        out["style"] = {"type": style, "conf": {"*": 0.8}}
     if wall_part:
-        out["materials"].update(wall=named["wall"], plinth=named["plinth"])
-        out["opening_types"] = types.specs
-        out["wall_defaults"] = {
-            "material": "wall",
-            "plinth": {"height_m": BODY_STONE_M, "projection_m": 0.03, "material": "plinth"},
-            "storeys": [],
-            "bays": [],
-        }
-        if walls:
-            out["walls"] = walls
+        out["materials"].update(wall=named["wall"])
+        if drawn:
+            out["materials"]["plinth"] = named["plinth"]
+            out["opening_types"] = types.specs
+            out["wall_defaults"] = {
+                "material": "wall",
+                "plinth": {"height_m": BODY_STONE_M, "projection_m": 0.03, "material": "plinth"},
+                "storeys": [],
+                "bays": [],
+            }
+            if walls:
+                out["walls"] = walls
     if roof_part:
-        out["roof"] = {"material": "roof_metal", "chimneys": []}
+        out["roof"] = {"material": "roof_metal", **({"chimneys": []} if drawn else {})}
     return out
 
 
