@@ -175,7 +175,10 @@ def description_row(key):
             path = directory / opaque(identity)
             if path.is_file():
                 return {**json.loads(path.read_text()), "building_key": str(key)}
-        return None
+        # Converted W2 building readings: only where no proven source describes the building.
+        from turku3d.facade_readings import row
+
+        return row(key)
     best = best_description(candidates)
     return dict(
         building_key=str(key),

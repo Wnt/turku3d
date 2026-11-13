@@ -190,7 +190,36 @@ def described_blank_walls(key, vertices, description, observed=None):
     return result
 
 
-def describe(program, description, source_width, *, blank_walls=frozenset()):
+def described_balconies(vertices, row):
+    """Balcony rails the description's source saw on its walls, per generated wall quad:
+    ``{index: [[x, y, w, h], ...]}`` with x along the quad from its first vertex."""
+    walls = [w for w in (row or {}).get("walls") or [] if w.get("balconies")]
+    if not walls:
+        return {}
+    from turku3d.coarse.stored_facades import match_prepared, prepare_walls
+
+    prepared = prepare_walls([dict(coordinates=w["coordinates"], normal=None, metadata={},
+                                   base_height=w.get("base_height") or 0, rails=w["balconies"])
+                              for w in walls])
+    result = {}
+    for index, points in enumerate(np.asarray(vertices).reshape(-1, 4, 3)):
+        matched = match_prepared(points, prepared, min_coverage=0.5)
+        if not matched:
+            continue
+        source, uv = matched
+        width = float(np.linalg.norm(points[1, [0, 2]] - points[0, [0, 2]]))
+        start, forward = uv[0, 0], uv[1, 0] >= uv[0, 0]
+        rails = []
+        for u, y, w, h in source["rails"]:
+            x = u - start if forward else start - (u + w)
+            if x + w > 0 and x < width:
+                rails.append([x, y, w, h])
+        if rails:
+            result[index] = rails
+    return result
+
+
+def describe(program, description, source_width, *, blank_walls=frozenset(), balconies=None):
     """Keep existing AI/kit results, adapting only the bay count to each real wall."""
     from turkutex.facade_program import value
 
@@ -246,7 +275,10 @@ def describe(program, description, source_width, *, blank_walls=frozenset()):
         w["corners"]["quoins"] = v(
             0.30 if "pilasters" in features else 0.15 if d["material"] == "wood" else 0
         )
-        w["balconies"] = v([])  # Existing generated balcony maps remain bound before this painter.
+        # Existing generated balcony maps remain bound before this painter; a reading's
+        # balcony walls (no maps) keep their rails.
+        rails = (balconies or {}).get(index, [])
+        w["balconies"] = v([[x + w.get("uv_offset", 0), y, bw, bh] for x, y, bw, bh in rails])
 
 
 def order_evidence(observed, description):
@@ -446,7 +478,8 @@ def resolve(building, vertices, eaves, *, layout_height=None):
     if d:
         row = description_row(building.facade_key) or {}
         describe(program, d, row.get("width_m") or attrs["frontage_m"],
-                 blank_walls=described_blank_walls(building.facade_key, vertices, d, observed))
+                 blank_walls=described_blank_walls(building.facade_key, vertices, d, observed),
+                 balconies=described_balconies(vertices, row))
         program["description_source"] = row.get("source", "existing")
     program["facade_material"] = family
     head = reading_head(observed)
