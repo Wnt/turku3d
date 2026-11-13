@@ -388,6 +388,10 @@ def main(argv=None) -> int:
     def prepared(b):  # views and crops of one building, with this thread's own panorama reader
         started = time.time()
         packet = root / "buildings" / b.id
+        described = (a.command == "describe" and not a.force and (packet / "views.json").exists()
+                     and (root / "descriptions/building" / f"{b.id}.json").exists())
+        if described:  # it will not be read again: its views are not prepared again either
+            return json.loads((packet / "views.json").read_text()), 0.0
         if a.prepared and (packet / "views.json").exists():
             record = json.loads((packet / "views.json").read_text())
             if all((packet / Path(c["file"]).name).exists() for c in record["crops"] + record["contexts"]):
