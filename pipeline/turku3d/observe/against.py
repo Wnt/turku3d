@@ -106,24 +106,25 @@ def material(doc: dict, value) -> dict:
     return value if isinstance(value, dict) else {}
 
 
-def facade_of(doc: dict, frame: dict):
-    """The shell facade under a wall frame, as `compile` finds it, with the building's facades."""
+def facades_of(doc: dict, frames: list) -> tuple[list, dict]:
+    """The shell facade under each wall frame, as `compile` finds it, and the roles (archetypes.wall_roles: street
+    doors, shopfronts, balconies) `compile` gives the walls of an unread building, by facade index."""
     origin = compile_module.building_origin(doc["shell"])
-    local = compile_module._localise({"shell": doc["shell"], "walls": [{"frame": frame}]}, origin)  # noqa: SLF001
+    local = compile_module._localise({**doc, "walls": [{"frame": f} for f in frames]}, origin)  # noqa: SLF001
     shell = shell_module.read(local["shell"])
-    frame = local["walls"][0]["frame"]
-    return shell_module.match(shell.facades, frame["p0"], frame["p1"]), shell
+    roles = compile_module.wall_roles({**local, "walls": []}, shell)
+    return [shell_module.match(shell.facades, w["frame"]["p0"], w["frame"]["p1"]) for w in local["walls"]], roles
 
 
-def automatic_wall(auto: dict, facade, frame: dict) -> tuple[dict, float]:
-    """The wall the automatic tier builds on a facade, and the facade's width."""
+def automatic_wall(auto: dict, facade, frame: dict, roles: dict | None = None) -> tuple[dict, float]:
+    """The wall the automatic tier builds on a facade, with the role `compile` gives it, and the facade's width."""
     wall = priors.resolve_wall(auto, None)
     if facade is None:
         length = math.dist(frame["p0"], frame["p1"])
         return priors.fitted_wall(auto, wall, float(frame.get("height_m", 3.0))), length
     foot = float(facade.ground[:, 1].min()) if len(facade.ground) else 0.0
     height = facade_module.eaves_height(facade.outline, facade.width) - foot
-    return priors.fitted_wall(auto, wall, height), facade.width
+    return priors.fitted_wall(auto, wall, height, (roles or {}).get(facade.index)), facade.width
 
 
 def bay_count(wall: dict, width: float, described: bool) -> int:
@@ -208,9 +209,10 @@ def building_row(key: str, stored: dict, sources, measured: dict | None = None) 
         return math.dist(frame["p0"], frame["p1"]) * wall.get("observed", {}).get("visible_share", 0.5)
 
     wall = max(frames, key=weight)
-    facade, _ = facade_of(auto, wall["frame"])
+    under, roles = facades_of(auto, [w["frame"] for w in frames])
+    facade = under[frames.index(wall)]
     read_wall = priors.resolve_wall(read, wall)
-    auto_wall, width = automatic_wall(auto, facade, wall["frame"])
+    auto_wall, width = automatic_wall(auto, facade, wall["frame"], roles)
     read_mat, auto_mat = material(read, read_wall.get("material")), material(auto, auto_wall.get("material"))
     read_bays, auto_bays = bay_count(read_wall, width, True), bay_count(auto_wall, width, False)
     read_window, auto_window = main_window(read, read_wall, read_bays), main_window(auto, auto_wall, auto_bays)
@@ -220,6 +222,8 @@ def building_row(key: str, stored: dict, sources, measured: dict | None = None) 
     full = lambda w: sum(s.get("kind") in FULL_STOREYS for s in expand_storeys(w.get("storeys", [])))  # noqa: E731
     hint = str(stored.get("roof", {}).get("form_hint", "")).lower()
     balconies = [b for w in frames for b in priors.resolve_wall(read, w).get("balconies", [])]
+    # The automatic balconies on the same walls as the read ones: those of the facades under every read frame.
+    auto_balconies = sum(len((roles.get(index) or {}).get("balconies", [])) for index in {f.index for f in under if f is not None})
     row = {
         "key": key, "address": register.get("address"), "year": register.get("year"), "era": era(register.get("year")),
         "use": register.get("use"), "register_material": register.get("material"),
@@ -242,7 +246,7 @@ def building_row(key: str, stored: dict, sources, measured: dict | None = None) 
         "lights_read": read_window and read_window.get("lights", {}).get("pattern"),
         "surround_auto": auto_window and auto_window["surround"].get("kind"),
         "surround_read": read_window and read_window["surround"].get("kind"),
-        "balconies_auto": len(auto_wall.get("balconies", [])), "balconies_read": len(balconies),
+        "balconies_auto": auto_balconies, "balconies_read": len(balconies),
         "balcony_type_read": collections.Counter(b.get("type") for b in balconies).most_common(1)[0][0] if balconies else None,
         "roof_form_shell": roof_form(auto), "roof_form_read": stored.get("roof", {}).get("form_hint"),
         "roof_form_read_class": None if not hint else "flat" if any(h in hint for h in FLAT_HINTS) else "pitched",
