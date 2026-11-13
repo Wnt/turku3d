@@ -37,6 +37,7 @@ class Placed:
 WALL_GABLE_RISE = (
     0.6  # a wall outline this far over the eaves at a wall dormer's place is that dormer
 )
+MAX_DOOR_CLIMB = 1.9  # the highest threshold over the ground that still gets a flight of steps
 RECESS_SHADE = 0.6  # the wall's colour inside a balcony recess (Palette.occluded)
 
 
@@ -165,7 +166,11 @@ def layout(facade, wall: dict, doc: dict, report: list) -> Layout:
                 else:
                     bottom = max(bottom, ground + 0.03)
                     if spec["kind"] == "door":
-                        steps = int(round((bottom - ground - 0.03) / openings.STEP_RISE))
+                        # A door of an upper storey opens onto a balcony or a landing somebody describes: a
+                        # flight of steps only climbs to a door of the ground floor or of the wall itself.
+                        climb = bottom - ground - 0.03
+                        upstairs = bool(storey_index) and climb > MAX_DOOR_CLIMB
+                        steps = 0 if upstairs else int(round(climb / openings.STEP_RISE))
                         placed_spec = priors.merged(spec, {"leaf": {"steps": max(0, steps)}})
                 if spec["kind"] == "shopfront" and floor_v is not None:
                     bottom = max(ground + 0.05, min(bottom, floor_v))
