@@ -5,9 +5,11 @@
 // across cells. Where the old game's photographic ground library has the surface (worn asphalt, mown grass, granite
 // gravel, kerb granite, granite setts), its maps are the base, toned to the family's parameters; every other surface
 // is synthesised from its parameters (groundSynth.ts). Over the repeat lies variation in world space at two much
-// larger scales (worn and damp patches, fading), so no two stretches of a street match.
+// larger scales (worn and damp patches, fading), so no two stretches of a street match; worn asphalt, grass and
+// gravel are scattered with the old game's stochastic tiling, and asphalt carries repairs and sealed cracks.
 import * as THREE from 'three/webgpu';
-import { float, mx_noise_float, normalMap, positionWorld, texture, uv, vec2, vec3 } from 'three/tsl';
+import { cameraPosition, dot, float, floor, fract, mx_noise_float, normalMap, positionWorld, sin, smoothstep, texture, uv, vec2, vec3 } from 'three/tsl';
+import type { Node } from 'three/webgpu';
 import { registerFamily } from '../materials';
 import { GROUND_FAMILIES, synthesise, type GroundParams } from './groundSynth';
 
@@ -20,8 +22,9 @@ const LOOK: Record<string, { patch: number; relief: number }> = {
 };
 
 /** The photographic library (game/public/assets/ground): metres per repeat of each surface. */
-const LIBRARY: Record<string, { metres: number }> = {
-  asphalt_worn: { metres: 2 }, grass: { metres: 2 }, gravel: { metres: 2 }, granite_curb: { metres: 2 }, cobblestone: { metres: 2 },
+const LIBRARY: Record<string, { metres: number; scattered: boolean }> = {
+  asphalt_worn: { metres: 2, scattered: true }, grass: { metres: 2, scattered: true }, gravel: { metres: 2, scattered: true },
+  granite_curb: { metres: 2, scattered: false }, cobblestone: { metres: 2, scattered: false },
 };
 /** Mean linear albedo of the library's worn asphalt: what an asphalt's tone is set against. */
 const ASPHALT_MEAN = 0.207;
@@ -50,6 +53,39 @@ function photographic(family: string, params: GroundParams): Photographic | null
   if (family === 'kerbstone') return { key: 'granite_curb', tint: new THREE.Color(1, 1, 1), relief: 0.5 };
   if (family === 'setts' && number(params.size_y, 0.09) >= 0.18) return { key: 'cobblestone', tint: new THREE.Color(1, 1, 1), relief: 0.8 };
   return null;
+}
+
+function hash2(v: Node<'vec2'>) {
+  return fract(sin(vec2(dot(v, vec2(127.1, 311.7)), dot(v, vec2(269.5, 183.3)))).mul(43758.5453));
+}
+
+/** The old game's stochastic tiling (render/ground/material.ts `stencil`): a triangle lattice of one repeat whose
+ *  corners each shift the map by their own random offset, so the repeat never lines up along a street. */
+function scatter(at: Node<'vec2'>) {
+  const cell = floor(at);
+  const f = fract(at);
+  const upper = f.x.add(f.y).greaterThan(1);
+  const corners = [upper.select(cell.add(vec2(1)), cell), cell.add(vec2(1, 0)), cell.add(vec2(0, 1))];
+  const w = upper.select(vec3(f.x.add(f.y).sub(1), float(1).sub(f.y), float(1).sub(f.x)),
+    vec3(float(1).sub(f.x).sub(f.y), f.x, f.y)).max(0).pow(4);
+  return { at: corners.map(corner => at.add(hash2(corner))), weight: w.div(w.x.add(w.y).add(w.z).max(0.00001)), dx: at.dFdx(), dy: at.dFdy() };
+}
+
+function scattered3(map: THREE.Texture, grid: ReturnType<typeof scatter>) {
+  const sample = (i: number) => texture(map, grid.at[i]).grad(grid.dx, grid.dy).rgb;
+  return sample(0).mul(grid.weight.x).add(sample(1).mul(grid.weight.y)).add(sample(2).mul(grid.weight.z));
+}
+
+/** What years of traffic and repair leave on asphalt, placed in world space so cells agree: repairs of newer, darker
+ *  and smoother asphalt with crisp edges, broad pale worn stretches, and sealed cracks near the camera. */
+function asphaltWear(place: Node<'vec2'>) {
+  const repair = smoothstep(0.3, 0.33, mx_noise_float(vec3(place.mul(0.085), 5.3)).add(mx_noise_float(vec3(place.mul(0.4), 1.9)).mul(0.08)));
+  const worn = mx_noise_float(vec3(place.mul(vec2(0.021, 0.034)), 7.7)).mul(0.1);
+  const cracked = smoothstep(0.1, 0.35, mx_noise_float(vec3(place.mul(0.045), 12.4)));
+  const line = float(1).sub(smoothstep(0.004, 0.012, mx_noise_float(vec3(place.mul(0.55), 21.8)).add(mx_noise_float(vec3(place.mul(2.3), 4.1)).mul(0.06)).abs()));
+  const near = float(1).sub(smoothstep(12, 40, positionWorld.sub(cameraPosition).length()));
+  const sealed = line.mul(cracked).mul(near);
+  return { tone: float(1).add(worn).mul(float(1).sub(repair.mul(0.2))).mul(float(1).sub(sealed.mul(0.45))), sealed: sealed.max(repair.mul(0.5)) };
 }
 
 const cache = new Map<string, THREE.Material>();
@@ -93,13 +129,17 @@ export function groundMaterial(family: string, params: GroundParams = {}): THREE
     material.name = `ground-${family}`;
     const photo = photographic(family, params);
     if (photo) {
-      const metres = LIBRARY[photo.key].metres;
+      const { metres, scattered } = LIBRARY[photo.key];
       const at = uv().div(metres);
-      const orm = texture(image(photo.key, 'orm'), at);
-      material.colorNode = texture(image(photo.key, 'albedo'), at).rgb.mul(vec3(photo.tint.r, photo.tint.g, photo.tint.b))
-        .mul(float(1).add(patches.mul(look.patch)));
-      material.normalNode = normalMap(texture(image(photo.key, 'normal'), at).rgb, vec2(photo.relief));
-      material.roughnessNode = orm.g.add(patches.mul(-0.05)).clamp(0.3, 1);
+      const grid = scattered ? scatter(at) : null;
+      const read = (layer: 'albedo' | 'normal' | 'orm') => (grid ? scattered3(image(photo.key, layer), grid) : texture(image(photo.key, layer), at).rgb);
+      const orm = read('orm');
+      const wear = family === 'asphalt' ? asphaltWear(place) : null;
+      const tone = float(1).add(patches.mul(look.patch));
+      material.colorNode = read('albedo').mul(vec3(photo.tint.r, photo.tint.g, photo.tint.b)).mul(wear ? tone.mul(wear.tone) : tone);
+      material.normalNode = normalMap(read('normal'), vec2(photo.relief));
+      const rough = orm.g.add(patches.mul(-0.05));
+      material.roughnessNode = (wear ? rough.add(wear.sealed.mul(-0.12)) : rough).clamp(0.3, 1);
       material.aoNode = orm.r;
       material.userData.library = photo.key;
     } else {
