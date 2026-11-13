@@ -6,7 +6,8 @@ here, so that things meet. A raster file is derived data: it is rebuilt from the
 Layers, all on one grid of `CELL` metres whose cell (row, col) of the tile with south-west corner (E0, N0) is centred at
 E0 + (col + 0.5) * CELL, N0 + (row + 0.5) * CELL:
 
-- `ground`   N2000 height of the ground (median of ground returns; gaps under buildings and cars interpolated)
+- `ground`   N2000 height of the ground (median of ground returns; gaps under buildings and cars interpolated); a
+             `Window` gives it over finished ground (`street.finished`: construction sites of the 2021 scan filled)
 - `measured` whether the cell had a ground return
 - `canopy`   height above ground of the highest high-vegetation return, 0 where none
 - `shrub`    height above ground of the highest low or medium vegetation return, 0 where none
@@ -215,6 +216,10 @@ class Window:
                     source = data[key]
                     target = self.layers.setdefault(key, np.zeros((rows, cols) + source.shape[2:], source.dtype))
                     target[r0:r1, c0:c1] = source[r0 - r_from:r1 - r_from, c0 - c_from:c1 - c_from]
+        if 'ground' in self.layers:  # the scan's construction sites as their finished surface (street.finished)
+            from .finished import finish_grid
+
+            self.layers['ground'] = finish_grid(self.layers['ground'], (self.col0 + 0.5) * CELL, (self.row0 + 0.5) * CELL, CELL)
 
     def position(self, e, n):
         """Fractional (row, col) of survey-frame points on the cell-centre grid."""

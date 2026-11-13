@@ -199,6 +199,10 @@ class Window:
         self.surveyed = bool(known.any())  # False: the whole box lies outside the survey
         if self.surveyed and not known.all():
             self.ground = fill(self.ground, known)
+        if self.surveyed:  # the scan's construction sites as their finished surface (street.finished)
+            from ..street.finished import finish_grid
+
+            self.ground = finish_grid(self.ground, (self.col0 + 0.5) * GRID, (self.row0 + 0.5) * GRID, GRID)
         self.returns = Returns(*(np.concatenate([getattr(p, key) for p in parts])
                                  for key in ("e", "n", "h", "cls", "rgb", "first")))
 

@@ -2,7 +2,7 @@
 
 Each tile becomes a 1 m height grid once (sources/dem/maanpinta-1m/<xmin>_<ymax>.npy): a linear interpolation of
 the tile's points and those within 30 m in its neighbours, so that adjoining tiles agree at their shared edge.
-Raw tiles are read from $TURKU3D_DATA/raw/laz/maanpinta and fetched into the cache when missing.
+Heights are given over finished ground (`world.street.finished`). Raw tiles are read from $TURKU3D_DATA/raw/laz/maanpinta and fetched into the cache when missing.
 """
 
 from __future__ import annotations
@@ -21,6 +21,14 @@ STEP = 1.0
 NODES = int(TILE / STEP) + 1
 BUFFER = 30.0
 URL = "https://turku.asiointi.fi/3d/maanpinta/{name}.laz"
+
+
+def finished(grid: np.ndarray, tile: tuple[int, int]) -> np.ndarray:
+    """The scanned grid of a tile over finished ground (street.finished: the 2021 scan's construction sites filled).
+    The stored grid stays the scan's."""
+    from ..street.finished import finish_grid
+
+    return finish_grid(grid, float(tile[0]), float(tile[1]) - TILE, STEP)
 
 
 class Terrain:
@@ -74,7 +82,7 @@ class Terrain:
             return self.grids[tile]
         path = self.cache / "dem" / "maanpinta-1m" / f"{tile[0]}_{tile[1]}.npy"
         if path.exists():
-            self.grids[tile] = np.load(path)
+            self.grids[tile] = finished(np.load(path), tile)
             return self.grids[tile]
         own = self.tile_points(tile)
         if own is None:
@@ -104,8 +112,8 @@ class Terrain:
         tmp = path.with_name(f"{path.stem}.{os.getpid()}.tmp.npy")
         np.save(tmp, grid)
         tmp.replace(path)
-        self.grids[tile] = grid
-        return grid
+        self.grids[tile] = finished(grid, tile)
+        return self.grids[tile]
 
     def heights(self, e, n) -> np.ndarray:
         """N2000 ground heights at survey points (bilinear in the 1 m grid); NaN where the city has no lidar."""

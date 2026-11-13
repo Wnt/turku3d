@@ -96,6 +96,8 @@ def test_a_tile_the_survey_lacks_continues_its_neighbour(tmp_path, monkeypatch):
     monkeypatch.setenv('TURKU3D_WORLD_DATA', str(tmp_path))
     monkeypatch.setattr(lidar, 'laz_path', laz_path)
     monkeypatch.setattr(lidar, 'build', lambda name: measured if name == west else laz_path(name))
+    from turku3d.world.street import finished
+    monkeypatch.setattr(finished, 'correction', lambda name: None)  # no register rows here: the scan as it is
     lidar.tile.cache_clear()
     try:
         filled = lidar.tile(here)

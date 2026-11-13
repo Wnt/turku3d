@@ -302,6 +302,7 @@ def _products() -> dict:
     from ..green import lidar as green
     from ..objects import lidar as objects
     from ..objects import spans, wires
+    from ..street import finished
     from ..street import lidar as street
 
     def street_tile(name, sources):
@@ -319,6 +320,8 @@ def _products() -> dict:
         "ring": (lambda name: ring_path(name).exists() or absent(name), lambda name, sources: ring(name, fetch=True), 1),
         "wires": (wires.tile_done, lambda name, sources: wires.tile(name, sources.log), 2),
         "spans": (spans.tile_done, lambda name, sources: spans.tile(sources, *tile_corner(name)), 2),
+        # The scan's construction sites as their finished surface: register rows and key points, not this decode.
+        "finished ground": (finished.done, lambda name, sources: finished.make(name, sources), 2),
     }
 
 
