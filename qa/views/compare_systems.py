@@ -40,6 +40,24 @@ def load(run):
     return views, len(reps), [rep.get("meta", {}) for rep in reps]
 
 
+def lab_blocks(path, size=(32, 24)):
+    """CIELAB of the image averaged in size[0] x size[1] blocks (a model-free colour layout)."""
+    import numpy as np
+    rgb = np.asarray(Image.open(path).convert("RGB").resize(size, Image.BOX), dtype=float) / 255.0
+    lin = np.where(rgb <= 0.04045, rgb / 12.92, ((rgb + 0.055) / 1.055) ** 2.4)
+    xyz = lin @ np.array([[0.4124, 0.3576, 0.1805], [0.2126, 0.7152, 0.0722], [0.0193, 0.1192, 0.9505]]).T / np.array([0.9505, 1.0, 1.089])
+    f = np.where(xyz > 0.008856, np.cbrt(xyz), 7.787 * xyz + 16 / 116)
+    return np.stack([116 * f[..., 1] - 16, 500 * (f[..., 0] - f[..., 1]), 200 * (f[..., 1] - f[..., 2])], -1)
+
+
+def colour_difference(photo, render):
+    """Mean CIE76 colour difference of the two images' 32x24 block layouts (lower = closer), or None."""
+    import numpy as np
+    if not (photo and render and Path(photo).exists() and Path(render).exists()):
+        return None
+    return float(np.linalg.norm(lab_blocks(photo) - lab_blocks(render), axis=-1).mean())
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--a", required=True)
@@ -55,12 +73,18 @@ def main():
     B, rb, mb = load(args.b)
     feats = {f["id"].replace("_", "-"): f for f in json.loads(Path(args.features).read_text())["features"]}
     common = [v for v in A if v in B]
+    reg = {}
+    if args.photos:
+        reg = {json.loads(line)["id"].replace("_", "-"): json.loads(line)["image"] for line in Path(args.photos).read_text().splitlines() if line.strip()}
+
     reps = min(ra, rb)
     rows, per_view = {}, []
     for v in common:
         g = A[v]["group"] or feats.get(v, {}).get("feature", "other")
         a, b = st.mean(A[v]["overall"]), st.mean(B[v]["overall"])
-        per_view.append(dict(view=v, feature=g, a=round(a, 1), b=round(b, 1), margin=round(b - a, 1),
+        photo = reg.get(v) or A[v]["photo"]
+        da, db = colour_difference(photo, A[v]["render"]), colour_difference(photo, B[v]["render"])
+        per_view.append(dict(view=v, feature=g, a=round(a, 1), b=round(b, 1), margin=round(b - a, 1), de_a=da and round(da, 1), de_b=db and round(db, 1),
                              what=feats.get(v, {}).get("what", ""), a_reps=[round(x, 1) for x in A[v]["overall"]], b_reps=[round(x, 1) for x in B[v]["overall"]]))
         rows.setdefault(g, []).append(v)
     table = []
@@ -81,10 +105,15 @@ def main():
             ac = st.mean(st.mean(s[c] for s in A[v]["scores"]) for v in vs)
             bc = st.mean(st.mean(s[c] for s in B[v]["scores"]) for v in vs)
             aspects[c] = dict(a=round(ac, 2), b=round(bc, 2), winner=nb if bc > ac else na if ac > bc else "tie")
+        des = [(pv_["de_a"], pv_["de_b"]) for pv_ in per_view if pv_["view"] in vs and pv_["de_a"] is not None and pv_["de_b"] is not None]
+        de_a = st.mean(x for x, _ in des) if des else None
+        de_b = st.mean(y for _, y in des) if des else None
+        de_winner = None if de_a is None else nb if de_b < de_a else na if de_a < de_b else "tie"
         close = abs(b - a) <= (spread or 0) or rep_agree < 1
         table.append(dict(feature=g, views=len(vs), a=round(a, 1), b=round(b, 1), margin=round(b - a, 1), winner=winner,
                           view_agreement=round(own.count(winner) / len(vs), 2), repeat_agreement=round(rep_agree, 2), spread=None if spread is None else round(spread, 1),
-                          close=close, aspects=aspects, per_repeat=per_rep, ids=vs))
+                          close=close, aspects=aspects, per_repeat=per_rep, ids=vs,
+                          colour_de=None if de_a is None else dict(a=round(de_a, 1), b=round(de_b, 1), winner=de_winner, agrees=de_winner == winner)))
     alla = st.mean(st.mean(A[v]["overall"]) for v in common)
     allb = st.mean(st.mean(B[v]["overall"]) for v in common)
     out = Path(args.out)
@@ -94,11 +123,12 @@ def main():
                                                     all=dict(views=len(common), a=round(alla, 1), b=round(allb, 1), margin=round(allb - alla, 1)),
                                                     features=table, views=per_view, costUsd=round(cost, 2)), indent=1) + "\n")
     letters = {na: na[0].upper(), nb: nb[0].upper(), "tie": "="}
-    md = [f"| Feature | Views | {na} | {nb} | Margin ({nb} − {na}) | Winner | Views agree | Repeats agree | Aspects (I B M L S D) |", "|---|---|---|---|---|---|---|---|---|"]
+    md = [f"| Feature | Views | {na} | {nb} | Margin ({nb} − {na}) | Winner | Views agree | Repeats agree | Aspects (I B M L S D) | Colour dE {na}/{nb} |", "|---|---|---|---|---|---|---|---|---|---|"]
     for t in sorted(table, key=lambda t: t["margin"]):
         md.append(f"| {t['feature']}{' (close)' if t['close'] else ''} | {t['views']} | {t['a']} | {t['b']} | {t['margin']:+} | {t['winner']} | {t['view_agreement']:.0%} | {t['repeat_agreement']:.0%} | "
-                  + " ".join(letters[t['aspects'][c]['winner']] for c in W) + " |")
-    md.append(f"| **all** | {len(common)} | {alla:.1f} | {allb:.1f} | {allb - alla:+.1f} | {nb if allb > alla else na} | | | |")
+                  + " ".join(letters[t['aspects'][c]['winner']] for c in W)
+                  + (f" | {t['colour_de']['a']}/{t['colour_de']['b']}{'' if t['colour_de']['agrees'] else ' (disagrees)'} |" if t['colour_de'] else " | |"))
+    md.append(f"| **all** | {len(common)} | {alla:.1f} | {allb:.1f} | {allb - alla:+.1f} | {nb if allb > alla else na} | | | | |")
     (out / "table.md").write_text("\n".join(md) + "\n")
     print("\n".join(md))
     # Close calls: the close features' views nearest their feature margin first, then the smallest view margins.
@@ -111,9 +141,6 @@ def main():
         if p["view"] not in pick:
             pick.append(p["view"])
     pick = pick[:args.close]
-    reg = {}
-    if args.photos:
-        reg = {json.loads(line)["id"].replace("_", "-"): json.loads(line)["image"] for line in Path(args.photos).read_text().splitlines() if line.strip()}
     w, h = 480, 360
     sheet = Image.new("RGB", (3 * w + 8, len(pick) * (h + 22)), "white")
     d = ImageDraw.Draw(sheet)

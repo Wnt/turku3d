@@ -170,6 +170,11 @@ def select(args):
     # Signalised crossings.
     sig = [r for r in within if r["geom"].geom_type == "Point" and (r["tags"].get("highway") == "traffic_signals" or r["tags"].get("crossing") == "traffic_signals")]
     pick("crossing", [(r["geom"], f"signalised crossing (OSM node {r['id']})", dict(look_h=2.0, distance=[12, 45], fov=60)) for r in sig], 3)
+    # Ordinary streets per area type, from the register (LoD2 year, storeys, class) within 50 m of a street point.
+    if args.streets:
+        types = street_types(rows, inside)
+        for t, cands in types.items():
+            pick(f"street-{t}", cands, args.streets, spread=150)
     # Extra spots (a data file: review spots read from the page, each {id, what, camera [E, N, H], heading, pitch}).
     for s in json.loads(Path(args.extra).read_text()) if args.extra else []:
         E, N, Hc = s["camera"]
@@ -178,10 +183,78 @@ def select(args):
         out.append(dict(id=s["id"], feature=s.get("feature", "review"), what=s["what"], look_at=[round(E + d * math.sin(t), 2), round(N + d * math.cos(t), 2)],
                         camera=[E, N], near=s.get("near", 30.0), look_h=s.get("look_h", 1.5), distance=[4, 80], fov=s.get("fov", 60),
                         through=True, review=s))
+    if args.keep:
+        out = [f for f in out if f["feature"] in args.keep.split(",")]
     Path(args.out).mkdir(parents=True, exist_ok=True)
     (Path(args.out) / "features.json").write_text(json.dumps(dict(schema="turku-feature-set/1", inside=str(args.inside), seed=args.seed, features=out), indent=1) + "\n")
     for f in out:
         print(f["id"], f["what"])
+
+
+def lod2_register(box):
+    """LoD2 buildings meeting box: (footprint, year, storeys, class) from the register parquet blocks (raw/wfs)."""
+    import pandas as pd
+    from shapely import force_2d
+    e0, n0, e1, n1 = box
+    out = {}
+    for d in sorted((Path(config.data_root()) / "raw/wfs").glob("*")):
+        try:
+            be, bn = (float(x) for x in d.name.split("-", 1)[1].split("_"))
+        except (ValueError, IndexError):
+            continue
+        f = d / "bldg_Building_LOD2.parquet"
+        if not f.exists() or be > e1 or be + 500 < e0 or bn > n1 or bn + 500 < n0:
+            continue
+        df = pd.read_parquet(f, columns=["feature_key", "surface_type", "geometry", "yearOfConstruction", "storeysAboveGround", "class", "function"])
+        for key, g in df[df["surface_type"] == "GroundSurface"].groupby("feature_key"):
+            foot = shapely.union_all([force_2d(shapely.from_wkb(x)).buffer(0) for x in g["geometry"]])
+            a = g.iloc[0]
+            year = str(a["yearOfConstruction"])[:4]
+            storeys = pd.to_numeric(a["storeysAboveGround"], errors="coerce")
+            out[key] = (foot, int(year) if year.isdigit() else None, 0 if pd.isna(storeys) else float(storeys), str(a["class"]), str(a["function"]))
+    return list(out.values())
+
+
+def street_types(rows, inside):
+    """Street points every 50 m, typed by the register floor area within 50 m: stone town (before 1940, 3+ storeys),
+    wooden (before 1940, at most 2 storeys, residential), blocks-1950-79 (3+ storeys) and detached (from 1945, at most
+    2 storeys, residential); a type that holds 60 % of the floor area names the point."""
+    reg = lod2_register(inside.bounds)
+    tree = STRtree([b[0] for b in reg])
+    out = {"stone-town": [], "wooden": [], "blocks-1950-79": [], "detached": []}
+    for r in rows:
+        if r["geom"].geom_type != "LineString" or r["tags"].get("highway") not in STREETS or r["tags"].get("tunnel") or r["tags"].get("bridge"):
+            continue
+        line = r["geom"]
+        for s in np.arange(25.0, line.length, 50.0):
+            p = line.interpolate(s)
+            if not inside.contains(p):
+                continue
+            floor = dict.fromkeys(out, 0.0)
+            total = 0.0
+            for j in tree.query(p.buffer(50)):
+                foot, year, storeys, cls, fn = reg[j]
+                if foot.distance(p) > 50 or foot.area < 40:
+                    continue
+                area = foot.area * max(1.0, storeys)
+                total += area
+                home = cls == "1000"
+                if year and year < 1940 and storeys >= 3:
+                    floor["stone-town"] += area
+                elif year and year < 1940 and home:
+                    floor["wooden"] += area
+                elif year and 1950 <= year <= 1979 and storeys >= 3:
+                    floor["blocks-1950-79"] += area
+                elif year and year >= 1945 and storeys <= 2 and home:
+                    floor["detached"] += area
+            if total <= 0:
+                continue
+            t, a = max(floor.items(), key=lambda kv: kv[1])
+            if a >= 0.6 * total:
+                a0, b0 = line.interpolate(max(0.0, s - 20)), line.interpolate(min(line.length, s + 20))
+                out[t].append((p, f"{t} street {r['tags'].get('name', '')} ({a / total:.0%} of the floor area, OSM way {r['id']})",
+                               dict(look_h=1.5, distance=[0, 30], fov=60, along=[round(a0.x, 2), round(a0.y, 2), round(b0.x, 2), round(b0.y, 2)])))
+    return out
 
 
 def refs(args):
@@ -207,7 +280,7 @@ def refs(args):
         if view:
             done[view["id"]] = view
             registry.write_text("".join(json.dumps(v) + "\n" for v in done.values()))
-    feats = {r["id"]: r for r in json.loads((s / "features.json").read_text())["features"]}
+    feats = {r["id"].replace("-", "_"): r for r in json.loads((s / "features.json").read_text())["features"]}
     views = [dict(id=vid.replace("_", "-"), reference=vid, group=feats[vid]["feature"] if vid in feats else "other", aim="feature")
              for vid in done]
     (s / "views.json").write_text(json.dumps(dict(
@@ -217,6 +290,14 @@ def refs(args):
 
 
 def one(r, out, polys, tree, cache, refreshed, min_date):
+    if r.get("along"):  # an ordinary street: the along-street view of street_refs.py at the point
+        from street_refs import street_view
+        a, vid = r["along"], r["id"].replace("-", "_")
+        view, why = street_view(LineString([(a[0], a[1]), (a[2], a[3])]), Point(*r["look_at"]), None, vid, r["feature"], cache, refreshed, out,
+                                tags=["w2-compare", r["feature"]], min_date=min_date)
+        if view:
+            view["image"] = str((out / f"{vid}.jpg").resolve())
+        return view, why
     tE, tN = r["look_at"]
     target = Point(tE, tN)
     lo, hi = r.get("distance", [10, 70])
@@ -299,6 +380,8 @@ def main():
     a.add_argument("--margin", type=float, default=40.0)
     a.add_argument("--spread", type=float, default=100.0)
     a.add_argument("--landmark-min", type=float, default=60.0)
+    a.add_argument("--streets", type=int, default=0, help="street views per area type (0: none)")
+    a.add_argument("--keep", help="comma-separated features to write (default: all)")
     b = sub.add_parser("refs")
     b.add_argument("set")
     b.add_argument("--only")
