@@ -78,3 +78,55 @@ def cell(i: int, j: int, features) -> dict:
     part.write_bytes(inventory.dumps(result))
     part.replace(path)
     return result
+
+
+# The city layers a census reads, fetched once by the caller of `prepare` so that its workers find them cached.
+LAYERS = ("GIS:Puut", "kanta:Lehtipuu", "kanta:Havupuu", "kanta:Pensasaita", "kanta:Rakenne", "GIS:Viheralueet", "GIS:Katualueet")
+
+
+def cells_of(area) -> list[tuple[int, int]]:
+    """The cells whose census the trees and planting kinds read for `area` (the cells it touches)."""
+    from ..frame import cell_at
+
+    box = area.bbox()
+    (i0, j1), (i1, j0) = cell_at(box[0], box[1]), cell_at(box[2], box[3])
+    return [(i, j) for i in range(i0, i1 + 1) for j in range(j0, j1 + 1) if area.touches(cell_box_en(i, j))]
+
+
+def _measure(cells: list[tuple[int, int]]) -> int:
+    from ..sources import Sources
+
+    sources = Sources(log=lambda *_: None)
+    for i, j in cells:
+        cell(i, j, sources.wfs.features)
+    return len(cells)
+
+
+def prepare(area, sources, jobs: int, log=print) -> dict:
+    """Measures the cells of `area` that lack a census in `jobs` worker processes, each a contiguous run of cells
+    (it reads the vegetation of few tiles). A census is the same whichever process makes it; a cell a worker could
+    not make is made by the kind on first use, as before. Returns {cells, made, s}."""
+    import time
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    from multiprocessing import get_context
+
+    started = time.perf_counter()
+    todo = [c for c in cells_of(area) if not path_of(*c).exists()]
+    if len(todo) < 2 or jobs < 2:
+        return {"cells": len(todo), "made": 0, "s": 0.0}
+    box = area.bbox()
+    wide = (box[0] - inventory.MARGIN, box[1] - inventory.MARGIN, box[2] + inventory.MARGIN, box[3] + inventory.MARGIN)
+    for layer in LAYERS:  # fetched here once, not by every worker
+        sources.wfs.features(layer, wide)
+    workers = min(jobs, len(todo))
+    size = -(-len(todo) // workers)
+    runs = [todo[k:k + size] for k in range(0, len(todo), size)]
+    made = 0
+    with ProcessPoolExecutor(len(runs), mp_context=get_context("spawn")) as pool:
+        for done in as_completed([pool.submit(_measure, run) for run in runs]):
+            try:
+                made += done.result()
+            except Exception as error:  # noqa: BLE001 - the kinds make what is missing on first use
+                log(f"  census worker failed, its cells are measured by the kinds: {type(error).__name__}: {str(error)[:200]}")
+    log(f"  census: {made} of {len(todo)} cells measured in {len(runs)} processes, {time.perf_counter() - started:.1f} s")
+    return {"cells": len(todo), "made": made, "s": round(time.perf_counter() - started, 2)}

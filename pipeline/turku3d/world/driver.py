@@ -20,6 +20,7 @@ from .collision import collision_cells, street_start
 from .roads import location_roads
 from .frame import ORIGIN, to_engine
 from .glb import pack
+from .green import census
 from .kinds import KINDS, code_hash
 from .meter import Meter
 from .sources import Sources
@@ -332,6 +333,13 @@ def build(name: str, area: Area, background: float, store: Store, log=print) -> 
         except Exception as error:  # noqa: BLE001 - the kinds make what is missing on first use, and report it
             prepared = {"error": f"{type(error).__name__}: {error}"[:300]}
             log(f"  lidar stage failed, the kinds read tiles as they go: {prepared['error']}")
+    # The planting census of every cell the trees and planting kinds will read, in worker processes: one process
+    # measuring cell after cell was two thirds of a warm build.
+    with meter.stage("census"):
+        try:
+            prepared["census"] = census.prepare(wide, sources, jobs, log)
+        except Exception as error:  # noqa: BLE001 - the kinds measure what is missing on first use
+            log(f"  census stage failed, the kinds measure cells as they go: {type(error).__name__}: {error}"[:300])
     for kind in KINDS.values():
         with meter.stage(f"discover:{kind.name}"):
             try:
