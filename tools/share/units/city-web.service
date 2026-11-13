@@ -2,7 +2,8 @@
 # city-tiles), /cities/<name>/coarse (the other cities' tile services named in cities.json, hot-read) and the multiplayer socket and scores (via city-mp), GET/HEAD only (serve-dist.mjs --public). No edit
 # uploads: the editor (?editor=1) keeps its sessions in the browser (docs/handover/editor.md).
 # /world is the published store of the new world's locations and /classic the release that was live before it
-# (tools/share/publish-w2.sh).
+# (tools/share/publish-w2.sh). /proven is the proven-plus world: the proven city.madekivi.fi client (local/proven-plus,
+# tools/share/publish-proven.sh there) on the proven tiles of /coarse.
 [Unit]
 Description=Turku3D city share: public game server on 127.0.0.1:7780
 After=city-tiles.service city-mp.service city-web.socket
@@ -17,7 +18,7 @@ Type=simple
 # The release whose code it runs (deploy.sh moves `web` only when that code changes).
 WorkingDirectory=%h/turku3d-local/city/web/src
 Environment=NODE_ENV=production TURKU3D_WORK=%h/turku3d-local/city/work
-ExecStart=/usr/bin/node tools/dev/serve-dist.mjs --public --host 127.0.0.1 --port 7780 --root %h/turku3d-local/city/current/dist --coarse http://127.0.0.1:7781 --mp http://127.0.0.1:7782 --mount /pointcloud=/bulk/turku3d/lidarpc/copc --mount /progress-evidence=%h/turku3d-local/city/progress --mount /scenes/shared=%h/turku3d-local/city/scene-assets/shared --mount /world=%h/turku3d-local/city/world --mount /classic=%h/turku3d-local/city/classic/dist --cities %h/turku3d-local/city/cities.json
+ExecStart=/usr/bin/node tools/dev/serve-dist.mjs --public --host 127.0.0.1 --port 7780 --root %h/turku3d-local/city/current/dist --coarse http://127.0.0.1:7781 --mp http://127.0.0.1:7782 --mount /pointcloud=/bulk/turku3d/lidarpc/copc --mount /progress-evidence=%h/turku3d-local/city/progress --mount /scenes/shared=%h/turku3d-local/city/scene-assets/shared --mount /world=%h/turku3d-local/city/world --mount /classic=%h/turku3d-local/city/classic/dist --mount /proven=%h/turku3d-local/city/proven/current/dist --cities %h/turku3d-local/city/cities.json
 Restart=always
 RestartSec=3
 # SIGTERM drains the requests in flight (at most 4 s, tools/dev/systemdListen.mjs) before the process exits.
