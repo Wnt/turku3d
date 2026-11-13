@@ -25,10 +25,16 @@ HALO = 8              # relief nodes around the cell: what a kerb's two levels a
 MARGIN = HALO * STEP  # surfaces reach this far beyond the cell for the same reason
 ROADS = ('motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'living_street',
          'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link')
-CENTRE_LINED = ('primary', 'secondary', 'tertiary', 'unclassified')
+# Which streets carry a centre line, and its rhythm: the old generator's marking rules (roads/paint.py).
+CENTRE_LINED = ('motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'motorway_link', 'trunk_link', 'primary_link',
+                'secondary_link', 'tertiary_link')
+CENTRE_LINED_WHEN_LANES_TAGGED = ('residential', 'unclassified')
 CROSSING_WIDTH = 4.0
 JUNCTION_CLEAR = 10.0   # lane lines stop this far from where roads meet
-DASH, GAP = 3.0, 9.0    # centre line of a street with a limit of 50 km/h or less
+DASH, GAP = 3.0, 5.0    # centre line in town
+CYCLE_LANE = 1.5        # width of a cycle lane on the carriageway when its tag says less or nothing
+CYCLE_DASH, CYCLE_GAP = 1.0, 2.0
+CORRIDOR = 14.0         # a street's carriageway lies within this distance of its mapped centre line
 
 
 def _tags(row) -> dict:
@@ -36,6 +42,13 @@ def _tags(row) -> dict:
         return json.loads(row.tags) if isinstance(row.tags, str) else {}
     except ValueError:
         return {}
+
+
+def _lanes(row) -> int:
+    try:
+        return int(float(row.lanes))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _rings(polygon) -> list:
@@ -128,13 +141,60 @@ def _paint(box) -> tuple[list, list]:
     junctions = shapely.unary_union([shapely.Point(p).buffer(JUNCTION_CLEAR) for p, ways in ends.items() if len(ways) > 1]
                                     or [shapely.Polygon()])
     lanes = []
-    for row in roads[roads.highway.isin(CENTRE_LINED)].itertuples():
+    for row in roads.itertuples():
         if getattr(row, 'oneway', None) == 'yes':
+            continue
+        if row.highway not in CENTRE_LINED and not (row.highway in CENTRE_LINED_WHEN_LANES_TAGGED and _lanes(row) >= 2):
             continue
         for part in shapely.get_parts(row.geometry.difference(junctions)):
             if part.geom_type == 'LineString' and part.length > DASH:
-                lanes.append((part, float(row.geometry.project(shapely.Point(part.coords[0]))), f'osm:way/{row.osm_id}'))
+                lanes.append((part, float(row.geometry.project(shapely.Point(part.coords[0]))), f'osm:way/{row.osm_id}', DASH, GAP))
     return crossings, lanes
+
+
+def _cycle_lanes(box, surfaces) -> tuple[list, list]:
+    """Cycle lanes painted on the carriageway (OpenStreetMap `cycleway*=lane`): the strip along each kerb as a
+    surface of its own and its boundary line towards the traffic lane as a dashed line."""
+    mapped = osm.features(box)
+    low = [shape for shape, row in surfaces if row['level'] == 'low']
+    if mapped is None or not low:
+        return [], []
+    lines = mapped[mapped.geom_type == 'LineString']
+    roads = lines[lines.highway.isin(ROADS)]
+    ends = {}
+    for row in roads.itertuples():
+        for point in row.geometry.coords:
+            ends.setdefault((round(point[0], 2), round(point[1], 2)), set()).add(row.osm_id)
+    junctions = shapely.unary_union([shapely.Point(p).buffer(JUNCTION_CLEAR) for p, ways in ends.items() if len(ways) > 1]
+                                    or [shapely.Polygon()])
+    carriageway = shapely.unary_union(low)
+    bands, edges = [], []
+    for row in roads.itertuples():
+        tags = _tags(row)
+        sides = {side for side in ('left', 'right') for key in ('cycleway', 'cycleway:both', f'cycleway:{side}')
+                 if tags.get(key) == 'lane'}
+        if not sides:
+            continue
+        try:
+            width = max(float(tags.get('cycleway:both:width', tags.get('cycleway:width', CYCLE_LANE))), CYCLE_LANE)
+        except ValueError:
+            width = CYCLE_LANE
+        for side in sides:
+            reach = CORRIDOR if side == 'left' else -CORRIDOR
+            corridor = row.geometry.buffer(reach, single_sided=True, cap_style='flat').difference(junctions)
+            inner = carriageway.buffer(-width, join_style='mitre')
+            band = carriageway.difference(inner).intersection(corridor)
+            key = f'osm:way/{row.osm_id}:cycle-{side}'
+            for n, part in enumerate(_polygons(band)):
+                if part.area > 4.0:
+                    bands.append((part, {'key': f'{key}#{n}' if n else key, 'source': 'osm', 'level': 'low', 'use': 'cycle-lane',
+                                         'surface': '', 'rank': -1}))
+            # The line lies its own half width inside the lane, so that it is painted on the lane's edge.
+            edge = carriageway.buffer(-(width + 0.06), join_style='mitre').boundary.intersection(corridor)
+            for part in shapely.get_parts(shapely.line_merge(edge) if edge.geom_type == 'MultiLineString' else edge):
+                if part.geom_type == 'LineString' and part.length > 6.0:
+                    edges.append((part, 0.0, key, CYCLE_DASH, CYCLE_GAP))
+    return bands, edges
 
 
 class Ground:
@@ -146,6 +206,9 @@ class Ground:
         with sources.timed('street:surfaces'):
             surfaces = _surfaces(box)
             crossings, lanes = _paint(box)
+            bands, edges = _cycle_lanes(box, surfaces)
+            surfaces += bands
+            lanes += edges
         with sources.timed('street:lidar'):
             window = lidar.Window(*box)
         tree = shapely.STRtree([shape for shape, _ in surfaces])
@@ -173,8 +236,8 @@ class Ground:
                     'crossings': [{'key': key, 'line': np.asarray(line.coords).tolist(), 'width': CROSSING_WIDTH}
                                   for line, key in crossings if line.intersects(wide)],
                     'lanes': [{'key': key, 'line': np.asarray(part.coords).tolist(),
-                               'start': round(start + line.project(shapely.Point(part.coords[0])), 3), 'dash': DASH, 'gap': GAP}
-                              for line, start, key in lanes
+                               'start': round(start + line.project(shapely.Point(part.coords[0])), 3), 'dash': dash, 'gap': gap}
+                              for line, start, key, dash, gap in lanes
                               for part in shapely.get_parts(line.intersection(wide)) if part.geom_type == 'LineString' and part.length > 0.5],
                 }
                 refs = [{'source': 'turku-lidar:pistepilvi', 'key': cell_key(i, j)},

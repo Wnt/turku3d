@@ -27,7 +27,7 @@ KERB_REACH = 2.0         # beyond this distance from a kerb line both levels are
 GRID = 2.5               # relief resolution of the skin
 FAR_STEP = 2.5           # node spacing of the far level of detail
 ZEBRA_STRIPE, ZEBRA_PITCH = 0.5, 1.0
-DASH_WIDTH = 0.10
+DASH_WIDTH = 0.12
 
 
 def polygons(shape) -> list:
@@ -292,7 +292,8 @@ def compile_cell(description: dict) -> Output:
     low_vertex = np.zeros(len(points), bool)
     low_vertex[triangles[low_triangle].ravel()] = True
     px, pz = points[:, 0], points[:, 1]
-    heights = np.where(low_vertex, low_at(px, pz), high_at(px, pz))
+    # Whole millimetres, with ties broken upwards past float noise: a neighbour computes the same border heights.
+    heights = np.floor(np.where(low_vertex, low_at(px, pz), high_at(px, pz)) * 1000 + 0.5 + 1e-6) / 1000
     vertex_normals = np.where(low_vertex[:, None], low_normal(px, pz), high_normal(px, pz))
     vertex_normals /= np.linalg.norm(vertex_normals, axis=1, keepdims=True)
 
