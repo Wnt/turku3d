@@ -285,9 +285,30 @@ def material_of(cover: dict) -> Material:
     return Material(cover['family'], cover.get('params', {}), tuple(cover['color']), cover.get('roughness', 0.9))
 
 
-def kerb_solid(points, triangles, low_at, high_at, origin_xz) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def stations(points: np.ndarray, kerb_lines, origin_xz) -> np.ndarray:
+    """For each point, how far along its kerb it lies, in metres measured in the world along the direction of the
+    nearest kerb line, so the joints between kerb stones fall at the same places in neighbouring cells."""
+    runs = [g for g in shapely.get_parts(kerb_lines) if g.geom_type == 'LineString' and g.length > 0]
+    if not runs or not len(points):
+        return np.zeros(len(points))
+    runs = np.array(runs, dtype=object)
+    spots = shapely.points(points)
+    mine = runs[shapely.STRtree(runs).nearest(spots)]
+    at = shapely.line_locate_point(mine, spots)
+    length = shapely.length(mine)
+    a = shapely.get_coordinates(shapely.line_interpolate_point(mine, np.maximum(at - 0.25, 0.0)))
+    b = shapely.get_coordinates(shapely.line_interpolate_point(mine, np.minimum(at + 0.25, length)))
+    run = b - a
+    run /= np.maximum(np.linalg.norm(run, axis=1, keepdims=True), 1e-9)
+    # One sense per direction, whichever way the line happens to be drawn.
+    major = np.where(np.abs(run[:, 0]) >= np.abs(run[:, 1]), run[:, 0], run[:, 1])
+    run[major < 0] *= -1
+    return np.einsum('ij,ij->i', points + origin_xz, run)
+
+
+def kerb_solid(points, triangles, low_at, high_at, origin_xz, along) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """The closed prism over the kerb band: top at the pavement level, bottom below the carriageway, a wall on every
-    rim edge. Returns positions (heights absolute), triangles, normals and uvs."""
+    rim edge. Returns positions (heights absolute), triangles, normals, uvs and the station along the kerb."""
     used, inverse = np.unique(triangles, return_inverse=True)
     tris = inverse.reshape(-1, 3)
     xz = points[used]
@@ -299,6 +320,7 @@ def kerb_solid(points, triangles, low_at, high_at, origin_xz) -> tuple[np.ndarra
     normals = [np.tile([0.0, 1.0, 0.0], (count, 1)), np.tile([0.0, -1.0, 0.0], (count, 1))]
     world = xz + origin_xz
     uvs = [world, world]
+    station = [along[used], along[used]]
     up = facing_up(xz, tris)
     faces = [up, up[:, ::-1] + count]
 
@@ -324,6 +346,7 @@ def kerb_solid(points, triangles, low_at, high_at, origin_xz) -> tuple[np.ndarra
         normals.append(np.tile(outward, (4, 1)))
         uvs.append(np.concatenate([np.column_stack([along_a, top[a]]), np.column_stack([along_b, top[b]]),
                                    np.column_stack([along_b, bottom[b]]), np.column_stack([along_a, bottom[a]])]))
+        station.append(np.concatenate([along[used][a], along[used][b], along[used][b], along[used][a]]))
         n = len(rim)
         k = np.arange(n) + base
         wall = np.concatenate([np.column_stack([k, k + n, k + 2 * n]), np.column_stack([k, k + 2 * n, k + 3 * n])])
@@ -333,7 +356,7 @@ def kerb_solid(points, triangles, low_at, high_at, origin_xz) -> tuple[np.ndarra
         flip = np.einsum('ij,ij->i', normal, np.tile(outward, (2, 1))) < 0
         wall[flip] = wall[flip][:, ::-1]
         faces.append(wall)
-    return np.concatenate(positions), np.concatenate(faces), np.concatenate(normals), np.concatenate(uvs)
+    return np.concatenate(positions), np.concatenate(faces), np.concatenate(normals), np.concatenate(uvs), np.concatenate(station)
 
 
 def compile_cell(description: dict) -> Output:
@@ -384,18 +407,22 @@ def compile_cell(description: dict) -> Output:
             name = f"{cover['family']}-carriageway"
         key = json.dumps([cover['family'], cover.get('params', {}), name], sort_keys=True)
         groups.setdefault(key, (cover, name, []))[2].append(mine)
+    along = stations(points, kerb_lines, origin_xz)
     parts = []
     for key in sorted(groups):
         cover, name, chunks = groups[key]
         used, inverse = np.unique(triangles[np.concatenate(chunks)], return_inverse=True)
         xz = points[used]
         positions = np.column_stack([xz[:, 0], heights[used] - base, xz[:, 1]])
+        # Kerb stone carries its station along the kerb, from which the family draws the joints between stones.
+        extra = {'along': along[used].astype(np.float32)} if cover['family'] == 'kerbstone' else {}
         parts.append(Part(name, positions, facing_up(xz, inverse.reshape(-1, 3)), material_of(cover),
-                          normals=vertex_normals[used], uvs=xz + origin_xz))
+                          normals=vertex_normals[used], uvs=xz + origin_xz, attributes=extra))
     if kerb_triangles and sum(len(chunk) for chunk in kerb_triangles):
-        positions, faces, normals, uvs = kerb_solid(points, np.concatenate(kerb_triangles), low_at, high_at, origin_xz)
+        positions, faces, normals, uvs, station = kerb_solid(points, np.concatenate(kerb_triangles), low_at, high_at, origin_xz, along)
         positions[:, 1] -= base
-        parts.append(Part('kerbs', positions, faces, material_of(kerb_cover), normals=normals, uvs=uvs))
+        extra = {'along': station.astype(np.float32)} if kerb_cover['family'] == 'kerbstone' else {}
+        parts.append(Part('kerbs', positions, faces, material_of(kerb_cover), normals=normals, uvs=uvs, attributes=extra))
 
     # Far level of detail: the plain height field, coloured per node by the cover under it.
     nodes = int(CELL / FAR_STEP) + 1
