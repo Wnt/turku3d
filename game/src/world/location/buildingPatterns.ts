@@ -236,10 +236,35 @@ function concrete(finish: string): Field {
     const pits = fine > 0.78 ? (fine - 0.78) * 0.02 : 0;
     const board = finish === 'board_marked' ? ((v * 20) % 1 < 0.04 ? 0.002 : 0) : 0;
     const pebble = finish === 'washed' ? 0.003 * (fbm(u, v, 200, 1, 79) - 0.5) : 0;
-    f.height[k] = -pits - board + pebble + 0.0006 * (fine - 0.5);
+    // Precast elements: a storey high and as wide, with a sealed joint between them.
+    const seam = finish === 'panel' && Math.min(u, 1 - u, v, 1 - v) * 3.0 < 0.012;
+    if (seam) f.joint[k] = 0.7;
+    f.height[k] = -pits - board + pebble + 0.0006 * (fine - 0.5) - (seam ? 0.008 : 0);
     f.tone[k] = 0.5 + 0.22 * (blotch - 0.5) + 0.1 * (fine - 0.5) + (finish === 'washed' ? 0.25 * (fbm(u, v, 200, 1, 83) - 0.5) : 0);
     f.rough[k] = 0.5 + 0.25 * (fine - 0.5);
     f.occlusion[k] = 1 - pits * 12;
+  }
+  return f;
+}
+
+/** Metal cassettes: flat panels `course` high and three times as long, in a grid of open shadow joints; each
+ *  panel a shade of its own, as anodised and coated sheets are. */
+function cassettes(course: number): Field {
+  const columns = 2, rows = 2, length = course * 3;
+  const f = field(512, [columns * length, rows * course]);
+  const random = mulberry(211);
+  const panel = Array.from({ length: columns * rows }, () => (random() - 0.5) * 0.07);
+  for (let j = 0; j < f.n; j++) for (let i = 0; i < f.n; i++) {
+    const x = (i / f.n) * columns, y = (j / f.n) * rows, k = j * f.n + i;
+    const column = Math.floor(x), row = Math.floor(y), fx = x - column, fy = y - row;
+    const gap = Math.min(Math.min(fx, 1 - fx) * length, Math.min(fy, 1 - fy) * course);
+    const open = gap < 0.011;
+    const blotch = fbm(i / f.n, j / f.n, 3, 3, 223), streak = fbm(i / f.n, j / f.n * 0.25, 24, 3, 227);
+    f.height[k] = open ? -0.012 : gap < 0.022 ? -0.012 * (1 - (gap - 0.011) / 0.011) : 0.0008 * Math.sin(fx * Math.PI);
+    f.tone[k] = 0.5 + panel[row * columns + column] + 0.05 * (streak - 0.5) + 0.06 * (blotch - 0.5);
+    f.joint[k] = open ? 0.85 : 0;
+    f.occlusion[k] = open ? 0.45 : gap < 0.03 ? 0.8 : 1;
+    f.rough[k] = 0.5 + 0.2 * (blotch - 0.5);
   }
   return f;
 }
@@ -410,7 +435,9 @@ export function buildingPattern(p: PatternParams): Pattern {
       break;
     case 'sheet_metal': case 'copper':
       key = `metal/${p.profile ?? 'standing_seam'}/${scale ?? 0.55}`;
-      make = () => bake(seamedMetal(p.profile ?? 'standing_seam', scale ?? 0.55), 1.0, 0.5);
+      make = p.profile === 'cassette'
+        ? () => bake(cassettes(Math.min(1.5, Math.max(0.3, scale ?? 0.9))), 1.0, 0.4)
+        : () => bake(seamedMetal(p.profile ?? 'standing_seam', scale ?? 0.55), 1.0, 0.5);
       break;
     case 'clay_tile': case 'concrete_tile':
       key = `tile/${p.profile ?? 'pantile'}/${scale ?? 0.3}`;

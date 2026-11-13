@@ -20,17 +20,57 @@ HOUSES = {"detached_house", "row_house"}
 SHEDS = {"outbuilding", "garage"}
 HALLS = {"industrial", "commercial"}
 BLOCKS = {"functionalist_apartment", "slab_block", "tower_block", "modern_apartment", "office"}
+WORKPLACES = {"office", "public", "commercial"}
 OLD_WOODEN = {"wooden_house", "wooden_villa"}
 OLD_MASONRY = {"stone_apartment", "classicist_apartment"}
 
-# bldg:function of the city's LoD2 model (the CityGML code list), by what the building is drawn as.
+# bldg:function of the city's LoD2 model (the CityGML code list), by what the building is drawn as. In Turku's
+# model 1020 is the office and business building (every one read was an office, a technology-centre block or an
+# old town house turned into offices), 1050 the house of shops with flats or offices over them.
 SMALL_RESIDENTIAL = {"1000"}
-FLATS = {"1010", "1020", "1030", "1040", "1060", "1070", "1090", "1110"}
+FLATS = {"1010", "1030", "1040", "1060", "1070", "1090", "1110"}
 ANCILLARY = {"1360", "1370", "outbuilding"}
 INDUSTRIAL = {"1310", "1320", "1330", "1410", "1630", "1640", "1880"}
-RETAIL = {"1050", "1080", "1150", "1160", "1170", "1180", "1190", "1240"}
-OFFICE = {"1120", "1130", "1140", "1970"}
+RETAIL = {"1050", "1080", "1150", "1160", "1170", "1180", "1190", "1210", "1220", "1240", "1340"}
+OFFICE = {"1020", "1120", "1130", "1140", "1970"}
 UNKNOWN = {None, "", "0", "Ei arvoa"}
+
+
+def use_class(use) -> str | None:
+    """What a building is used for, as far as its look goes: house, flats, ancillary, industrial, retail, office
+    or public (schools, hospitals, museums, churches, halls of assembly), from the LoD2 function code or, where
+    the model carries the national three-digit class instead, from that."""
+    if use in UNKNOWN:
+        return None
+    if use in SMALL_RESIDENTIAL:
+        return "house"
+    if use in FLATS:
+        return "flats"
+    if use in ANCILLARY:
+        return "ancillary"
+    if use in INDUSTRIAL:
+        return "industrial"
+    if use in RETAIL:
+        return "retail"
+    if use in OFFICE:
+        return "office"
+    if not str(use).isdigit():
+        return None
+    code = int(use)
+    if 1960 <= code <= 2999:
+        return "public"
+    if len(str(use)) == 3:
+        # Rakennusluokitus 1994: 1xx trade, hotels, offices (15x) and traffic (16x), 2xx care, 3xx assembly,
+        # 5xx education, 6xx industry, 7xx storage, 8xx fire stations.
+        if 150 <= code <= 159:
+            return "office"
+        if 160 <= code <= 169 or 600 <= code <= 799:
+            return "industrial"
+        if 100 <= code <= 149:
+            return "retail"
+        if 200 <= code <= 599 or 800 <= code <= 899:
+            return "public"
+    return None
 
 
 def footprint(doc: dict) -> tuple[float, float, float]:
@@ -76,13 +116,19 @@ def infer(doc: dict) -> str:
         return "garage" if area >= 15 and short >= 2.8 else "outbuilding"
     if use in ANCILLARY:
         return "garage" if area < 150 and single else "industrial"
-    if use in INDUSTRIAL:
+    used = use_class(use)
+    if used == "industrial":
         return "industrial"
-    if use in RETAIL:
-        return "commercial"
-    if use in OFFICE:
-        return "office"
     old_wood = material in ("puu", None, "") and (dated or register.get("year_near") or 1900) < 1940
+    # Shops, offices and public buildings in a house older than 1940 look like the houses of their time (a town
+    # house with shops, a wooden house turned into offices): only later ones are a type of their own. A public
+    # building is one at any age unless it is a low wooden house.
+    if used == "retail" and year >= 1940:
+        return "commercial"
+    if used == "office" and year >= 1940:
+        return "office"
+    if used == "public" and not (old_wood and material == "puu" and storeys <= 2):
+        return "public"
     if use in SMALL_RESIDENTIAL and low:
         return "wooden_house" if old_wood else "detached_house"
     if use in FLATS and low:
@@ -94,6 +140,8 @@ def infer(doc: dict) -> str:
         return "wooden_house" if material == "puu" and old_wood else "detached_house"
     if material == "puu" and low:
         return "wooden_house" if year < 1940 else "detached_house"
+    if material == "puu" and year < 1940 and storeys <= 2:
+        return "wooden_house"  # a tall roof over two wooden storeys: the model's height is the ridge
     if year < 1920:
         return "wooden_house" if low and material in ("puu", None, "") else "stone_apartment"
     if year < 1940:
@@ -138,6 +186,12 @@ SHEET_HALL = [
     "#8e9398", "#9aa3a8", "#7d7a5a", "#555e57", "#3a3028", "#6f8494",
 ]  # fmt: skip
 
+# Offices and public buildings: metal cassettes are pale grey, white or silver, a few dark; facing tile and
+# concrete elements pale warm greys (as read at Kupittaa and in the centre).
+OFFICE_SHEET = ["#c6c9ca", "#d8d8d6", "#b9bbb8", "#a4a9a9", "#e2e2e0", "#cfd2d0", "#8e9498", "#b3b7bb", "#5a5c61", "#3a3b40"]
+OFFICE_TILE = ["#cbc4b6", "#b8b4a9", "#d3cdbf", "#c2b8a6", "#dad6ca"]
+OFFICE_RENDER = ["#e6e4dc", "#e3dcc4", "#dddddb", "#e8e6df", "#d6d0c2", "#dcc79a", "#e9e9e6"]
+
 BRICK = {"family": "brick", "bond": "stretcher", "colour2": "#b9b2a5"}
 BRICK_PALE = {"family": "brick", "bond": "stretcher", "colour2": "#cfc9bb"}
 PLASTER = {"family": "plaster", "finish": "fine"}
@@ -145,6 +199,9 @@ BOARDS = {"family": "weatherboard", "orientation": "horizontal", "profile": "bev
 BOARDS_UPRIGHT = {"family": "weatherboard", "orientation": "vertical", "profile": "board_batten", "scale_m": 0.15}
 PANELS = {"family": "concrete", "finish": "cast"}
 SHEET = {"family": "sheet_metal", "profile": "standing_seam", "scale_m": 0.3}
+CASSETTE = {"family": "sheet_metal", "profile": "cassette", "orientation": "horizontal", "scale_m": 0.9, "finish": "matt"}
+ELEMENTS = {"family": "concrete", "finish": "panel", "scale_m": 3.0}
+TILED = {"family": "ceramic_tile", "scale_m": 0.2}
 
 
 def pick(doc: dict, salt: str, options: list):
@@ -164,6 +221,37 @@ def wall(doc: dict, kind: str) -> dict | None:
         if material == "betoni":
             return {**PANELS, "colour": pick(doc, "wall", CONCRETE_PANEL)}
         return {**BOARDS_UPRIGHT, "colour": pick(doc, "wall", WOOD_SHED)}
+    if workplace(doc, kind):
+        if material == "metallilevy":
+            return {**CASSETTE, "colour": pick(doc, "wall", OFFICE_SHEET)}
+        if material == "lasi":
+            return {**CASSETTE, "colour": pick(doc, "wall", ["#5c6a70", "#6f7f88", "#8fa0aa", "#3a3b40"])}
+        if material == "betoni":
+            return {**ELEMENTS, "colour": pick(doc, "wall", CONCRETE_PANEL if year < 1980 else CONCRETE_LATE + OFFICE_RENDER[:3])}
+        if material == "tiili":
+            if year < 1970:
+                colours = BRICK_BUFF[4:] * 2 + BRICK_RED
+            elif year < 1990:
+                colours = BRICK_RED + BRICK_BROWN + BRICK_BUFF[:3]
+            else:
+                colours = BRICK_RED * 2 + BRICK_BUFF[:3] + BRICK_WHITE[:1] + BRICK_BROWN
+            colour = pick(doc, "wall", colours)
+            return {**(BRICK_PALE if colour in BRICK_BUFF + BRICK_WHITE else BRICK), "colour": colour}
+        if material == "puu":
+            return {**BOARDS, "colour": pick(doc, "wall", WOOD_TRADITIONAL if year < 2000 else WOOD_NEW)}
+        # "muu materiaali" and no value: render until the sixties, then facing tile and concrete elements, brick
+        # and render in the eighties and nineties, metal cassettes and white render since.
+        if year < 1960:
+            return {**PLASTER, "colour": pick(doc, "wall", OFFICE_RENDER)}
+        if year < 1980:
+            clad = pick(doc, "clad", [TILED, TILED, ELEMENTS, ELEMENTS, PLASTER])
+        elif year < 2000:
+            clad = pick(doc, "clad", [BRICK, BRICK, TILED, CASSETTE, PLASTER, PLASTER])
+        else:
+            clad = pick(doc, "clad", [CASSETTE, CASSETTE, CASSETTE, PLASTER, PLASTER, ELEMENTS])
+        colours = {"brick": BRICK_RED + BRICK_BROWN, "ceramic_tile": OFFICE_TILE, "sheet_metal": OFFICE_SHEET,
+                   "plaster": OFFICE_RENDER, "concrete": CONCRETE_PANEL if year < 1980 else CONCRETE_LATE}[clad["family"]]  # fmt: skip
+        return {**clad, "colour": pick(doc, "wall", colours)}
     if kind in HALLS:
         if material == "tiili":
             return {**BRICK, "colour": pick(doc, "wall", BRICK_RED if year < 1970 else BRICK_BUFF + BRICK_RED)}
@@ -450,8 +538,101 @@ def block(band: str) -> dict:
     }
 
 
+def workplace(doc: dict, kind: str) -> bool:
+    """A building drawn as an office: every office, public building and house of shops of three storeys or more
+    built since 1940. Older ones look like the stone houses of their time; a low shop is a hall."""
+    if kind not in WORKPLACES or era_year(doc) < 1940:
+        return False
+    return kind != "commercial" or (doc.get("register", {}).get("storeys") or 1) >= 3
+
+
+def office_band(year: int) -> str:
+    return "postwar" if year < 1960 else "sixties" if year < 1980 else "eighties" if year < 2000 else "new"
+
+
+@functools.cache
+def office(band: str, scheme: int) -> dict:
+    """Defaults of an office, a school, a hospital or a business block by its decade, as read at Kupittaa, in
+    the centre and in the work areas: close-set upright windows in render after the war; ribbons of windows
+    between plain spandrels in the sixties and seventies; ribbons or square windows with dark frames in the
+    eighties and nineties; since 2000 one of three faces picked by id: narrow storey-high lights close
+    together, dark ribbons, or a glass wall in a grid of mullions. Storeys are taller than a dwelling's, the
+    ground storey is glazed lower and wider, the roof is flat behind a metal fascia, and nothing has balconies
+    or chimneys."""
+    spec = {
+        ("postwar", 0): dict(w=1.2, h=1.6, pitch=2.2, lights={"pattern": "single"}, sill=0.95, ground=3.6, upper=3.4,
+                             recess=0.12, frame="#e9e7e0", fascia=0.2, out=0.3, edge="#d8d6ce", plinth=0.7),
+        ("sixties", 0): dict(w=2.75, h=1.5, pitch=3.0, lights={"pattern": "ribbon", "cols": 2}, sill=0.95, ground=3.8,
+                             upper=3.4, recess=0.08, frame="#d9d9d5", fascia=0.35, out=0.06, edge="#5a5d60", plinth=0.5),
+        ("sixties", 2): dict(w=2.3, h=1.7, pitch=3.3, lights={"pattern": "three_leaf"}, sill=0.9, ground=3.8,
+                             upper=3.5, recess=0.1, frame="#e4e4e0", fascia=0.35, out=0.06, edge="#5a5d60", plinth=0.5),
+        ("eighties", 0): dict(w=2.6, h=1.5, pitch=3.0, lights={"pattern": "ribbon", "cols": 2}, sill=0.95, ground=3.8,
+                              upper=3.5, recess=0.1, frame="#4a4c50", fascia=0.35, out=0.06, edge="#4a4c50", plinth=0.45),
+        ("eighties", 1): dict(w=1.5, h=1.5, pitch=2.4, lights={"pattern": "single"}, sill=0.95, ground=3.8,
+                              upper=3.5, recess=0.14, frame="#5a4334", fascia=0.35, out=0.06, edge="#5a4334", plinth=0.45),
+        ("new", 0): dict(w=1.0, h=2.3, pitch=1.8, lights={"pattern": "single"}, sill=0.6, ground=4.4, upper=3.8,
+                         recess=0.12, frame="#3a3b40", fascia=0.4, out=0.05, edge="#3a3b40", plinth=0.3),
+        ("new", 1): dict(w=2.62, h=1.8, pitch=2.7, lights={"pattern": "ribbon", "cols": 2}, sill=0.9, ground=4.4,
+                         upper=3.8, recess=0.08, frame="#2f3235", fascia=0.4, out=0.05, edge="#3a3b40", plinth=0.3),
+        ("new", 2): dict(w=2.64, h=3.0, pitch=2.7, lights={"pattern": "grid", "cols": 2, "rows": 2}, sill=0.3,
+                         ground=4.4, upper=3.8, recess=0.03, frame="#5c6268", fascia=0.4, out=0.05, edge="#5c6268", plinth=0.2),
+    }  # fmt: skip
+    spec = spec.get((band, scheme)) or spec[(band, 0)]
+    glass = {"interior": "office", "reflectivity": 0.65, "curtains": 0.0, "blinds": 0.3}
+    window = {
+        "w_m": spec["w"],
+        "h_m": spec["h"],
+        "recess_m": spec["recess"],
+        "lights": spec["lights"],
+        "frame": {"colour": spec["frame"], "width_m": 0.06},
+        "glass": glass,
+        "surround": {"kind": "none"},
+        "sill": {"kind": "sheet_metal", "projection_m": 0.03, "height_m": 0.03, "colour": "#8a8d8f"},
+    }
+    out = {
+        "wall": {**PLASTER, "colour": "#dddddb"},
+        "plinth": {"height_m": spec["plinth"], "projection_m": 0.0, "material": {**CAST, "colour": "#77756f"}},
+        "ground_h": spec["ground"],
+        "upper_h": spec["upper"],
+        "sill": spec["sill"],
+        "pitch": spec["pitch"],
+        "window": window,
+        "trim": "#d8d8d4",
+        "roof": {
+            "material": {"family": "felt", "colour": "#3f3f41", "profile": "plain"},
+            "eaves": {"overhang_m": spec["out"], "fascia_m": spec["fascia"], "soffit": "boxed", "gutter": False,
+                      "colour": spec["edge"]},  # fmt: skip
+            "verge": {"overhang_m": spec["out"], "bargeboard": "none", "colour": spec["edge"]},
+        },
+    }
+    if band != "postwar":
+        # The ground storey: glass from near the floor, a bay wide, in the frames of the storeys above.
+        out["ground_window"] = {
+            "kind": "window",
+            "w_m": round(spec["pitch"] - 0.3, 2),
+            "h_m": round(spec["ground"] - 1.25, 2),
+            "recess_m": 0.1,
+            "lights": {"pattern": "ribbon", "cols": 2},
+            "frame": {"colour": spec["frame"], "width_m": 0.07},
+            "glass": {"interior": "shop", "reflectivity": 0.65, "curtains": 0.0, "blinds": 0.0},
+            "sill": {"kind": "none"},
+        }
+        out["ground_sill"] = 0.35
+    return out
+
+
 def group(doc: dict, kind: str) -> dict | None:
-    """The defaults of a house, an outbuilding, a hall or a block; None for the kinds `priors` keeps itself."""
+    """The defaults of a house, an outbuilding, a hall, a block or a workplace; None for the kinds `priors`
+    keeps itself (old wooden and stone houses, and workplaces in houses older than 1940)."""
+    if workplace(doc, kind):
+        year = era_year(doc)
+        material = doc.get("register", {}).get("material")
+        scheme = zlib.crc32(f"{doc.get('id', '')}/face".encode()) % 3
+        if office_band(year) == "new" and material == "lasi":
+            scheme = 2
+        return office(office_band(year), scheme)
+    if kind in WORKPLACES and (kind != "commercial" or (doc.get("register", {}).get("storeys") or 1) >= 3):
+        return None
     if kind in BLOCKS:
         return block(block_band(era_year(doc)))
     if kind in HOUSES:
@@ -673,7 +854,7 @@ def wall_roles(doc: dict, kind: str, walls: list, pitch: float) -> dict:
             roles[w["index"]]["blank"] = True
         side = 0.35 if zlib.crc32(doc.get("id", "").encode()) % 2 else 0.65
         roles[longest["index"]]["doors"] = [max(0.7, min(longest["width"] - 0.7, longest["width"] * side))]
-    elif kind in HALLS:
+    elif kind in HALLS and not workplace(doc, kind):
         if kind == "commercial":
             if longest["width"] > 4.0:
                 roles[longest["index"]]["doors"] = [nearest_bay(longest["width"], pitch, 0.5 * longest["width"])]
@@ -689,6 +870,8 @@ def wall_roles(doc: dict, kind: str, walls: list, pitch: float) -> dict:
         centres = bay_centres(longest["width"], pitch)
         middle = longest["width"] / 2 + (0 if len(centres) % 2 else pitch / 2)
         roles[longest["index"]]["doors"] = [middle]
+    if workplace(doc, kind) and roles[longest["index"]].get("doors"):
+        roles[longest["index"]]["canopy"] = True
     if kind in BLOCKS:
         part = balcony(doc, kind)
         tall = [w for w in walls if w["width"] >= max(9.0, 0.6 * longest["width"]) and w.get("height", 0.0) >= 7.5]
@@ -750,7 +933,7 @@ def balcony(doc: dict, kind: str) -> dict | None:
 def shop_walls(doc: dict, kind: str, walls: list, longest: dict) -> list:
     """The walls whose ground storey is shopfronts: those that the building's mapped premises (shops, cafes,
     banks: `register.premises`, points of the open map inside the footprint) lie at, and the longest wall of a
-    building whose register use is trade."""
+    building whose register use is trade, whatever its style."""
     premises = doc.get("register", {}).get("premises") or []
     fronts = {}
     for e, n in premises:
@@ -767,6 +950,7 @@ def shop_walls(doc: dict, kind: str, walls: list, longest: dict) -> list:
         for k, (gap, index, w) in enumerate(gaps):
             if gap <= (14.0 if k == 0 else 8.0):
                 fronts[index] = w
-    if kind == "commercial" and not fronts and longest["width"] >= 6.0:
+    trade = use_class(doc.get("register", {}).get("use")) == "retail"
+    if (kind == "commercial" or trade) and not fronts and longest["width"] >= 6.0:
         fronts[longest["index"]] = longest
     return list(fronts.values())

@@ -132,6 +132,21 @@ GROUPS = {
     },
 }
 
+# A school, a museum, a church hall or an office of the stone town: the old masonry house with taller storeys
+# and larger windows in small panes.
+PUBLIC_OLD = {
+    **GROUPS["old_masonry"],
+    "ground_h": 4.4,
+    "upper_h": 4.2,
+    "pitch": 3.3,
+    "window": {
+        **GROUPS["old_masonry"]["window"],
+        "w_m": 1.4,
+        "h_m": 2.3,
+        "lights": {"pattern": "grid", "cols": 2, "rows": 3},
+    },
+}
+
 OPENING_DEFAULTS = {
     "window": {
         "head": "flat",
@@ -276,9 +291,12 @@ def group(doc: dict) -> dict:
     kind = style_type(doc)
     if kind in WOODEN:
         return GROUPS["wooden"]
-    if kind in OLD_MASONRY:
-        return GROUPS["old_masonry"]
-    return archetypes.group(doc, kind) or GROUPS["modern"]
+    typed = archetypes.group(doc, kind)
+    if typed is not None:
+        return typed
+    if kind in OLD_MASONRY or kind in archetypes.WORKPLACES:
+        return PUBLIC_OLD if kind in ("public", "church") else GROUPS["old_masonry"]
+    return GROUPS["modern"]
 
 
 # The foot of a wooden building that is not a house of the old quarters: cast concrete, low.
@@ -397,7 +415,7 @@ def automatic_openings(doc: dict) -> dict:
     g = group(doc)
     kind = style_type(doc)
     out = {"@attic": ATTIC_WINDOW}
-    if g is GROUPS["old_masonry"]:
+    if g is GROUPS["old_masonry"] or g is PUBLIC_OLD:
         out["@default"] = {
             "kind": "window",
             "surround": {
@@ -416,6 +434,18 @@ def automatic_openings(doc: dict) -> dict:
         "h_m": 2.3,
         "leaf": {"leaves": 1, "style": "half_glazed", "fanlight": "rect", "steps": steps},
     }
+    if "ground_window" in g:
+        # A workplace: the glazed ground storey and a pair of glass doors in the frames of its windows.
+        frame = g["window"]["frame"]["colour"]
+        out["@ground"] = g["ground_window"]
+        out["@door"] = {
+            "kind": "door",
+            "w_m": 1.9,
+            "h_m": 2.4,
+            "recess_m": 0.2,
+            "frame": {"colour": frame, "width_m": 0.07},
+            "leaf": {"leaves": 2, "style": "glazed", "colour": frame, "fanlight": "none", "steps": min(2, steps)},
+        }
     if kind in HOUSES:
         window = g["window"]
         colours = ["#f0efe9", "#5a4334", "#2f3235", "#3f5a4a", "#7a2f28", "#e6e3d8"]
@@ -565,7 +595,7 @@ def fitted_wall(doc: dict, wall: dict, height: float, role: dict | None = None) 
         return out
     count = max(1, int(doc.get("register", {}).get("storeys") or 1))
     knee = 0.0
-    if kind in SHEDS or (kind in HALLS and count <= 1):
+    if kind in SHEDS or (kind in HALLS and count <= 1 and "ground_window" not in g):
         count = 1  # one room to the eaves, however high
     elif kind in HOUSES and available < 5.4:
         # A house whose eaves are too low for two storeys is one storey, whatever the register counts (it counts
@@ -590,6 +620,8 @@ def fitted_wall(doc: dict, wall: dict, height: float, role: dict | None = None) 
     out["storeys"] = [
         {"kind": "ground", "height_m": round(ground, 2), "sill_m": sill, "window": window}
     ]
+    if window and count > 1 and "ground_window" in g and ground >= g["ground_window"]["h_m"] + g["ground_sill"] + 0.3:
+        out["storeys"][0].update(sill_m=g["ground_sill"], window="@ground")
     if shops:
         out["storeys"][0] = {"kind": "ground", "height_m": round(ground, 2), "sill_m": 0.0, "row": list(shops)}
     openings = []
@@ -617,6 +649,21 @@ def fitted_wall(doc: dict, wall: dict, height: float, role: dict | None = None) 
             }
             for u in role["doors"]
         ]
+    if role.get("canopy") and role.get("doors") and available >= 3.4:
+        door = resolve_opening(doc, "@door")
+        out["attached"] = out.get("attached", []) + [
+            {
+                "kind": "canopy",
+                "type": "slab",
+                "u_m": round(u, 2),
+                "v_m": round(plinth + door["h_m"] + 0.35, 2),
+                "w_m": round(door["w_m"] + 1.8, 2),
+                "h_m": 0.16,
+                "depth_m": 1.8,
+                "colour": door["frame"]["colour"],
+            }
+            for u in role["doors"]
+        ]
     if count > 1:
         out["storeys"].append(
             {
@@ -629,7 +676,7 @@ def fitted_wall(doc: dict, wall: dict, height: float, role: dict | None = None) 
         )
         if role.get("balconies"):
             out["balconies"] = out.get("balconies", []) + copy.deepcopy(role["balconies"])
-        if g is GROUPS["old_masonry"] and "bands" not in out:
+        if (g is GROUPS["old_masonry"] or g is PUBLIC_OLD) and "bands" not in out:
             out["bands"] = [
                 {
                     "kind": "string_course",
