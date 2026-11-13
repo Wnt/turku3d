@@ -5,7 +5,7 @@
 // slope, so a pattern keeps its real size on every building. Colours come from the building's description; the
 // pattern maps (buildingPatterns.ts) carry only structure: tone, joints, roughness, occlusion and relief.
 import * as THREE from 'three/webgpu';
-import { attribute, color, float, fract, mix, normalMap, sin, smoothstep, step, texture, uv, vec2, vec3 } from 'three/tsl';
+import { attribute, float, fract, mix, normalMap, sin, smoothstep, step, texture, uniform, uv, vec2, vec3 } from 'three/tsl';
 import { buildingPattern } from './buildingPatterns';
 
 export interface BuildingMaterialParams {
@@ -30,35 +30,40 @@ function shade(hex: string, factor: number) {
   return c.multiplyScalar(factor);
 }
 
+// Every number and colour of a surface is a uniform, so all surfaces with the same structure (plain, banded, ashlar)
+// are one shader program whatever their family, colours and scale: a street of differently painted houses costs
+// one program build, not one per colour.
 function surface(family: string, p: BuildingMaterialParams) {
   const pattern = buildingPattern({ family, finish: p.finish, bond: p.bond, orientation: p.orientation, profile: p.profile, scale_m: p.scale_m });
   const material = new THREE.MeshStandardNodeMaterial();
   const [roughness, metalness] = SURFACE[family] ?? [0.9, 0];
-  const main = new THREE.Color(p.colour ?? '#b0a898');
-  const second = p.colour2 ? new THREE.Color(p.colour2) : shade(p.colour ?? '#b0a898', family === 'weatherboard' || family === 'painted_wood' ? 0.45 : 0.6);
-  const at = uv().div(vec2(pattern.size[0], pattern.size[1]));
+  const main = uniform(new THREE.Color(p.colour ?? '#b0a898'));
+  const second = uniform(p.colour2 ? new THREE.Color(p.colour2) : shade(p.colour ?? '#b0a898', family === 'weatherboard' || family === 'painted_wood' ? 0.45 : 0.6));
+  const at = uv().div(uniform(new THREE.Vector2(pattern.size[0], pattern.size[1])));
   const sample = texture(pattern.map, at);
   // The same pattern read at two much larger scales breaks the repeat and gives walls their uneven weathering.
   const far = texture(pattern.map, at.mul(0.137).add(vec2(0.31, 0.17))).r, wide = texture(pattern.map, at.mul(0.031).add(vec2(0.73, 0.41))).r;
   const weathering = p.weathering ?? 0.35;
-  const macro = float(1).add(far.sub(0.5).mul(0.22 * (0.5 + weathering))).add(wide.sub(0.5).mul(0.3 * (0.5 + weathering)));
-  let base = mix(color(main), color(second), sample.g).mul(sample.r.sub(0.5).mul(pattern.tone).add(1)).mul(sample.a).mul(macro);
+  const worn = uniform(0.5 + weathering);
+  const macro = float(1).add(far.sub(0.5).mul(worn.mul(0.22))).add(wide.sub(0.5).mul(worn.mul(0.3)));
+  let base = mix(main, second, sample.g).mul(sample.r.sub(0.5).mul(uniform(pattern.tone)).add(1)).mul(sample.a).mul(macro);
   if (p.relief === 'banded' || p.relief === 'ashlar' || p.relief === 'v_joint') {
-    const course = p.course_m ?? 0.4, y = fract(uv().y.div(course));
-    let groove = float(1).sub(smoothstep(0.0, 0.035 / course, y.min(float(1).sub(y))));
+    const course = uniform(p.course_m ?? 0.4), y = fract(uv().y.div(course));
+    let groove = float(1).sub(smoothstep(float(0), float(0.035).div(course), y.min(float(1).sub(y))));
     if (p.relief === 'ashlar') {
-      const x = fract(uv().x.div(course * 2.2).add(step(1, uv().y.div(course).mod(2)).mul(0.5)));
-      groove = groove.max(float(1).sub(smoothstep(0.0, 0.035 / (course * 2.2), x.min(float(1).sub(x)))));
+      const block = course.mul(2.2);
+      const x = fract(uv().x.div(block).add(step(1, uv().y.div(course).mod(2)).mul(0.5)));
+      groove = groove.max(float(1).sub(smoothstep(float(0), float(0.035).div(block), x.min(float(1).sub(x)))));
     }
     base = base.mul(float(1).sub(groove.mul(0.4)));
   }
-  // Walls gather dirt near the ground; uv.y is the height above the wall base.
-  const grime = family === 'sheet_metal' || family === 'clay_tile' || family === 'felt' || family === 'concrete_tile'
-    ? float(1) : float(1).sub(smoothstep(1.6, 0.0, uv().y).mul(0.12 * (0.5 + weathering)));
+  // Walls gather dirt near the ground; uv.y is the height above the wall base. Roof families take none.
+  const roofing = family === 'sheet_metal' || family === 'clay_tile' || family === 'felt' || family === 'concrete_tile';
+  const grime = float(1).sub(smoothstep(1.6, 0.0, uv().y).mul(uniform(roofing ? 0 : 0.12 * (0.5 + weathering))));
   material.colorNode = base.mul(grime);
-  material.roughnessNode = float(p.roughness ?? roughness).add(sample.b.sub(0.5).mul(pattern.rough)).clamp(0.04, 1);
-  material.metalnessNode = float(p.metalness ?? metalness);
-  material.normalNode = normalMap(texture(pattern.normal, at), vec2(RELIEF[family] ?? 0.8));
+  material.roughnessNode = uniform(p.roughness ?? roughness).add(sample.b.sub(0.5).mul(uniform(pattern.rough))).clamp(0.04, 1);
+  material.metalnessNode = uniform(p.metalness ?? metalness);
+  material.normalNode = normalMap(texture(pattern.normal, at), vec2(uniform(RELIEF[family] ?? 0.8)));
   return material;
 }
 
@@ -85,7 +90,7 @@ function glass(p: BuildingMaterialParams) {
   let inside = mix(room, cloth, inCurtain);
   inside = mix(inside, blindColour, inBlind);
   if (p.interior === 'frosted') inside = vec3(0.35, 0.37, 0.38);
-  if (p.tint) inside = inside.mul(color(new THREE.Color(p.tint)).mul(2).add(0.3));
+  if (p.tint) inside = inside.mul(uniform(new THREE.Color(p.tint)).mul(2).add(0.3));
   material.colorNode = inside;
   material.roughnessNode = float(p.interior === 'frosted' ? 0.5 : 0.045);
   material.metalnessNode = float(0);
