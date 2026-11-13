@@ -14,6 +14,7 @@ import { parseQuality } from '../render/quality';
 import { WEATHER_PRESETS, type WeatherName } from '../render/weather/schedule';
 import { CITIES } from '../core/city';
 import { buildingMaterial, type BuildingMaterialParams } from '../world/location/buildingMaterials';
+import { markVertices } from '../world/location/materials';
 
 declare const __WORKBENCH_ROOT__: string;
 declare const __WORKBENCH_REFS__: string;
@@ -87,7 +88,11 @@ async function load(next: Meta) {
     if (!mesh.isMesh) return;
     const source = mesh.material as THREE.Material;
     const turku = source.userData?.turku as { family: string; params: BuildingMaterialParams } | undefined;
-    if (turku) mesh.material = buildingMaterial(turku.family, turku.params);
+    if (turku) {
+      const drawn = buildingMaterial(turku.family, turku.params);
+      mesh.material = drawn.material;
+      markVertices(mesh.geometry, drawn.vertex);
+    }
     mesh.castShadow = true; mesh.receiveShadow = true;
   });
   if (building) {

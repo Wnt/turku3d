@@ -731,6 +731,9 @@ async function placeStart(physics: PhysicsClient, streamer: CollisionStreamer, c
 async function preparedVisuals(manifest: CoarseHost['manifest'], collision: Pick<CoarseHost,
   'unloadCollision' | 'refreshCollision' | 'checkCollision' | 'retainCollision'>, signal?: AbortSignal) {
   const host: PreparedWorldHost = { scene, renderer, manifest, ...collision,
+    // A session that moves (play, look-around) draws by distance and view; a still draws every entity whole. Trees
+    // keep their full models to three quarters of the tier's reduced-mesh range (medium: 90 m).
+    view: params.qa && !params.preview ? undefined : { camera, treeNear: () => QUALITY[params.quality].vegetation.mid * 0.75 },
     style: m => materials?.applyAsync(m),
     prepareAsset: async (m, recipe) => { if (recipe === 'vegetation') await vegetation?.addAsync(m); },
     releaseAsset: (m, recipe) => { if (recipe === 'vegetation') vegetation?.remove(m); },

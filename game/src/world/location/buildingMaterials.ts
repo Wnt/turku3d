@@ -5,8 +5,10 @@
 // slope, so a pattern keeps its real size on every building. Colours come from the building's description; the
 // pattern maps (buildingPatterns.ts) carry only structure: tone, joints, roughness, occlusion and relief.
 import * as THREE from 'three/webgpu';
-import { attribute, float, fract, mix, normalMap, sin, smoothstep, step, texture, uniform, uv, vec2, vec3 } from 'three/tsl';
-import { buildingPattern, weatherMap } from './buildingPatterns';
+import { attribute, float, fract, int, ivec2, mix, normalMap, sin, smoothstep, step, texture, textureLoad, uniform, uv, varying, vec2, vec3 } from 'three/tsl';
+import type { Node } from 'three/webgpu';
+import { buildingPattern, weatherMap, type Pattern } from './buildingPatterns';
+import type { Drawn } from './materials';
 
 export interface BuildingMaterialParams {
   colour?: string; colour2?: string; finish?: string; bond?: string; orientation?: string; profile?: string;
@@ -23,37 +25,79 @@ const SURFACE: Record<string, [number, number]> = {
 /** How strongly the pattern's relief shows per family. */
 const RELIEF: Record<string, number> = { plaster: 1, brick: 1, weatherboard: 1, granite: 1, rubble: 1, sheet_metal: 1, clay_tile: 1 };
 
-const cache = new Map<string, THREE.Material>();
+const cache = new Map<string, Drawn>();
 
 function shade(hex: string, factor: number) {
   const c = new THREE.Color(hex);
   return c.multiplyScalar(factor);
 }
 
-// Every number and colour of a surface is a uniform, so all surfaces with the same structure (plain, banded, ashlar)
-// are one shader program whatever their family, colours and scale: a street of differently painted houses costs
-// one program build, not one per colour.
-function surface(family: string, p: BuildingMaterialParams) {
-  const pattern = buildingPattern({ family, finish: p.finish, bond: p.bond, orientation: p.orientation, profile: p.profile, scale_m: p.scale_m });
-  const material = new THREE.MeshStandardNodeMaterial();
-  const [roughness, metalness] = SURFACE[family] ?? [0.9, 0];
-  const main = uniform(new THREE.Color(p.colour ?? '#b0a898'));
-  const second = uniform(p.colour2 ? new THREE.Color(p.colour2) : shade(p.colour ?? '#b0a898', family === 'weatherboard' || family === 'painted_wood' ? 0.45 : 0.6));
+// The surface table. Every surface with the same structure (pattern maps and relief) is one material: one shader
+// build, and meshes that merge into one draw. What tells surfaces apart, their colours and numbers, is a row of this
+// float texture, which a mesh addresses per vertex (`_surface`) and the vertex shader reads once. A street of
+// differently painted houses costs one build and one draw per pattern, not one of each per colour: with a material
+// per colour, the 656 materials of one location kept building for a minute after the start (measured 2026-11-13).
+// A row is three texels: (colour, wear), (second colour, course height), (roughness, metalness, grime, relief).
+const TEXELS = 3;
+let rows = 256, table = new Float32Array(rows * TEXELS * 4), tableMap = tableTexture();
+const tableRows = new Map<string, number>();
+/** Every material's reads of the table, which follow it when it grows. */
+const reads: { value: THREE.Texture }[] = [];
+function tableTexture() {
+  const map = new THREE.DataTexture(table, TEXELS, rows, THREE.RGBAFormat, THREE.FloatType);
+  map.needsUpdate = true;
+  return map;
+}
+/** The row holding these numbers, added when no surface had them yet. */
+function surfaceRow(values: readonly number[]) {
+  const key = values.join(',');
+  let row = tableRows.get(key);
+  if (row === undefined) {
+    row = tableRows.size;
+    if (row === rows) {
+      const grown = new Float32Array(table.length * 2);
+      grown.set(table);
+      rows *= 2; table = grown;
+      tableMap.dispose();
+      tableMap = tableTexture();
+      for (const read of reads) read.value = tableMap;
+    }
+    table.set(values, row * TEXELS * 4);
+    tableMap.needsUpdate = true;
+    tableRows.set(key, row);
+  }
+  return row;
+}
+
+const structures = new Map<string, THREE.Material>();
+/** The material of every surface with this pattern and relief. The pattern's own numbers are uniforms, so patterns
+ *  share their shader program too. */
+function structure(family: string, pattern: Pattern, relief: 'plain' | 'banded' | 'ashlar') {
+  const key = `${pattern.map.uuid}:${relief}`;
+  let material = structures.get(key);
+  if (material) return material;
+  const built = new THREE.MeshStandardNodeMaterial();
+  const row = int(attribute('_surface', 'float').add(0.5));
+  const read = (texel: number) => {
+    const node = textureLoad(tableMap, ivec2(texel, row));
+    reads.push(node);
+    return varying(node) as Node<'vec4'>;
+  };
+  const first = read(0), next = read(1), last = read(2);
+  const main = first.rgb, worn = first.a, second = next.rgb, course = next.a;
   const at = uv().div(uniform(new THREE.Vector2(pattern.size[0], pattern.size[1])));
   const sample = texture(pattern.map, at);
   // Weather: soft patches, blotches and rain streaks from one shared map read at two unrelated scales, in metres on
   // the wall. `weathering` 0 is a wall painted this year, 1 one that has stood untouched for decades.
-  const weathering = p.weathering ?? 0.35;
-  const worn = uniform(0.5 + weathering);
   const near = texture(weatherMap(), uv().div(vec2(9.3, 7.1))), wide = texture(weatherMap(), uv().div(vec2(23.7, 17.3)).add(vec2(0.37, 0.61)));
   const patches = near.r.sub(0.5).mul(0.6).add(wide.r.sub(0.5)).add(near.b.sub(0.5).mul(0.35));
   const streaks = near.g.mul(wide.b.add(0.5));
   const macro = float(1).add(patches.mul(worn.mul(0.3))).mul(float(1).sub(streaks.mul(worn.mul(0.25))));
   let base = mix(main, second, sample.g).mul(sample.r.sub(0.5).mul(uniform(pattern.tone)).add(1)).mul(sample.a).mul(macro);
-  if (p.relief === 'banded' || p.relief === 'ashlar' || p.relief === 'v_joint') {
-    const course = uniform(p.course_m ?? 0.4), y = fract(uv().y.div(course));
+  if (relief !== 'plain') {
+    const y = fract(uv().y.div(course));
     let groove = float(1).sub(smoothstep(float(0), float(0.035).div(course), y.min(float(1).sub(y))));
-    if (p.relief === 'ashlar') {
+    if (relief === 'ashlar') {
       const block = course.mul(2.2);
       const x = fract(uv().x.div(block).add(step(1, uv().y.div(course).mod(2)).mul(0.5)));
       groove = groove.max(float(1).sub(smoothstep(float(0), float(0.035).div(block), x.min(float(1).sub(x)))));
@@ -61,13 +105,26 @@ function surface(family: string, p: BuildingMaterialParams) {
     base = base.mul(float(1).sub(groove.mul(0.4)));
   }
   // Walls gather dirt near the ground; uv.y is the height above the wall base. Roof families take none.
-  const roofing = family === 'sheet_metal' || family === 'clay_tile' || family === 'felt' || family === 'concrete_tile';
-  const grime = float(1).sub(smoothstep(1.6, 0.0, uv().y).mul(uniform(roofing ? 0 : 0.12 * (0.5 + weathering))));
-  material.colorNode = base.mul(grime);
-  material.roughnessNode = uniform(p.roughness ?? roughness).add(sample.b.sub(0.5).mul(uniform(pattern.rough))).clamp(0.04, 1);
-  material.metalnessNode = uniform(p.metalness ?? metalness);
-  material.normalNode = normalMap(texture(pattern.normal, at), vec2(uniform(RELIEF[family] ?? 0.8)));
+  built.colorNode = base.mul(float(1).sub(smoothstep(1.6, 0.0, uv().y).mul(last.b)));
+  built.roughnessNode = last.r.add(sample.b.sub(0.5).mul(uniform(pattern.rough))).clamp(0.04, 1);
+  built.metalnessNode = last.g;
+  built.normalNode = normalMap(texture(pattern.normal, at), vec2(last.a));
+  built.name = `building-${family}`;
+  structures.set(key, material = built);
   return material;
+}
+
+function surface(family: string, p: BuildingMaterialParams): Drawn {
+  const pattern = buildingPattern({ family, finish: p.finish, bond: p.bond, orientation: p.orientation, profile: p.profile, scale_m: p.scale_m });
+  const [roughness, metalness] = SURFACE[family] ?? [0.9, 0];
+  const main = new THREE.Color(p.colour ?? '#b0a898');
+  const second = p.colour2 ? new THREE.Color(p.colour2) : shade(p.colour ?? '#b0a898', family === 'weatherboard' || family === 'painted_wood' ? 0.45 : 0.6);
+  const weathering = p.weathering ?? 0.35;
+  const roofing = family === 'sheet_metal' || family === 'clay_tile' || family === 'felt' || family === 'concrete_tile';
+  const row = surfaceRow([main.r, main.g, main.b, 0.5 + weathering, second.r, second.g, second.b, p.course_m ?? 0.4,
+    p.roughness ?? roughness, p.metalness ?? metalness, roofing ? 0 : 0.12 * (0.5 + weathering), RELIEF[family] ?? 0.8]);
+  const relief = p.relief === 'ashlar' ? 'ashlar' : p.relief === 'banded' || p.relief === 'v_joint' ? 'banded' : 'plain';
+  return { material: structure(family, pattern, relief), vertex: { name: '_surface', value: row } };
 }
 
 /**
@@ -120,19 +177,21 @@ function glass(p: BuildingMaterialParams) {
   return material;
 }
 
-/** The material of a building family, shared by every primitive with the same parameters. */
-export function buildingMaterial(family: string, params: BuildingMaterialParams = {}): THREE.Material {
+/** What a building family draws these parameters with (materials.ts `Drawn`): give a mesh the material and mark its
+ *  vertices (`markVertices`). Primitives with the same parameters share the entry. */
+export function buildingMaterial(family: string, params: BuildingMaterialParams = {}): Drawn {
   const key = `${family}:${JSON.stringify(params, Object.keys(params).sort())}`;
-  let material = cache.get(key);
-  if (!material) {
-    if (family === 'glass') material = glass(params);
-    else if (family === 'flat') {
-      material = new THREE.MeshStandardNodeMaterial({ color: new THREE.Color(params.colour ?? '#808080'), roughness: params.roughness ?? 0.9, metalness: params.metalness ?? 0 });
-    } else material = surface(family, params);
-    material.name = `building-${family}`;
-    cache.set(key, material);
+  let drawn = cache.get(key);
+  if (!drawn) {
+    if (family === 'glass' || family === 'flat') {
+      const material = family === 'glass' ? glass(params)
+        : new THREE.MeshStandardNodeMaterial({ color: new THREE.Color(params.colour ?? '#808080'), roughness: params.roughness ?? 0.9, metalness: params.metalness ?? 0 });
+      material.name = `building-${family}`;
+      drawn = { material };
+    } else drawn = surface(family, params);
+    cache.set(key, drawn);
   }
-  return material;
+  return drawn;
 }
 
 /** Families this module resolves; the location loader registers them under these names. */

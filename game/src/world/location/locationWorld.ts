@@ -6,9 +6,23 @@
 // rows are drawn as merged geometry per chunk and material: an InstancedMesh per entity and asset mesh cost about
 // twenty shader builds each (3,000 of them at one location), while merged meshes share the builds of their material.
 // A changed entity redraws its chunk in the running client while the camera, the lighting and every other chunk
-// stay. Stills only for now: a location has no collision, so it draws in the QA camera mode (?world=NAME&cam=...),
-// not in play; an object the player moves will leave the merged mesh as its own object then (the manifest row has
-// its id, behaviour, collision and mass).
+// stay. An object the player moves will leave the merged mesh as its own object (the manifest row has its id,
+// behaviour, collision and mass).
+//
+// A session that moves through the location (play, look-around: `host.view`) pays per frame for what it looks at,
+// not for what the location holds. Measured at Portsa on the M1 Max (2026-11-13): 26 million triangles a frame, 21
+// of them trees and 14.5 of those in the shadow maps, and a main thread that spent a third of its frame walking
+// 9,500 scene nodes once per pass.
+// - Trees are drawn by distance from the camera, per 62.5 m cell, at the two levels the pipeline makes from one
+//   source: within `view.treeNear()` every tree is an instance of its library model (instancePool.ts: one draw per
+//   library mesh for the whole location), beyond it the cell is its one far mesh. Only the cells around the camera
+//   cast their instances' shadows, and only in the sun's nearest cascade; everywhere else a cell casts as its far mesh.
+// - The chunks of ground, buildings and structures cast shadows through their shadow batch alone: the batches are
+//   drawn beside them, and the sun's passes do not walk the chunks (`beforePass`). In the camera's own passes the
+//   chunks and entities outside its view leave the scene graph too. Any other camera (a reflection, a probe) sees
+//   everything.
+// - A drawn chunk never moves: its matrices are composed once, not walked by every frame's scene update.
+// Stills (no `host.view`) draw every entity whole at the level of its role, as before.
 import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -21,8 +35,10 @@ import type { ManifestEntry } from '../manifest';
 import type { PreparedWorld, PreparedWorldHost } from '../preparedWorld';
 import type { RoadGraphJson } from '../../gameplay/roadGraph';
 import type { PreparedLighting } from '../../render/lights/preparedLighting';
-import { readLocation, type LocationEntity, type LocationManifest } from './manifest';
-import { familyMaterial, storeRoot } from './materials';
+import { TILE_SHADOW_CHUNK_LAYER, TILE_SHADOW_WHOLE_LAYER } from '../shadowBatch';
+import { InstancePool, type Part, type Rows } from './instancePool';
+import { readLocation, type LocationEntity, type LocationInstances, type LocationManifest } from './manifest';
+import { dress, familyDrawn, markVertices, storeRoot, type Drawn as Dressing } from './materials';
 import './families/ground';
 import './families/building';
 import './families/objects';
@@ -38,10 +54,31 @@ const LOADS = 8;
 /** The side of the square whose entities are prepared as one model, in metres. */
 const CHUNK = 250;
 
+/** Trees this near (m) cast their instances' shadows in the sun's nearest cascade, which covers the first metres in
+ *  front of the camera; a cell farther away casts there as its far mesh, as it does in the outer cascades. */
+const SHADOW_NEAR = 40;
+/** A cell changes level this far (m) beyond the distance at which it changed the other way. */
+const LEVEL_SLACK = 8;
+/** The layers only the sun's cascade cameras see (render/environment.ts cascadeLayerMask). */
+const SUN_LAYERS = 1 << TILE_SHADOW_CHUNK_LAYER | 1 << TILE_SHADOW_WHOLE_LAYER;
+
 /** One asset mesh at one instance row, in world space. */
-interface Placed { geometry: THREE.BufferGeometry; material: THREE.Material; matrix: THREE.Matrix4 }
-interface Drawn { row: LocationEntity; root: THREE.Group; placed: Placed[]; heights: { x0: number; z0: number; nx: number; nz: number; y: Float32Array } | null }
-interface Chunk { id: string; root: THREE.Group; members: Drawn[] }
+interface Placed { geometry: THREE.BufferGeometry; material: THREE.Material; matrix: THREE.Matrix4; vertex?: Dressing['vertex'] }
+/** An entity's two levels in a moving session: the rows of its near instances, its far mesh and that mesh's shadow
+ *  twin. `level`: 0 instances that cast their own shadows, 1 instances, 2 the far mesh; -1 before the first frame. */
+interface Levels { rows: Rows[]; far: THREE.Object3D; farShadow: THREE.Group | null; level: number }
+interface Drawn { row: LocationEntity; root: THREE.Group; placed: Placed[]; heights: { x0: number; z0: number; nx: number; nz: number; y: Float32Array } | null;
+  /** World box of the entity (manifest bounds). */
+  box: THREE.Box3; levels: Levels | null }
+interface Chunk { id: string; root: THREE.Group; members: Drawn[]; box: THREE.Box3; layer: string }
+/** The parent of chunks that never move once drawn: `show` composes their matrices, no frame's scene update does. */
+class Still extends THREE.Group { override updateMatrixWorld() {} }
+/** The near instance rows and the far mesh of a row that has both (trees), whichever its role draws. */
+function levelPair(row: LocationEntity): { near: LocationInstances[]; far: string } | null {
+  const all = [{ url: row.url, instances: row.instances }, ...row.levels ?? []];
+  const near = all.find(level => level.instances.length && !level.url), far = all.find(level => level.url && !level.instances.length);
+  return near && far && row.kind === 'trees' ? { near: near.instances, far: far.url! } : null;
+}
 const layerOf = (row: LocationEntity) => LAYERS[row.kind] ?? 'structures';
 const chunkOf = (row: LocationEntity) => `${layerOf(row)}:${Math.floor(row.origin[0] / CHUNK)}_${Math.floor(row.origin[2] / CHUNK)}`;
 function byChunk(rows: readonly LocationEntity[]) {
@@ -80,9 +117,14 @@ export class LocationWorld implements WorldSurface {
   private shown = new Map<string, Drawn>();
   private chunks = new Map<string, Chunk>();
   private assets = new Map<string, Promise<THREE.Group>>();
-  private materials = new Map<string, THREE.Material>();
+  private materials = new Map<string, Dressing>();
   private loader = new GLTFLoader();
   private group = new THREE.Group();
+  /** A moving session's chunks of ground, buildings and structures (the sun's passes skip them). */
+  private still = new Still();
+  /** A moving session's near trees: the ones that cast their own shadows in the nearest cascade, and the others. */
+  private pools: [InstancePool, InstancePool] | null = null;
+  private leveled = new Set<Drawn>();
   private errors: string[] = [];
   private updating: Promise<unknown> = Promise.resolve();
   private disposed = false;
@@ -90,6 +132,19 @@ export class LocationWorld implements WorldSurface {
   private constructor(private host: PreparedWorldHost, public manifest: LocationManifest, private url: string) {
     this.lighting = { id: `world:${manifest.name}`, lamps: [], footprint: null };
     this.group.name = `world:${manifest.name}`;
+    if (host.view) {
+      this.still.name = 'still';
+      this.pools = [new InstancePool('trees:shadowing', 'vegetation', TILE_SHADOW_CHUNK_LAYER), new InstancePool('trees:near', 'vegetation', null)];
+      this.group.add(this.still, ...this.pools.map(pool => pool.group));
+      const scene = host.scene, previous = scene.onBeforeRender as unknown as (...args: unknown[]) => void;
+      // r186 calls a scene's onBeforeRender in every render of it (the sun's cascades and reflections included),
+      // after its matrices and camera are updated and before it collects what the camera draws.
+      this.unhook = () => { scene.onBeforeRender = previous as unknown as THREE.Scene['onBeforeRender']; };
+      scene.onBeforeRender = ((...args: unknown[]) => {
+        previous.apply(scene, args);
+        this.beforePass(args[2] as THREE.Camera);
+      }) as unknown as THREE.Scene['onBeforeRender'];
+    }
     storeRoot(new URL(STORE, host.pageUrl ?? location.href).href);
   }
 
@@ -101,7 +156,7 @@ export class LocationWorld implements WorldSurface {
     host.scene.add(world.group);
     host.manifest.code = world.data.release;
     // Play needs the collision before the drawing is worth waiting for: both load at once.
-    const [, collision] = await Promise.all([world.install(manifest.entities), world.loadCollision()]);
+    const [, collision] = await Promise.all([world.install(manifest.entities).then(() => world.pool()), world.loadCollision()]);
     // One entry stands for the location where the tile streamer's consumers look for loaded tiles.
     const [x, , z] = manifest.focus;
     world.entries.set(`t0_${Math.floor(x / 250)}_${Math.floor(z / 250)}`,
@@ -166,27 +221,164 @@ export class LocationWorld implements WorldSurface {
     const root = new THREE.Group(), layer = layerOf(row);
     root.name = `entity:${row.id}`; root.position.fromArray(row.origin);
     root.userData = { entityId: row.id, kind: row.kind, role: row.role, hash: row.hash, layer };
-    if (row.url) root.add((await this.loader.loadAsync(this.storeUrl(row.url))).scene);
+    const pair = this.host.view ? levelPair(row) : null;
+    const url = pair ? pair.far : row.url;
+    const own = url ? (await this.loader.loadAsync(this.storeUrl(url))).scene : null;
+    if (own) root.add(own);
     const placed: Placed[] = [], [ox, oy, oz] = row.origin;
     const turn = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
-    for (const item of row.instances) {
+    const rows: Rows[] = [];
+    for (const item of pair ? pair.near : row.instances) {
       const asset = await this.asset(item.asset);
+      let part = 0;
       asset.traverse(node => {
         const source = node as THREE.Mesh;
         if (!source.isMesh) return;
-        const material = familyMaterial(Array.isArray(source.material) ? source.material[0] : source.material, this.materials, row.kind);
-        for (const [x, y, z, yaw, sx, sy, sz] of item.transforms) placed.push({ geometry: source.geometry, material,
-          matrix: new THREE.Matrix4().compose(new THREE.Vector3(ox + x, oy + y, oz + z), turn.setFromAxisAngle(up, yaw), new THREE.Vector3(sx, sy, sz)).multiply(source.matrixWorld) });
+        const { material, vertex } = familyDrawn(Array.isArray(source.material) ? source.material[0] : source.material, this.materials, row.kind);
+        const matrices = item.transforms.map(([x, y, z, yaw, sx, sy, sz]) =>
+          new THREE.Matrix4().compose(new THREE.Vector3(ox + x, oy + y, oz + z), turn.setFromAxisAngle(up, yaw), new THREE.Vector3(sx, sy, sz)).multiply(source.matrixWorld));
+        const key = `${item.asset}#${part++}`;
+        if (!pair) { for (const matrix of matrices) placed.push({ geometry: source.geometry, material, matrix, vertex }); return; }
+        // A library mesh has one material: its vertex marks are the same wherever it is placed.
+        markVertices(source.geometry, vertex);
+        const packed = new Float32Array(matrices.length * 16);
+        matrices.forEach((matrix, index) => matrix.toArray(packed, index * 16));
+        rows.push({ key, geometry: source.geometry, material, matrices: packed });
       });
     }
+    if (pair && own) own.name = 'far';
     root.traverse(node => {
       const mesh = node as THREE.Mesh;
       if (!mesh.isMesh) return;
       mesh.userData.layer = layer; mesh.userData.entityId = row.id;
-      mesh.material = Array.isArray(mesh.material) ? mesh.material.map(m => familyMaterial(m, this.materials, row.kind)) : familyMaterial(mesh.material, this.materials, row.kind);
+      dress(mesh, this.materials, row.kind);
     });
     root.updateMatrixWorld(true);
-    return { row, root, placed, heights: row.kind === 'ground' ? groundHeights(root, row) : null };
+    // A moving session draws the buildings of a chunk as one mesh per material, like the instance rows: their
+    // surfaces share a material per pattern (buildingMaterials.ts), so a chunk of houses is a few dozen draws.
+    if (this.host.view && own && row.kind === 'building') {
+      own.traverse(node => {
+        const mesh = node as THREE.Mesh;
+        if (mesh.isMesh) placed.push({ geometry: mesh.geometry, material: mesh.material as THREE.Material, matrix: mesh.matrixWorld.clone() });
+      });
+      root.remove(own);
+    }
+    const [minX, minY, minZ, maxX, maxY, maxZ] = row.bounds;
+    const box = new THREE.Box3(new THREE.Vector3(ox + minX, oy + minY, oz + minZ), new THREE.Vector3(ox + maxX, oy + maxY, oz + maxZ));
+    return { row, root, placed, heights: row.kind === 'ground' ? groundHeights(root, row) : null, box,
+      levels: pair && own ? { rows, far: own, farShadow: null, level: -1 } : null };
+  }
+
+  /** The far mesh's shadow twin, once the chunk is prepared: the same geometry and material on the layers of the
+   *  sun's cascades (render/environment.ts cascadeLayerMask), so the far mesh casts whether or not it is drawn. */
+  private farTwin(drawn: Drawn) {
+    const levels = drawn.levels!, group = new THREE.Group();
+    group.name = `far-shadow:${drawn.row.id}`;
+    levels.far.updateWorldMatrix(true, true);
+    levels.far.traverse(node => {
+      const mesh = node as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const twin = new THREE.Mesh(mesh.geometry, mesh.material);
+      twin.name = `${mesh.name}-shadow`; twin.userData = { layer: 'vegetation', entityId: drawn.row.id, shadowBatch: true };
+      twin.layers.set(TILE_SHADOW_WHOLE_LAYER); twin.layers.enable(TILE_SHADOW_CHUNK_LAYER);
+      twin.castShadow = true; twin.receiveShadow = false;
+      twin.matrixAutoUpdate = false; twin.matrix.copy(mesh.matrixWorld); twin.matrixWorld.copy(mesh.matrixWorld);
+      group.add(twin);
+      mesh.castShadow = false;
+    });
+    // The twins carry world matrices: their group stays at the world's origin whatever the entity's is.
+    group.matrixAutoUpdate = false;
+    this.group.add(group);
+    levels.farShadow = group;
+    this.leveled.add(drawn);
+  }
+
+  /** The pools of the near trees, sized for every tree the location holds, filled for the camera (or, before the
+   *  first frame, the location's focus), styled and prepared like a chunk. Again after the location changed. */
+  private async pool() {
+    const host = this.host, pools = this.pools;
+    if (!pools) return;
+    const parts = new Map<string, Part>();
+    for (const drawn of this.leveled) for (const row of drawn.levels!.rows) {
+      const part = parts.get(row.key) ?? { key: row.key, geometry: row.geometry, material: row.material, count: 0 };
+      part.count += row.matrices.length / 16;
+      parts.set(row.key, part);
+    }
+    for (const pool of pools) pool.build(parts.values());
+    const [x, y, z] = this.manifest.focus;
+    this.place(this.started ? host.view!.camera.position : new THREE.Vector3(x, y, z));
+    for (const pool of pools) {
+      await host.style?.(pool.group);
+      await host.prepareGraphics?.(pool.group);
+      pool.finish();
+    }
+  }
+
+  /** Every entity with two levels draws the one for its distance from `at`. */
+  private place(at: THREE.Vector3) {
+    const [shadowing, near] = this.pools!, reach = this.host.view!.treeNear();
+    for (const drawn of this.leveled) {
+      const levels = drawn.levels!, box = drawn.box, was = levels.level;
+      const away = Math.hypot(Math.max(box.min.x - at.x, 0, at.x - box.max.x), Math.max(box.min.z - at.z, 0, at.z - box.max.z));
+      const level = away < SHADOW_NEAR + (was === 0 ? LEVEL_SLACK : 0) ? 0 : away < reach + (was === 0 || was === 1 ? LEVEL_SLACK : 0) ? 1 : 2;
+      if (level === was) continue;
+      levels.level = level;
+      shadowing.set(drawn.row.id, level === 0 ? levels.rows : null);
+      near.set(drawn.row.id, level === 1 ? levels.rows : null);
+      levels.far.visible = level === 2;
+      // The far mesh casts in the nearest cascade unless the instances do.
+      levels.farShadow?.traverse(twin => { if (level === 0) twin.layers.disable(TILE_SHADOW_CHUNK_LAYER); else twin.layers.enable(TILE_SHADOW_CHUNK_LAYER); });
+    }
+    shadowing.update(); near.update();
+  }
+
+  private readonly frustum = new THREE.Frustum();
+  private readonly viewMatrix = new THREE.Matrix4();
+  /** Right, left and near: a street camera sees nearly everything between its top and bottom planes. */
+  private inView(box: THREE.Box3) {
+    const planes = this.frustum.planes;
+    for (const index of [0, 1, 5]) {
+      const plane = planes[index], n = plane.normal;
+      const x = n.x > 0 ? box.max.x : box.min.x, y = n.y > 0 ? box.max.y : box.min.y, z = n.z > 0 ? box.max.z : box.min.z;
+      if (n.x * x + n.y * y + n.z * z + plane.constant < 0) return false;
+    }
+    return true;
+  }
+
+  private unhook: (() => void) | null = null;
+  private started = false;
+  /** The still chunks and entities outside the camera's view this frame, and whether they are hidden right now. */
+  private unseen: THREE.Object3D[] = [];
+  private hidden = false;
+  private stale = true;
+  private reveal(on: boolean) {
+    if (this.hidden === !on) return;
+    for (const object of this.unseen) object.visible = on;
+    this.hidden = !on;
+  }
+
+  /** Before each render of the scene: what this pass's camera has no use for leaves the scene graph, so the pass does
+   *  not walk it. The session's camera: the still chunks and entities outside its view (found once a frame). A
+   *  cascade of the sun: every still chunk, whose shadows are the batches beside them. Any other camera: nothing. */
+  private beforePass(camera: THREE.Camera) {
+    if (this.disposed) return;
+    if (camera !== this.host.view!.camera) {
+      this.still.visible = (camera.layers.mask & SUN_LAYERS) === 0;
+      if (this.still.visible) this.reveal(true);
+      return;
+    }
+    this.still.visible = true;
+    if (!this.stale) { this.reveal(false); return; }
+    this.stale = false;
+    this.reveal(true);
+    this.unseen.length = 0;
+    this.frustum.setFromProjectionMatrix(this.viewMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse), camera.coordinateSystem, camera.reversedDepth);
+    for (const chunk of this.chunks.values()) {
+      if (chunk.root.parent !== this.still) continue;
+      if (!this.inView(chunk.box)) { this.unseen.push(chunk.root); continue; }
+      for (const drawn of chunk.members) if (drawn.root.parent && !this.inView(drawn.box)) this.unseen.push(drawn.root);
+    }
+    this.reveal(false);
   }
 
   /** Loads the rows of one chunk, a few at a time; a row that fails is named in `failures` and left out. */
@@ -205,14 +397,18 @@ export class LocationWorld implements WorldSurface {
   private async show(id: string, members: Drawn[]) {
     const host = this.host, root = new THREE.Group(), layer = id.split(':')[0];
     root.name = `chunk:${id}`; root.userData = { layer };
-    for (const drawn of members) root.add(drawn.root);
+    // An entity that is instance rows only draws in the chunk's merged meshes: in a moving session its empty group
+    // stays out of the scene graph, which every pass of every frame walks.
+    for (const drawn of members) if (!host.view || drawn.root.children.length) root.add(drawn.root);
     // Instance rows of every member, merged by material and vertex layout.
     const merges = new Map<string, { material: THREE.Material; geometries: THREE.BufferGeometry[] }>();
     for (const drawn of members) for (const item of drawn.placed) {
       const layout = Object.entries(item.geometry.attributes).map(([name, a]) => `${name}:${a.itemSize}:${a.normalized}:${a.array.constructor.name}`).sort();
       const key = `${item.material.uuid}|${!!item.geometry.index}|${layout}`;
       const merge = merges.get(key) ?? { material: item.material, geometries: [] };
-      merge.geometries.push(item.geometry.clone().applyMatrix4(item.matrix));
+      const part = item.geometry.clone().applyMatrix4(item.matrix);
+      markVertices(part, item.vertex);
+      merge.geometries.push(part);
       merges.set(key, merge);
     }
     for (const { material, geometries } of merges.values()) {
@@ -227,19 +423,44 @@ export class LocationWorld implements WorldSurface {
     await host.style?.(root);
     await host.prepareGraphics?.(root);
     if (root.userData.layer === 'vegetation') root.traverse(node => { if ((node as THREE.Mesh).isMesh) node.castShadow = true; });
-    this.group.add(root);
+    const still = !!host.view && layer !== 'vegetation';
+    (still ? this.still : this.group).add(root);
     host.trackModel?.(root, root.name);
-    this.chunks.set(id, { id, root, members });
-    for (const drawn of members) this.shown.set(drawn.row.id, drawn);
+    if (still) {
+      // The chunk's shadow batch is drawn beside it (the chunk is at the origin of the world, so nothing moves): the
+      // sun's passes then skip the chunk. Nothing walks the chunk's matrices after this.
+      for (const child of [...root.children]) if (child.userData.shadowBatch) this.group.add(child);
+      root.updateMatrixWorld(true);
+    }
+    const box = new THREE.Box3();
+    for (const drawn of members) box.union(drawn.box);
+    this.chunks.set(id, { id, root, members, box, layer });
+    for (const drawn of members) {
+      this.shown.set(drawn.row.id, drawn);
+      if (drawn.levels) this.farTwin(drawn);
+    }
   }
 
   private hide(chunk: Chunk) {
     const host = this.host, { root } = chunk;
+    // Hidden objects are found again by the next frame's look; this chunk's are gone.
+    this.reveal(true); this.unseen.length = 0; this.stale = true;
     host.untrackModel?.(root, root.name);
     host.unstyle?.(root);
     root.removeFromParent();
     this.chunks.delete(chunk.id);
-    for (const drawn of chunk.members) this.shown.delete(drawn.row.id);
+    for (const drawn of chunk.members) {
+      this.shown.delete(drawn.row.id);
+      this.leveled.delete(drawn);
+      for (const pool of this.pools ?? []) pool.set(drawn.row.id, null);
+      // The shadow twins share the far mesh's geometry and materials: only their draws are theirs.
+      const twins = drawn.levels?.farShadow;
+      if (twins) {
+        twins.removeFromParent();
+        const drop = () => twins.traverse(node => { if ((node as THREE.Mesh).isMesh) disposeDraw(node as THREE.Mesh); });
+        if (host.retire) host.retire(drop); else drop();
+      }
+    }
     const release = () => root.traverse(node => {
       const mesh = node as THREE.Mesh;
       if (!mesh.isMesh) return;
@@ -295,6 +516,7 @@ export class LocationWorld implements WorldSurface {
       if (members.length) await this.show(id, members);
     }
     if (failures.length) throw new Error(`Location ${next.name}: ${failures.length} entities failed: ${failures.slice(0, 3).join('; ')}`);
+    if (stale.size) await this.pool();
     this.manifest = next;
     this.host.manifest.code = this.data.release;
     for (const entry of this.entries.values()) entry.visualHash = this.data.release;
@@ -312,11 +534,12 @@ export class LocationWorld implements WorldSurface {
   census() {
     const kinds: Record<string, { entities: number; triangles: number; instances: number; bytes: number }> = {};
     const triangles = (geometry: THREE.BufferGeometry) => (geometry.index?.count ?? geometry.attributes.position.count) / 3;
-    for (const { row, root, placed } of this.shown.values()) {
+    for (const { row, root, placed, levels } of this.shown.values()) {
       const kind = kinds[row.kind] ??= { entities: 0, triangles: 0, instances: 0, bytes: 0 };
       kind.entities++; kind.bytes += row.bytes ?? 0;
       kind.instances += row.instances.reduce((sum, item) => sum + item.transforms.length, 0);
       for (const item of placed) kind.triangles += triangles(item.geometry);
+      for (const item of levels?.rows ?? []) kind.triangles += triangles(item.geometry) * item.matrices.length / 16;
       root.traverse(node => {
         const mesh = node as THREE.Mesh;
         if (mesh.isMesh && !mesh.userData.shadowBatch) kind.triangles += triangles(mesh.geometry);
@@ -326,7 +549,11 @@ export class LocationWorld implements WorldSurface {
   }
 
   preload(_points: readonly { x: number; z: number }[], _radius: number, _boot = false, _view?: unknown) { return () => {}; }
-  update(_x: number, _z: number, _now?: number, _motion?: { x: number; z: number }, _scenery = true, _y?: number) {}
+  update(_x: number, _z: number, _now?: number, _motion?: { x: number; z: number }, _scenery = true, _y?: number) {
+    if (!this.pools || this.disposed) return;
+    this.started = true; this.stale = true;
+    this.place(this.host.view!.camera.position);
+  }
   setRouteHint(_points: readonly { x: number; z: number }[] | null) {}
   setVisualPass(_pass: 'auto' | 'first' | 'full') {}
   /** A location is a query, not a boundary: any camera may look at it. */
@@ -373,6 +600,8 @@ export class LocationWorld implements WorldSurface {
     if (this.disposed) return;
     this.disposed = true;
     for (const chunk of [...this.chunks.values()]) this.hide(chunk);
+    this.unhook?.();
+    for (const pool of this.pools ?? []) pool.release();
     for (const entry of this.entries.values()) for (const cell of entry.collision.keys()) { delete this.host.manifest.collision[cell]; this.host.unloadCollision(cell); }
     this.group.removeFromParent();
     this.entries.clear();

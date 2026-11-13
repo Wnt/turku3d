@@ -22,6 +22,11 @@ import { prepareLighting, type PreparedLighting } from '../render/lights/prepare
 export interface PreparedWorldHost extends CoarseHost {
   prepareAsset?: (root: THREE.Object3D, recipe: 'building' | 'vegetation' | 'context') => void | Promise<void>;
   releaseAsset?: (root: THREE.Object3D, recipe: 'building' | 'vegetation' | 'context') => void;
+  /** A session that moves through the world (play, look-around): the camera whose distance chooses an entity's level
+   *  of detail and whose view decides what is in the scene graph each frame (world/location/locationWorld.ts), and
+   *  the distance in metres to which trees keep their full models. Stills leave it out: every entity draws the
+   *  level of its role, whole. */
+  view?: { camera: THREE.PerspectiveCamera; treeNear: () => number };
 }
 
 /** Prepared context is part of this release, already resident with its pilot. No scenery service or second world is consulted. */

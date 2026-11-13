@@ -19,6 +19,16 @@ export interface LocationInstances {
   mass?: number;
 }
 
+/** A level of detail an entity row does not draw by default: its mesh, its instance rows or both. */
+export interface LocationLevel {
+  lod: number;
+  url?: string;
+  bytes?: number;
+  triangles?: number;
+  error_m?: number;
+  instances: LocationInstances[];
+}
+
 export interface LocationEntity {
   id: string;
   kind: string;
@@ -39,6 +49,8 @@ export interface LocationEntity {
   /** A ground entity's height raster: float32 rows from north to south, `size` = columns, rows; engine metres. */
   heightfield?: { url: string; format: 'f32le'; size: [number, number]; origin: [number, number]; spacing: number };
   instances: LocationInstances[];
+  /** The record's other levels, for a client that chooses by distance (trees: instance rows near, one mesh far). */
+  levels?: LocationLevel[];
 }
 
 export interface LocationManifest {
@@ -72,11 +84,14 @@ export function readLocation(value: unknown): LocationManifest {
     if (!/^[a-z][a-z0-9-]*\/[A-Za-z0-9._-]+$/.test(row.id ?? '') || ids.has(row.id)) fail(`bad or repeated entity id ${row.id}`);
     ids.add(row.id);
     if (typeof row.hash !== 'string' || !numbers(row.origin, 3) || !numbers(row.bounds, 6)) fail(`${row.id}: hash, origin and bounds are required`);
-    if (row.url !== undefined && !/^objects\/[a-f0-9]{2}\/[a-f0-9]{64}\.glb$/.test(row.url)) fail(`${row.id}: mesh url is not a store object`);
     if (!Array.isArray(row.instances)) fail(`${row.id}: instances are required`);
-    for (const item of row.instances) {
-      if (typeof item.asset !== 'string' || !Array.isArray(item.transforms) || !item.transforms.every(t => numbers(t, 7))) fail(`${row.id}: bad instance list`);
-      if (item.ids && item.ids.length !== item.transforms.length) fail(`${row.id}: instance ids do not match the transforms`);
+    for (const level of [row, ...row.levels ?? []]) {
+      if (level.url !== undefined && !/^objects\/[a-f0-9]{2}\/[a-f0-9]{64}\.glb$/.test(level.url)) fail(`${row.id}: mesh url is not a store object`);
+      if (!Array.isArray(level.instances)) fail(`${row.id}: a level without an instance list`);
+      for (const item of level.instances) {
+        if (typeof item.asset !== 'string' || !Array.isArray(item.transforms) || !item.transforms.every(t => numbers(t, 7))) fail(`${row.id}: bad instance list`);
+        if (item.ids && item.ids.length !== item.transforms.length) fail(`${row.id}: instance ids do not match the transforms`);
+      }
     }
   }
   for (const [id, cell] of Object.entries(data.collision ?? {})) {
