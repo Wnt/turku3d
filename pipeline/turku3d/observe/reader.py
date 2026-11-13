@@ -79,6 +79,9 @@ planting hide the foot of the wall. The pipeline uses it to correct the camera's
 door threshold). Before answering, check each wall: every bay and opening lies between the facade's ends that you \
 report, with its full width; from `ground_floor_m` the storey heights add up to where you see the eaves, within \
 0.3 m; no two openings of one storey overlap; windows in a gable or dormer above the eaves are not a wall storey.
+13. Roof: count the dormers and chimneys you see above each wall and place each on that wall's ruler. Name a \
+dormer's type by its own little roof: `gable` when it ends in a triangle, `shed` when it has one slope, `hip`, \
+`flat`, `arched`, `eyebrow`, or `wall_dormer` when the wall face itself rises through the eaves.
 """
 
 

@@ -252,6 +252,8 @@ def main(argv=None) -> int:
         return 0
     if a.command == "assemble":
         for packet in sorted((root / "buildings").iterdir()):
+            if a.building and packet.name not in a.building:
+                continue
             if (packet / "reading.json").exists() and (packet / "views.json").exists():
                 saved = json.loads((packet / "reading.json").read_text())
                 print(json.dumps(finish(json.loads((packet / "views.json").read_text()), saved["reading"],
