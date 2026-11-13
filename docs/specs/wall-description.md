@@ -8,7 +8,7 @@ Kind `wall` (`pipeline/turku3d/world/kinds/wall.py`): walls that hold the ground
 | `cell` | `[i, j]` of the grid cell. |
 | `level` | Height of the water the walls stand in, metres N2000 (0.0, as in `water-description.md`). |
 | `walls` | One row per run of quay inside the cell: `key` (`quay:<cell>:<n>`), `line` (survey E, N every 2 m along the mapped water outline), `inland` (unit vector per point, towards the land), `top` (height of the crest per point, metres N2000). |
-| `masonry` | Material of the courses: `family`, `params`, `color`, `roughness`. Source default: rock-faced reddish-grey `granite`, 0.55 m courses. A stored description may replace it. |
+| `masonry` | Material of the courses: `family`, `params`, `color`, `roughness`. Source default: rock-faced dark reddish-grey `granite` with ashlar relief, 0.5 m courses, water-stained. A stored description may replace it. |
 | `coping` | Material of the coping stones (version 2): pale cut `granite`, 1.2 m stones. A stored description may replace it. |
 
 Where a wall stands (source facts, `kinds/ground/banks.py quay_lines`): on the outline of OpenStreetMap
