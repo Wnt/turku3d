@@ -4,6 +4,7 @@
     python -m turku3d.observe describe (--building KEY... | --at E,N [--radius R] | --view ID...) [--effort low]
     python -m turku3d.observe assemble                descriptions again from the saved readings, no model call
     python -m turku3d.observe review [--building KEY...]   compare each wall with a drawing of what gets built
+    python -m turku3d.observe review --render --building KEY...   compare the game's render with the photograph
     python -m turku3d.observe roof --building KEY...       ask again about the dormers and chimneys of read buildings
 
 Views can be prepared on another machine and read here: run `views` there (scripts/dev/on-host HOST --data
@@ -212,6 +213,33 @@ def ask(packet: Path, root: Path, effort: str, text: str, about: str) -> dict:
             "chimneys": len(roof.get("chimneys", []))}
 
 
+def render(packet: Path, root: Path) -> Path:
+    """The game's own render of a described building from the camera of its first context photograph, as
+    render-1.jpg in the packet: w2-buildings' one-building workbench builds the description of this root and
+    shoots it (the shot takes a Mac browser lease by itself and gives it back)."""
+    import subprocess
+
+    from PIL import Image
+
+    from turku3d.world.kinds.building import workbench
+
+    record = json.loads((packet / "views.json").read_text())
+    key, context = record["building"], record["contexts"][0]
+    view = packet / "context-1.view.json"
+    view.write_text(json.dumps({"image": str(packet / Path(context["file"]).name), "width": context["size"][0],
+                                "height": context["size"][1], "pose": context["pose"]}))
+    workbench.build(root / "descriptions/building" / f"{key}.json", None, key, view)
+    pair = packet / "render-pair.jpg"  # photograph | render
+    done = subprocess.run(["node", str(REPO / "scripts/dev/building-workbench.mjs"), "shot", key, "--weather",
+                           "overcast", "--out", str(pair)], capture_output=True, text=True, timeout=600,
+                          stdin=subprocess.DEVNULL, check=False)
+    if done.returncode or not pair.exists():
+        raise RuntimeError(f"workbench shot: {(done.stderr or done.stdout)[-300:]}")
+    image = Image.open(pair)
+    image.crop((image.width // 2, 0, image.width, image.height)).save(packet / "render-1.jpg", quality=90)
+    return packet / "render-1.jpg"
+
+
 def visible_in_view(view: dict, scene: lod2.Scene, grid=(96, 72), reach: float = 250.0,
                     least: float = VISIBLE_SHARE) -> dict:
     """{building key: share of the view's pixels} from rays against the LoD2 scene."""
@@ -276,6 +304,9 @@ def main(argv=None) -> int:
                     help="buildings whose views are prepared in parallel")
     ap.add_argument("--force", action="store_true", help="read again even when a description exists")
     ap.add_argument("--no-review", action="store_true", help="stop at tier observed")
+    ap.add_argument("--render", action="store_true",
+                    help="review: compare the game's own render with the context photograph (roof, ground storey, "
+                         "relief) instead of the wall drawings")
     ap.add_argument("--no-store", action="store_true", help="do not write to the shared description store")
     ap.add_argument("--budget", type=float, default=None,
                     help="notional USD: no reading starts once this much is spent (most visible buildings first)")
@@ -290,10 +321,27 @@ def main(argv=None) -> int:
 
         packets = [p for p in sorted((root / "buildings").iterdir()) if (p / "reading.json").exists()
                    and (not a.building or p.name in a.building)]
+        shots = {}
+        if a.render:  # one browser: the renders one after another, then the questions in parallel
+            if not a.building:
+                sys.exit("review --render: name the buildings with --building")
+            for packet in packets:
+                try:
+                    shots[packet.name] = render(packet, root).name
+                except Exception as error:  # noqa: BLE001 - reported on the building's line
+                    shots[packet.name] = error
 
         def one(packet):
             try:
-                line = review(packet, root, a.effort, a.force)
+                if a.render and isinstance(shots[packet.name], Exception):
+                    raise shots[packet.name]
+                if a.render:
+                    saved = json.loads((packet / "reading.json").read_text())
+                    line = ask(packet, root, a.effort, reader.render_text(saved["reading"], shots[packet.name],
+                                                                          "context-1.jpg"), "render")
+                    line["cost_usd"] = line.get("call_cost_usd")
+                else:
+                    line = review(packet, root, a.effort, a.force)
             except Exception as error:  # noqa: BLE001 - one failed building must not stop the others
                 line = {"building": packet.name, "error": f"{type(error).__name__}: {error}"[:300]}
             print(json.dumps(line, ensure_ascii=False), flush=True)

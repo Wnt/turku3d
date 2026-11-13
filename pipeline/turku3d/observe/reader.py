@@ -160,6 +160,7 @@ def corrected(reading: dict, correction: dict) -> dict:
         out["description"]["roof"] = correction["roof"]
     views = {v["file"]: v for v in correction.get("views", [])}
     out["views"] = [views.pop(v["file"], v) for v in out.get("views", [])] + list(views.values())
+    out["notes"] = correction.get("notes", "")  # what this look changed, not the notes of the reading before it
     return out
 
 
@@ -419,6 +420,34 @@ def roof_text(reading: dict) -> str:
               "Answer with `roof`: the whole roof entry again, corrected (it replaces the first one; keep its "
               "covering, eaves and verge unless the photographs show otherwise), with `walls` as an empty list, "
               "`opening_types` only for a dormer window type you add, and the report of the images you looked at."]
+    return "\n".join(lines)
+
+
+def render_text(reading: dict, render: str, context: str) -> str:
+    """The review in the game's own render: `render` is the building built from the reading, seen from the camera
+    of the photograph `context`. Asks for what a flat wall drawing cannot show; wall colours are left alone,
+    because the render's light is not the photograph's."""
+    walls = reading["description"].get("walls", [])
+    lines = [QUESTION + f" {render} in the packet is the game's own render of this building, built from your "
+             f"description, from the camera of {context}: the same position, direction and field of view, in "
+             "overcast light, without trees, vehicles or neighbours. Read both and compare them part by part:",
+             "- the roof: covering and colour, eaves (overhang, fascia, colour), verge, dormers and chimneys (count, "
+             "place, size, material), anything else standing on it;",
+             "- the ground storey and the plinth: a material that differs from the wall above (a zone), shop "
+             "floors, the plinth's height;",
+             "- relief and depth: balconies and bay windows (type, depth, railing), cornices and bands, surrounds, "
+             "pilasters, recessed entrances, canopies;",
+             "- the windows as they read at this distance: proportions, glazing bars, frame colour.",
+             "Do not correct wall colours from the render: its light differs from the photograph's. A part that is "
+             "in your description and missing or wrong in the render is the generator's fault: leave the "
+             "description as it is and say so in `notes`. Change the description only where it contradicts the "
+             "photographs. The walls you read:"]
+    lines += [f"- wall {w['id']} (measured on {w.get('measured_on', '?')})" for w in walls if w.get("id")]
+    lines += ["Answer with what must change: `roof` (the whole roof entry, when anything on it changes), "
+              "`materials` (only names you add or change), `opening_types` (only types you add or change) and "
+              "`walls` (the whole entry of each wall you change, keeping its id and `measured_on`; an empty list "
+              "when none changes), with the report of the images you looked at. In `notes` list each difference "
+              "you saw, as `description:` (you corrected it) or `generator:` (described, but not drawn that way)."]
     return "\n".join(lines)
 
 
