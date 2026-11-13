@@ -15,7 +15,7 @@ import { GROUND_FAMILIES, synthesise, type GroundParams } from './groundSynth';
 
 /** How strongly a family varies over metres (tone) and how much relief its normals show. */
 const LOOK: Record<string, { patch: number; relief: number }> = {
-  asphalt: { patch: 0.2, relief: 1 }, paving: { patch: 0.14, relief: 1 }, setts: { patch: 0.14, relief: 1 },
+  asphalt: { patch: 0.28, relief: 1 }, paving: { patch: 0.14, relief: 1 }, setts: { patch: 0.14, relief: 1 },
   cobbles: { patch: 0.14, relief: 1 }, gravel: { patch: 0.2, relief: 1 }, grass: { patch: 0.3, relief: 1 },
   soil: { patch: 0.25, relief: 1 }, sand: { patch: 0.15, relief: 1 }, bedrock: { patch: 0.2, relief: 1 },
   kerbstone: { patch: 0.12, relief: 1 }, road_paint: { patch: 0.1, relief: 1 },
@@ -79,13 +79,13 @@ function scattered3(map: THREE.Texture, grid: ReturnType<typeof scatter>) {
 /** What years of traffic and repair leave on asphalt, placed in world space so cells agree: repairs of newer, darker
  *  and smoother asphalt with crisp edges, broad pale worn stretches, and sealed cracks near the camera. */
 function asphaltWear(place: Node<'vec2'>) {
-  const repair = smoothstep(0.3, 0.33, mx_noise_float(vec3(place.mul(0.085), 5.3)).add(mx_noise_float(vec3(place.mul(0.4), 1.9)).mul(0.08)));
+  const repair = smoothstep(0.2, 0.225, mx_noise_float(vec3(place.mul(0.085), 5.3)).add(mx_noise_float(vec3(place.mul(0.4), 1.9)).mul(0.08)));
   const worn = mx_noise_float(vec3(place.mul(vec2(0.021, 0.034)), 7.7)).mul(0.1);
   const cracked = smoothstep(0.1, 0.35, mx_noise_float(vec3(place.mul(0.045), 12.4)));
   const line = float(1).sub(smoothstep(0.004, 0.012, mx_noise_float(vec3(place.mul(0.55), 21.8)).add(mx_noise_float(vec3(place.mul(2.3), 4.1)).mul(0.06)).abs()));
   const near = float(1).sub(smoothstep(12, 40, positionWorld.sub(cameraPosition).length()));
   const sealed = line.mul(cracked).mul(near);
-  return { tone: float(1).add(worn).mul(float(1).sub(repair.mul(0.2))).mul(float(1).sub(sealed.mul(0.45))), sealed: sealed.max(repair.mul(0.5)) };
+  return { tone: float(1).add(worn).mul(float(1).sub(repair.mul(0.28))).mul(float(1).sub(sealed.mul(0.45))), sealed: sealed.max(repair.mul(0.5)) };
 }
 
 const cache = new Map<string, THREE.Material>();
