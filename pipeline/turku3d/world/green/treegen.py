@@ -738,7 +738,7 @@ class Meshes:
             join = lambda key: np.concatenate([np.asarray(mesh[key], float).reshape(len(mesh["positions"]), -1) for mesh in meshes])  # noqa: E731
             colors = join("colors")
             colors = np.repeat(colors, 3, axis=1) if colors.shape[1] == 1 else colors
-            attributes = {"wind": np.round(join("wind"), 3)} if "wind" in meshes[0] else {}
+            attributes = {key: np.round(join(key), 3) for key in ("wind", "spray", "tuft") if key in meshes[0]}
             out.append(Part(name, np.round(join("positions"), 4), np.concatenate(faces), material, np.round(join("normals"), 3),
                             np.round(join("uvs"), 4), np.round(colors, 3), attributes, lod))
         return out

@@ -84,16 +84,26 @@ def test_a_row_of_unknown_trees_is_one_species_and_a_street_crown_the_register_d
     assert "lidar-0" not in {tree["id"] for tree in description["trees"]} and len(description["trees"]) == 6
 
 
-def test_planting_compiles_hedges_to_parts_and_shrubs_to_instances():
+def test_planting_is_instance_rows_near_and_one_merged_mesh_far_and_stores_no_sprays():
     hedge = {"id": "hedge-x", "source": "lidar", "line": [[23459510.0, 6704490.0], [23459518.0, 6704490.0]], "ground": [10.0, 10.2],
              "width": [1.0, 1.2], "height": [1.4, 1.4], "form": "loose", "evergreen": False, "seed": 3, "measured": {"level": 0.2, "even": 0.2}}
-    shrub = {"id": "s-1", "e": 23459520.0, "n": 6704480.0, "ground": 10.0, "family": "lilac", "height": 1.8, "width": 2.0, "seed": 9}
-    output = planting.Planting().compile({"cell": [0, 0], "hedges": [hedge], "masses": [], "shrubs": [shrub]})
-    names = {(part.name, part.lod) for part in output.parts}
-    assert {("body-leafy", 0), ("leaves-leafy", 0), ("body-leafy", 1)} <= names
-    body = next(part for part in output.parts if part.name == "body-leafy" and part.lod == 0)
+    shrubs = [{"id": f"s-{k}", "e": 23459520.0 + 3 * k, "n": 6704480.0, "ground": 10.0, "family": "lilac", "height": 1.8, "width": 2.0, "seed": 9}
+              for k in range(2)]
+    output = planting.Planting().compile({"cell": [0, 0], "hedges": [hedge], "masses": [], "shrubs": shrubs})
+    assert all(item.lod == 0 for item in output.instances) and all(part.lod == 1 for part in output.parts)
+    own, library = output.instances[0], output.instances[1:]
+    assert own.transforms.tolist() == [[0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0]] and [part.name for part in own.asset] == ["body-leafy"]
+    assert len(library) == 1 and len(library[0].transforms) == 2  # two shrubs of one size share a library model
+    body = own.asset[0]
     assert body.material.family == "hedge" and open_edges(body.triangles) == 0
-    assert {("shrub-foliage", 0), ("shrub-bark", 0), ("shrub-foliage", 1)} <= names and not output.instances
+    sprays = body.material.params["sprays"]
+    assert sprays["share"] == 1.0 and sprays["dense"] == 1.0 and len(sprays["cell"]) == 4
+    density, loose, place = body.attributes["spray"].T
+    assert set(loose) == {1.0} and density.max() == hedgegen.DENSITY["loose"] and density.min() == 0.0 and set(place) == {0.0}
+    names = {part.name for part in output.parts}
+    assert names == {"body-leafy", "foliage"}  # far: the coarse body and one leaf mesh (the shrubs' far level); no stored hedge cards
+    far_body = next(part for part in output.parts if part.name == "body-leafy")
+    assert far_body.material.params["sprays"]["share"] == hedgegen.FAR[0]
 
 
 def test_a_garden_conifer_is_thuja_columns_and_no_lidar_crown_stands_in_a_carriageway():
@@ -175,7 +185,10 @@ def test_a_register_bed_is_a_shrub_mass_and_nothing_grows_on_paving():
     body = hedgegen.mass(ring, np.array(bed["ground"]), bed["height"], np.random.default_rng(1), bed["open"])
     top = body["positions"][body["positions"][:, 1] > 10.0 + bed["height"] - 0.01]
     assert abs(top[:, 0].max() - 40.0) < 0.01 and top[:, 0].min() > 30.1  # upright on the cut, leaning in elsewhere
-    assert len(body["surface"]["top"])  # and sprays on its flat top too
+    density, _, place = body["spray"].T
+    on_top = place == 1.0
+    assert on_top.any() and (density[on_top] > density[~on_top].max()).all()  # and sprays on its flat top too, more of them
+    assert (place == -1.0).sum() == on_top.sum()  # none on its underside
 
 
 def test_a_meadow_grows_grass_and_flowers_on_its_ground_but_not_on_the_path_through_it():
@@ -192,13 +205,14 @@ def test_a_meadow_grows_grass_and_flowers_on_its_ground_but_not_on_the_path_thro
     cover = tufts.cover(box, Slope((-16.0, -16.0, 78.5, 78.5), [], [], []), [("m", shapely.box(0, 0, 30, 62.5)), ("f", shapely.box(0, 0, 62.5, 62.5))],
                         shapely.box(10, 0, 14, 62.5))
     assert cover["rows"][5][:8] == "mmmmmmmm" and cover["rows"][5][9:11] == ".." and cover["rows"][5][-1] == "f"
-    grown = tufts.cards(cover, 3)
-    east, up = grown["positions"][:, 0], grown["positions"][:, 1]
-    foot = grown["positions"][0::4]
-    assert not ((foot[:, 0] > 10.7) & (foot[:, 0] < 13.3)).any()  # the path is bare
-    assert np.abs(foot[:, 1] - (10.0 + 0.1 * foot[:, 0])).max() < 0.2  # each card stands on the slope
-    meadow, forest = (east < 30).sum() / 30, (east > 30).sum() / 32.5
-    assert meadow > 1.8 * forest and len(tufts.cards(cover, 3, far=True)["triangles"]) < 0.4 * len(grown["triangles"])
+    ground = tufts.ground(cover)  # the covered squares, over which the client grows the cards
+    square = ground["positions"].reshape(-1, 4, 3)
+    middle, kind = square.mean(axis=1), ground["tuft"][0::4]
+    assert not ((middle[:, 0] > 10.7) & (middle[:, 0] < 13.3)).any()  # the path is bare
+    assert np.abs(ground["positions"][:, 1] - (10.0 + 0.1 * ground["positions"][:, 0])).max() < 0.05  # on the slope
+    assert set(kind[middle[:, 0] < 30]) == {0.0} and set(kind[middle[:, 0] > 31]) == {1.0}  # meadow, then forest floor
+    plants = tufts.material().params["tufts"]["plants"]
+    assert plants[0][0]["density"] > 1.8 * plants[1][0]["density"] and tufts.material(far=True).params["tufts"]["share"] < 0.4
     assert tufts.cover(box, FakeWindow((-16.0, -16.0, 78.5, 78.5), [], [], []), [("m", shapely.box(100, 100, 120, 120))], None) is None
 
 

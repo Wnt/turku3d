@@ -7,6 +7,12 @@ library's foliage atlas cover it like shingles: on the sides they lie along the 
 upper edge, several deep; on the top they stand, so its edge against the sky is leaves, not a ruled line. A shrub
 mass is the same for an outline instead of a line.
 
+The sprays are not stored: they are a function of the body. Each body vertex carries `_SPRAY` (sprays a square
+metre of surface, loose 0 | 1, place: -1 underside, 0 side, 1 flat top) and the body's material
+`params.sprays` the card constants below; the client grows the sprays over the body's triangles
+(game/src/world/location/families/sprays.ts), the far level a share of them, larger. A hedge is a few kilobytes
+of body instead of a few megabytes of cards (Nummi 2026-11-13: 692 of 1,060 MB of planting were sprays).
+
 Coordinates in: engine metres relative to the entity origin, y up. TEXCOORD_0 of the body is metres (along, around).
 """
 
@@ -20,8 +26,18 @@ from . import treegen
 
 UP = np.array([0.0, 1.0, 0.0])
 STEP = 0.5  # metres between cross-sections
+FAR_STEP = 2.0  # of the far level's body (and between a far mass's outline vertices): its sprays hide the facets
 PROFILE = 9  # points on the visible arc of a cross-section
 SINK = 0.12  # the body goes this far into the ground, so no slope opens a gap under it
+DENSITY = {"clipped": 26.0, "loose": 20.0}  # leaf sprays a square metre of surface
+SPRAY = {"clipped": (0.26, 0.36), "loose": (0.4, 0.58)}  # metres across a spray
+TILT = {"clipped": (6.0, 20.0), "loose": (14.0, 40.0)}  # degrees a spray on a side is lifted off the surface
+STAND = (15.0, 60.0)  # degrees a spray on a top leans off upright
+LIFT = {"clipped": 0.03, "loose": 0.1}  # metres a spray stands off the body at most
+WIND = 0.04  # sway weight of a spray
+EVERGREEN = 1.6  # times as many sprays on an evergreen: a frond is narrower than a leafy spray
+TOP = 1.4  # times as many on a flat top, which is looked down on
+FAR = (0.15, 2.3)  # the distant level: this share of the sprays, this much larger
 
 
 def outward(positions: np.ndarray, triangles: np.ndarray) -> np.ndarray:
@@ -54,7 +70,7 @@ def profile(form: str) -> tuple[np.ndarray, np.ndarray]:
 
 def sweep(points: np.ndarray, width: np.ndarray, height: np.ndarray, form: str, rng) -> dict:
     """The closed body of a hedge along engine points (n, 3): positions, normals, uvs, colors, triangles and the
-    surface samples for the leaf shell."""
+    per-vertex spray attribute (sprays on the visible arc, none on the sunk foot or the end caps)."""
     n = len(points)
     tangent = np.gradient(points, axis=0)
     tangent[:, 1] = 0.0
@@ -91,14 +107,13 @@ def sweep(points: np.ndarray, width: np.ndarray, height: np.ndarray, form: str, 
     caps = np.concatenate([np.stack([np.full(k, base), first, np.roll(first, -1)], axis=1),
                            np.stack([np.full(k, base + 1), np.roll(last, -1), last], axis=1)])
     cap_normals = np.array([-tangent[0], tangent[-1]])
-    visible = (up > 0)[None, :] & np.ones((n, 1), bool)
     every = np.concatenate([flat, ends])
+    density = np.concatenate([np.broadcast_to(np.where(up > 0, DENSITY[form], 0.0)[None, :], (n, k)).reshape(-1), [0.0, 0.0]])
     return {
         "positions": every, "normals": np.concatenate([normals.reshape(-1, 3), cap_normals]),
         "uvs": np.concatenate([uv.reshape(-1, 2), np.zeros((2, 2))]), "colors": np.concatenate([shade.reshape(-1), [0.7, 0.7]]),
         "triangles": outward(every - every.mean(axis=0), np.concatenate([faces, caps])),
-        "surface": {"p": positions[visible], "n": normals[visible], "shade": shade[visible], "grid": (n, int((up > 0).sum())), "closed": False,
-                    "area": float(along[-1] * around[-1] * np.mean(width + height) / 2 + 1e-6)},
+        "spray": spray(density, form, np.zeros(len(every))),
     }
 
 
@@ -122,19 +137,20 @@ def inset(ring: np.ndarray, distance: np.ndarray) -> np.ndarray:
     return ring + inward * (distance / sharp)[:, None]
 
 
-def mass(ring: np.ndarray, base_y, height: float, rng, cut=None) -> dict:
+def mass(ring: np.ndarray, base_y, height: float, rng, cut=None, step: float = 0.8) -> dict:
     """A shrub mass over an outline (engine x, z ring; `base_y` the ground under it, one height or one per vertex):
     a closed dome whose sides stand on the outline and lean in towards a flat top, by the same distance all round,
     so that a long bed is a bank and not a tent. `cut` marks the vertices where the outline was cut and the mass
-    goes on in a neighbour: the side stands upright there. Sprays cover the sides and the top."""
+    goes on in a neighbour: the side stands upright there. Sprays cover the sides and the top (the top ring's
+    vertices carry the top's density; a triangle of the flat top has all three of them)."""
     turn = float(np.sum(ring[:, 0] * np.roll(ring[:, 1], -1) - np.roll(ring[:, 0], -1) * ring[:, 1]))
     base = np.broadcast_to(np.asarray(base_y, float), (len(ring),))
     cut = np.zeros(len(ring)) if cut is None else np.asarray(cut, float)
     ring, base, cut = (ring, base, cut) if turn > 0 else (ring[::-1], base[::-1], cut[::-1])
     area = 0.5 * abs(turn)
     perimeter = float(np.linalg.norm(ring - np.roll(ring, 1, axis=0), axis=1).sum())
-    closed = densified(ring, cut)[1] < 0.999  # a vertex between two cut ones lies on the cut
-    ring, base = densified(ring, base)
+    closed = densified(ring, cut, step)[1] < 0.999  # a vertex between two cut ones lies on the cut
+    ring, base = densified(ring, base, step)
     n = len(ring)
     lean = min(0.6, 0.45 * height, 0.5 * area / max(perimeter, 1e-6))  # the top ring's inset: half the narrowest half-width at most
     levels = ((0.0, -SINK), (0.0, 0.55 * height), (0.4, 0.85 * height), (1.0, height))
@@ -157,91 +173,39 @@ def mass(ring: np.ndarray, base_y, height: float, rng, cut=None) -> dict:
     shade = np.concatenate([np.full(n, 0.5), np.full(n, 0.75), np.full(n, 0.92), np.full(n, 1.0)])
     uv = positions[:, [0, 2]]
     triangles = np.concatenate([*faces, top[:, ::-1], bottom[:, ::-1]])
+    density = np.concatenate([np.full(n * (len(levels) - 1), DENSITY["loose"]), np.full(n, DENSITY["loose"] * TOP)])
+    place = np.concatenate([np.full(n, -1.0), np.zeros(n * (len(levels) - 2)), np.ones(n)])
     return {"positions": positions, "normals": normals, "uvs": uv, "colors": shade, "triangles": triangles,
-            "surface": {"p": positions, "n": normals, "shade": shade, "grid": (len(levels), n), "closed": True, "area": perimeter * height * 1.15,
-                        "top": positions[top]}}
+            "spray": spray(density, "loose", place)}
 
 
-DENSITY = {"clipped": 26.0, "loose": 20.0}  # leaf sprays a square metre of surface
-SPRAY = {"clipped": (0.26, 0.36), "loose": (0.4, 0.58)}  # metres across a spray
-TILT = {"clipped": (6.0, 20.0), "loose": (14.0, 40.0)}  # degrees a spray on a side is lifted off the surface
-EVERGREEN = 1.6  # times as many sprays on an evergreen: a frond is narrower than a leafy spray
-TOP = 1.4  # times as many on a flat top, which is looked down on
-FAR = (0.15, 2.3)  # the distant level: this share of the sprays, this much larger
+def spray(density: np.ndarray, form: str, place: np.ndarray) -> np.ndarray:
+    """The `_SPRAY` attribute of a body's vertices: (sprays a square metre, loose 0 | 1, place -1 | 0 | 1). A triangle
+    grows min(density of its corners) sprays a square metre; one whose corners are all underside grows none, one
+    whose corners are all on the flat top grows standing sprays."""
+    return np.stack([density, np.full(len(density), 1.0 if form == "loose" else 0.0), place], axis=1)
 
 
-def shell(surface: dict, form: str, evergreen: bool, rng, far: bool = False) -> dict | None:
-    """Leaf sprays over a body's surface. `surface` is a grid of points (rows along the hedge or up the mass,
-    columns round its section) with normals; the sprays are spread evenly between the grid's points."""
-    rows, cols = surface["grid"]
-    if rows < 2 or cols < 2:
-        return None
-    count = int(np.clip(surface["area"] * DENSITY[form] * (EVERGREEN if evergreen else 1.0) * (FAR[0] if far else 1.0), 6, 16000))
-    grid_p, grid_n, grid_s = surface["p"].reshape(rows, cols, 3), surface["n"].reshape(rows, cols, 3), surface["shade"].reshape(rows, cols)
-    # Evenly by area: each quad of the grid gets sprays in proportion to its size, so that the tall lower side of a
-    # mass and the flanks of a hedge are covered like its top and no dark body shows through.
-    span = cols if surface["closed"] else cols - 1
-    ahead = np.roll(grid_p, -1, axis=1)[:, :span]
-    quads = np.linalg.norm(np.cross(grid_p[1:, :span] - grid_p[:-1, :span], ahead[:-1] - grid_p[:-1, :span]), axis=-1).ravel() + 1e-9
-    r0, c0 = np.divmod(rng.choice(len(quads), count, p=quads / quads.sum()), span)
-    c1 = (c0 + 1) % cols
-    fu, fv = rng.random(count)[:, None], rng.random(count)[:, None]
-
-    def at(grid):
-        g = grid[..., None] if grid.ndim == 2 else grid
-        return (g[r0, c0] * (1 - fu) * (1 - fv) + g[r0, c1] * (1 - fu) * fv + g[r0 + 1, c0] * fu * (1 - fv) + g[r0 + 1, c1] * fu * fv)
-
-    p, normal, shade = at(grid_p), treegen.unit(at(grid_n)), at(grid_s)[:, 0]
-    if "top" in surface and len(surface["top"]):
-        # The flat top of a mass, by area: sprays standing on it.
-        a, b, c = surface["top"][:, 0], surface["top"][:, 1], surface["top"][:, 2]
-        areas = 0.5 * np.linalg.norm(np.cross(b - a, c - a), axis=1)
-        more = int(min(areas.sum() * TOP * DENSITY[form] * (EVERGREEN if evergreen else 1.0) * (FAR[0] if far else 1.0), 24000))
-        if more and areas.sum() > 0:
-            pick = rng.choice(len(areas), more, p=areas / areas.sum())
-            s, t = rng.random(more), rng.random(more)
-            s, t = np.where(s + t > 1, 1 - s, s), np.where(s + t > 1, 1 - t, t)
-            p = np.concatenate([p, a[pick] + (b[pick] - a[pick]) * s[:, None] + (c[pick] - a[pick]) * t[:, None]])
-            normal = np.concatenate([normal, np.broadcast_to(UP, (more, 3))])
-            shade = np.concatenate([shade, np.ones(more)])
-            count += more
-    size = rng.uniform(*SPRAY[form], count) * (FAR[1] if far else 1.0)
-    # On a side a spray climbs the surface; on the top it has no way up and stands in any direction.
-    climb = UP - normal * normal[:, 1:2]
-    top = np.linalg.norm(climb, axis=1) < 0.45
-    around = treegen.any_perp(normal)
-    turn = rng.uniform(0, 2 * np.pi, count)[:, None]
-    climb = treegen.unit(np.where(top[:, None], around * np.cos(turn) + np.cross(normal, around) * np.sin(turn), climb))
-    tilt = np.radians(np.where(top, rng.uniform(15.0, 60.0, count), rng.uniform(*TILT[form], count)))[:, None]
-    up = treegen.unit(climb * np.cos(tilt) + normal * np.sin(tilt) + rng.normal(0, 0.12, (count, 3)))
-    side = treegen.unit(np.cross(up, normal))
-    out = rng.uniform(0.0, 0.1 if form == "loose" else 0.03, count)[:, None]
-    start = p + normal * (out - 0.03) - up * (0.3 * size[:, None])
-    grid = np.array([[-0.5, 0.0], [0.5, 0.0], [-0.5, 1.0], [0.5, 1.0]])
-    positions = start[:, None] + side[:, None] * (grid[:, 0][None, :, None] * size[:, None, None]) + up[:, None] * (grid[:, 1][None, :, None] * size[:, None, None])
-    cell, tone = leaf(form, evergreen)
-    u0, u1, v0, v1 = treegen.cell_uv(cell)
-    uv = np.tile(np.stack([u0 + (u1 - u0) * (grid[:, 0] + 0.5), v1 + (v0 - v1) * grid[:, 1]], axis=1), (count, 1))
-    # COLOR_0 of the foliage family: ambient occlusion, leaf brightness, leaf warmth (treegen's convention).
-    vary = rng.uniform(-1.0, 1.0, (count, 2))
-    colors = np.repeat(np.stack([0.45 + 0.55 * shade, tone[0] * (1 + 1.5 * treegen.CARD_TONE[0] * vary[:, 0]),
-                                 1 + tone[1] + treegen.CARD_TONE[1] * vary[:, 1]], axis=1), 4, axis=0)
-    wind = np.stack([np.full(count * 4, 0.04), np.tile(grid[:, 1] * 0.5, count), np.repeat(rng.random(count), 4), np.ones(count * 4)], axis=1)
-    faces = (np.array([[0, 1, 2], [1, 3, 2]])[None] + (np.arange(count) * 4)[:, None, None]).reshape(-1, 3)
-    return {"positions": positions.reshape(-1, 3), "normals": np.repeat(treegen.unit(normal * 0.8 + UP * 0.2), 4, axis=0), "uvs": uv,
-            "colors": colors, "wind": wind, "triangles": faces}
+def sprays(evergreen: bool, far: bool) -> dict:
+    """`params.sprays` of a body's material: the card constants the client grows the sprays with. Size, tilt and
+    lift are indexed by form (0 clipped, 1 loose)."""
+    cell, tone = leaf(evergreen)
+    return {"cell": [round(v, 6) for v in treegen.cell_uv(cell)], "tone": list(tone), "vary": list(treegen.CARD_TONE),
+            "dense": EVERGREEN if evergreen else 1.0, "share": FAR[0] if far else 1.0, "grow": FAR[1] if far else 1.0,
+            "size": [list(SPRAY["clipped"]), list(SPRAY["loose"])], "tilt": [list(TILT["clipped"]), list(TILT["loose"])],
+            "stand": list(STAND), "lift": [LIFT["clipped"], LIFT["loose"]], "wind": WIND}
 
 
-def leaf(form: str, evergreen: bool) -> tuple[str, tuple[float, float]]:
+def leaf(evergreen: bool) -> tuple[str, tuple[float, float]]:
     """(atlas cell, (brightness, warmth)) of a hedge's sprays. The atlas's own hedge leaf and its juniper fill a
     fifth of their card and leave the body bare. A leafy hedge takes the lilac's spray (half its card is leaf), an
     evergreen one the spruce frond, lightened and warmed to a thuja's green and laid closer."""
     return ("spruce", (1.3, 0.07)) if evergreen else ("lilac", (0.95, 0.0))
 
 
-def body_material(evergreen: bool) -> Material:
+def body_material(evergreen: bool, far: bool = False) -> Material:
     colour = (0.006, 0.012, 0.006) if evergreen else (0.008, 0.017, 0.005)  # far darker than the leaf: the depth between the sprays
-    return Material("hedge", {}, colour, 0.95)
+    return Material("hedge", {"sprays": sprays(evergreen, far)}, colour, 0.95)
 
 
 def leaf_material(evergreen: bool) -> Material:

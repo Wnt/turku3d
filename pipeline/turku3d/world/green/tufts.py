@@ -7,15 +7,19 @@ one whatever its class; M classes and the surface `Metsä` are forest. OpenStree
 heath, and its woods, fill in where the city keeps no ground. Paving, roofs and planting beds are left out.
 
 A cell's census stores this as a raster (`cover`: rows from the south, STEP metres a letter, `m` meadow, `f` forest
-floor) with the ground's relief on a coarser grid, so that compiling needs no lidar. `cards` grows the raster into
-leaf cards of the nature atlas: grass tufts and flowering stems on a meadow, ferns, saplings and thin grass in a
-forest. The ground kind draws the ground under them as unmown grass.
+floor) with the ground's relief on a coarser grid, so that compiling needs no lidar. The cards themselves (grass
+tufts and flowering stems on a meadow, ferns, saplings and thin grass in a forest, on the nature atlas) are not
+stored: `ground` makes the raster's covered squares into a flat mesh at the ground (`_TUFT` per vertex: 0 meadow,
+1 forest floor) whose material `params.tufts` carries the plants, and the client grows the cards over it
+(game/src/world/location/families/sprays.ts) and does not draw the mesh. The ground kind draws the ground under them
+as unmown grass.
 """
 
 from __future__ import annotations
 
 import numpy as np
 
+from ..api import Material
 from . import lidar, treegen
 
 STEP = 1.25  # metres a raster cell
@@ -70,48 +74,36 @@ def cover(cell_box, window: lidar.Window, areas: list[tuple[str, object]], bare)
     return {"step": STEP, "rows": ["".join(row) for row in kinds], "reliefStep": RELIEF, "relief": [[round(float(v), 2) for v in row] for row in relief]}
 
 
-def cards(cover: dict, seed: int, far: bool = False) -> dict | None:
-    """Leaf cards over a cell's raster, in metres east, up (the stored ground level) and north of the cell's
-    south-west corner: {"positions", "normals", "uvs", "colors", "wind", "triangles"} for the foliage family."""
+KINDS = ("m", "f")  # the `_TUFT` value of a kind is its index here
+
+
+def ground(cover: dict) -> dict | None:
+    """The covered squares of a cell's raster as a mesh at the ground (metres east, up, north of the cell's south-west
+    corner), four vertices a square with `tuft` = the kind's index; or None."""
     kinds = np.array([list(row) for row in cover["rows"]])
     relief = np.asarray(cover["relief"], float)
     step, relief_step = cover["step"], cover["reliefStep"]
-    rng = np.random.default_rng([seed, 811, int(far)])
-    parts = []
-    for kind, plants in PLANTS.items():
-        rows, cols = np.nonzero(kinds == kind)
-        if not len(rows):
-            continue
-        for cell, density, across, tone in plants:
-            expected = density * step * step * (FAR[0] if far else 1.0)
-            each = rng.poisson(expected, len(rows))
-            total = int(each.sum())
-            if not total:
-                continue
-            e = (np.repeat(cols, each) + rng.random(total)) * step
-            n = (np.repeat(rows, each) + rng.random(total)) * step
-            # The ground under each card, between the relief's nodes.
-            u, v = np.clip(e / relief_step, 0, relief.shape[1] - 1.001), np.clip(n / relief_step, 0, relief.shape[0] - 1.001)
-            c0, r0 = u.astype(int), v.astype(int)
-            fu, fv = u - c0, v - r0
-            ground = (relief[r0, c0] * (1 - fu) * (1 - fv) + relief[r0, c0 + 1] * fu * (1 - fv) + relief[r0 + 1, c0] * (1 - fu) * fv + relief[r0 + 1, c0 + 1] * fu * fv)
-            size = rng.uniform(*across, total) * (FAR[1] if far else 1.0)
-            yaw = rng.uniform(0, 2 * np.pi, total)
-            side = np.stack([np.cos(yaw), np.zeros(total), np.sin(yaw)], axis=1)
-            lean = rng.normal(0.0, 0.12, (total, 2))
-            up = treegen.unit(np.stack([lean[:, 0], np.ones(total), lean[:, 1]], axis=1))
-            foot = np.stack([e, ground - 0.04, n], axis=1)
-            grid = np.array([[-0.5, 0.0], [0.5, 0.0], [-0.5, 1.0], [0.5, 1.0]])
-            positions = foot[:, None] + side[:, None] * (grid[:, 0][None, :, None] * size[:, None, None]) + up[:, None] * (grid[:, 1][None, :, None] * size[:, None, None])
-            u0, u1, v0, v1 = treegen.cell_uv(cell)
-            uv = np.tile(np.stack([u0 + (u1 - u0) * (grid[:, 0] + 0.5), v1 + (v0 - v1) * grid[:, 1]], axis=1), (total, 1))
-            vary = rng.uniform(-1.0, 1.0, (total, 2))
-            # COLOR_0 of the foliage family: ambient occlusion (dark at the foot), brightness, warmth.
-            shade = np.tile(np.array([0.55, 0.55, 1.0, 1.0]), total)
-            colors = np.stack([shade, np.repeat(tone[0] * (1 + 1.5 * treegen.CARD_TONE[0] * vary[:, 0]), 4),
-                               np.repeat(1 + tone[1] + treegen.CARD_TONE[1] * vary[:, 1], 4)], axis=1)
-            wind = np.stack([np.full(total * 4, 0.05), np.tile(grid[:, 1] * 0.6, total), np.repeat(rng.random(total), 4), np.ones(total * 4)], axis=1)
-            parts.append({"positions": positions.reshape(-1, 3), "normals": np.tile(np.array([[0.0, 1.0, 0.0]]), (total * 4, 1)), "uvs": uv,
-                          "colors": colors, "wind": wind,
-                          "triangles": (np.array([[0, 1, 2], [1, 3, 2]])[None] + (np.arange(total) * 4)[:, None, None]).reshape(-1, 3)})
-    return treegen.join(parts)
+    rows, cols = np.nonzero(np.isin(kinds, KINDS))
+    if not len(rows):
+        return None
+    corner = np.array([[0, 0], [1, 0], [0, 1], [1, 1]])
+    e = ((cols[:, None] + corner[None, :, 0]) * step).ravel()
+    n = ((rows[:, None] + corner[None, :, 1]) * step).ravel()
+    u, v = np.clip(e / relief_step, 0, relief.shape[1] - 1.001), np.clip(n / relief_step, 0, relief.shape[0] - 1.001)
+    c0, r0 = u.astype(int), v.astype(int)
+    fu, fv = u - c0, v - r0
+    height = (relief[r0, c0] * (1 - fu) * (1 - fv) + relief[r0, c0 + 1] * fu * (1 - fv) + relief[r0 + 1, c0] * (1 - fu) * fv + relief[r0 + 1, c0 + 1] * fu * fv)
+    count = len(rows)
+    kind = np.repeat([KINDS.index(k) for k in kinds[rows, cols]], 4).astype(float)
+    return {"positions": np.stack([e, height, n], axis=1), "normals": np.tile([[0.0, 1.0, 0.0]], (count * 4, 1)),
+            "uvs": np.zeros((count * 4, 2)), "colors": np.ones((count * 4, 1)), "tuft": kind,
+            "triangles": (np.array([[0, 2, 1], [1, 2, 3]])[None] + (np.arange(count) * 4)[:, None, None]).reshape(-1, 3)}
+
+
+def material(far: bool = False) -> Material:
+    """The family `tufts` of the ground mesh: what grows on each kind (atlas cell, cards a square metre, metres
+    across, brightness and warmth), for the client to grow; the mesh itself is not drawn."""
+    plants = [[{"cell": [round(v, 6) for v in treegen.cell_uv(cell)], "density": density, "across": list(across), "tone": list(tone)}
+               for cell, density, across, tone in PLANTS[kind]] for kind in KINDS]
+    return Material("tufts", {"tufts": {"plants": plants, "share": FAR[0] if far else 1.0, "grow": FAR[1] if far else 1.0,
+                                        "vary": list(treegen.CARD_TONE)}}, (0.05, 0.1, 0.03), 1.0)

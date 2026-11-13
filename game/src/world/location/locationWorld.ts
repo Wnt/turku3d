@@ -13,9 +13,10 @@
 // not for what the location holds. Measured at Portsa on the M1 Max (2026-11-13): 26 million triangles a frame, 21
 // of them trees and 14.5 of those in the shadow maps, and a main thread that spent a third of its frame walking
 // 9,500 scene nodes once per pass.
-// - Trees are drawn by distance from the camera, per 62.5 m cell, at the two levels the pipeline makes from one
-//   source: within `view.treeNear()` every tree is an instance of its library model (instancePool.ts: one draw per
-//   library mesh for the whole location), beyond it the cell is its one far mesh. Only the cells around the camera
+// - Trees and planting are drawn by distance from the camera, per 62.5 m cell, at the two levels the pipeline makes
+//   from one source: within `view.treeNear()` every tree and shrub is an instance of its library model, and a
+//   planting cell's own hedges an instance of its asset (instancePool.ts: one draw per library mesh for the whole
+//   location), beyond it the cell is its one far mesh. Hedge sprays are grown from the bodies (families/sprays.ts). Only the cells around the camera
 //   cast their instances' shadows, and only in the sun's nearest cascade; everywhere else a cell casts as its far mesh.
 // - The chunks of ground, buildings and structures cast shadows through their shadow batch alone: the batches are
 //   drawn beside them, and the sun's passes do not walk the chunks (`beforePass`). In the camera's own passes the
@@ -41,6 +42,7 @@ import { InstancePool, type Part, type Rows } from './instancePool';
 import { readLocation, type LocationEntity, type LocationInstances, type LocationManifest } from './manifest';
 import { chunkDistance, isRegion, readChunk, readRegion, regionManifest, REGION_RANGE, REGION_SLACK, REGION_STEP, type RegionIndex } from './region';
 import { dress, familyDrawn, markVertices, storeRoot, type Drawn as Dressing } from './materials';
+import { growHedges } from './families/sprays';
 import './families/ground';
 import './families/building';
 import './families/objects';
@@ -51,6 +53,8 @@ const STORE = 'world/';
 // Trees and planting are vegetation: millions of instanced leaf-card triangles that must not be copied into an
 // entity's merged shadow batch (world/shadowBatch.ts skips the layer); they cast their own shadows instead.
 const LAYERS: Record<string, string> = { ground: 'ground', building: 'buildings', trees: 'vegetation', planting: 'vegetation' };
+/** Kinds whose cells are instance rows near and one merged mesh far, drawn by distance in a moving session. */
+const LEVELED = new Set(['trees', 'planting']);
 const GROUND_BINS = 5;
 const LOADS = 8;
 /** The side of the square whose entities are prepared as one model, in metres. */
@@ -75,11 +79,11 @@ interface Drawn { row: LocationEntity; root: THREE.Group; placed: Placed[]; heig
 interface Chunk { id: string; root: THREE.Group; members: Drawn[]; box: THREE.Box3; layer: string }
 /** The parent of chunks that never move once drawn: `show` composes their matrices, no frame's scene update does. */
 class Still extends THREE.Group { override updateMatrixWorld() {} }
-/** The near instance rows and the far mesh of a row that has both (trees), whichever its role draws. */
+/** The near instance rows and the far mesh of a row that has both (trees and planting), whichever its role draws. */
 function levelPair(row: LocationEntity): { near: LocationInstances[]; far: string } | null {
   const all = [{ url: row.url, instances: row.instances }, ...row.levels ?? []];
   const near = all.find(level => level.instances.length && !level.url), far = all.find(level => level.url && !level.instances.length);
-  return near && far && row.kind === 'trees' ? { near: near.instances, far: far.url! } : null;
+  return near && far && LEVELED.has(row.kind) ? { near: near.instances, far: far.url! } : null;
 }
 const layerOf = (row: LocationEntity) => LAYERS[row.kind] ?? 'structures';
 const chunkOf = (row: LocationEntity) => `${layerOf(row)}:${Math.floor(row.origin[0] / CHUNK)}_${Math.floor(row.origin[2] / CHUNK)}`;
@@ -301,7 +305,7 @@ export class LocationWorld implements WorldSurface {
   private asset(path: string) {
     let asset = this.assets.get(path);
     if (!asset) {
-      asset = this.loader.loadAsync(this.storeUrl(path)).then(gltf => { gltf.scene.updateMatrixWorld(true); return gltf.scene; });
+      asset = this.loader.loadAsync(this.storeUrl(path)).then(gltf => { growHedges(gltf.scene); gltf.scene.updateMatrixWorld(true); return gltf.scene; });
       this.assets.set(path, asset);
     }
     return asset;
@@ -315,7 +319,7 @@ export class LocationWorld implements WorldSurface {
     const pair = this.host.view ? levelPair(row) : null;
     const url = pair ? pair.far : row.url;
     const own = url ? (await this.loader.loadAsync(this.storeUrl(url))).scene : null;
-    if (own) root.add(own);
+    if (own) { growHedges(own); root.add(own); }
     const placed: Placed[] = [], [ox, oy, oz] = row.origin;
     const turn = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
     const rows: Rows[] = [];

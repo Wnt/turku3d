@@ -6,10 +6,17 @@ discover  the cell's census (turku3d.world.green.hedges): hedge lines of the bas
           forest floors of the registers and OSM as a raster (turku3d.world.green.tufts).
 describe  per hedge: clipped or loose (from how level and even the lidar found it; a stored description overrides it
           with what a panorama shows), evergreen or not, the summer size. Per shrub: a family and a size.
-compile   a hedge is its line swept by a section of its width and height: a closed solid in the family `hedge` with
-          a fringe of leaf cards (turku3d.world.green.hedgegen); a mass is a closed dome over its outline; a shrub is
-          a generated shrub model (turku3d.world.green.treegen) baked into the cell's meshes; unmown ground grows
-          grass, flowers and undergrowth as leaf cards.
+compile   a hedge is its line swept by a section of its width and height: a closed solid in the family `hedge`
+          whose leaf sprays the client grows from it (turku3d.world.green.hedgegen); a mass is a closed dome over its
+          outline; a shrub is an instance of the shared shrub library (turku3d.world.green.treegen); unmown ground
+          grows grass, flowers and undergrowth as leaf cards.
+
+Levels, as the trees': near (lod 0) the cell is instance rows only, one per shrub model of the library and one row
+of the cell's own asset (its hedge and mass bodies and its tufts, placed once at the origin); far (lod 1) it is one
+merged mesh (the bodies again, coarser, whose far sprays the client grows at a share of the near ones, and one
+leaf mesh of the shrubs' far level and the far tufts, which the client's grown sprays join: a cell is two or three
+draws far). The client draws the near level round the camera and the far mesh beyond, and a still
+draws a scene row near. Nothing per cell is stored that the client derives: the sprays, 65 % of the bytes before.
 
 Description `turku-description/planting/1`:
 
@@ -33,7 +40,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ..api import Area, Output, Stub, envelope
+from ..api import Area, Instances, Output, Stub, envelope
 from ..frame import CELL, cell_at, cell_box_en, cell_key, to_engine
 from ..geometry import seed as seed_of
 from ..green import census, hedgegen, treegen, tufts
@@ -159,45 +166,52 @@ class Planting:
         if not grounds:
             return Output((i * CELL, 0.0, j * CELL), [])
         origin = (i * CELL, float(math.floor(min(grounds))), j * CELL)
-        meshes = treegen.Meshes()
+        own, far = treegen.Meshes(), treegen.Meshes()  # the cell's own near asset; its far mesh
 
-        def emit(body: dict, form: str, evergreen: bool, seed: int) -> None:
-            kind = "evergreen" if evergreen else "leafy"
-            for lod in (0, 1):
-                meshes.add(f"body-{kind}", lod, hedgegen.body_material(evergreen), body)
-                rng = np.random.default_rng([seed, 31, lod])
-                fringe = hedgegen.shell(body["surface"], form, evergreen, rng, far=bool(lod))
-                meshes.add(f"leaves-{kind}", lod, hedgegen.leaf_material(evergreen), fringe)
-
+        # A body near and a coarser one far (both from the same line or outline), each growing its sprays in the client.
         for hedge in hedges:
             line = np.array(hedge["line"], float)
             x, y, z = to_engine(line[:, 0], line[:, 1], np.array(hedge["ground"], float))
             points = np.stack([x - origin[0], y - origin[1], z - origin[2]], axis=1)
-            points, (width, height), _ = hedgegen.resample(points, [np.array(hedge["width"], float), np.array(hedge["height"], float)])
-            rng = np.random.default_rng([hedge["seed"], 17])
-            emit(hedgegen.sweep(points, width, height, hedge["form"], rng), hedge["form"], hedge["evergreen"], hedge["seed"])
+            kind = "evergreen" if hedge["evergreen"] else "leafy"
+            for lod, step in ((0, hedgegen.STEP), (1, hedgegen.FAR_STEP)):
+                at, (width, height), _ = hedgegen.resample(points, [np.array(hedge["width"], float), np.array(hedge["height"], float)], step)
+                body = hedgegen.sweep(at, width, height, hedge["form"], np.random.default_rng([hedge["seed"], 17]))
+                (far if lod else own).add(f"body-{kind}", lod, hedgegen.body_material(hedge["evergreen"], far=bool(lod)), body)
         for mass in masses:
             ring = np.array(mass["ring"], float)
             x, y, z = to_engine(ring[:, 0], ring[:, 1], np.broadcast_to(np.asarray(mass["ground"], float), (len(ring),)))
-            rng = np.random.default_rng([mass["seed"], 19])
-            body = hedgegen.mass(np.stack([x - origin[0], z - origin[2]], axis=1), y - origin[1], mass["height"], rng, mass.get("open"))
-            emit(body, "loose", mass["evergreen"], mass["seed"])
+            kind = "evergreen" if mass["evergreen"] else "leafy"
+            for lod, step in ((0, 0.8), (1, hedgegen.FAR_STEP)):
+                body = hedgegen.mass(np.stack([x - origin[0], z - origin[2]], axis=1), y - origin[1], mass["height"],
+                                     np.random.default_rng([mass["seed"], 19]), mass.get("open"), step)
+                (far if lod else own).add(f"body-{kind}", lod, hedgegen.body_material(mass["evergreen"], far=bool(lod)), body)
 
-        # Shrubs are scenery nothing collides with: the library models baked into the cell's own leaf and stem meshes.
+        # Shrubs are scenery nothing collides with: near, instances of the library models; far, their far level
+        # merged into the cell's far mesh.
+        groups: dict[treegen.Shape, list[tuple]] = {}
         for shrub in shrubs:
             shape = shrub_model(shrub)
             x, y, z = to_engine(shrub["e"], shrub["n"], shrub["ground"])
             side = shrub["width"] / 2 / shape.radius
-            row = (x - origin[0], y - origin[1] - 0.05, z - origin[2], math.radians((shrub["seed"] >> 8) % 360), side, shrub["height"] / shape.height, side)
-            for lod in (0, 1):
-                for part in shrub_parts(shape, lod):
-                    meshes.add(f"shrub-{part.material.family}", lod, treegen.shared_material(part.material), treegen.placed(part, row))
-        # Unmown ground: grass, flowers and undergrowth as cards, nothing collides with them.
+            groups.setdefault(shape, []).append((x - origin[0], y - origin[1] - 0.05, z - origin[2], math.radians((shrub["seed"] >> 8) % 360),
+                                                 side, shrub["height"] / shape.height, side))
+        instances = []
+        for shape in sorted(groups, key=lambda s: (s.family, s.height, s.radius, s.seed)):
+            transforms = np.round(np.array(groups[shape]), 4)
+            instances.append(Instances(list(shrub_parts(shape, 0)), transforms, lod=0))
+            for part in shrub_parts(shape, 1):
+                for row in transforms:
+                    far.add(part.material.family, 1, treegen.shared_material(part.material), treegen.placed(part, row))
         box = cell_box_en(i, j)
-        for lod in (0, 1) if cover else ():
-            grown = tufts.cards(cover, seed_of(f"cover-{cell_key(i, j)}"), far=bool(lod))
-            if grown is not None:
-                x, y, z = to_engine(box[0] + grown["positions"][:, 0], box[1] + grown["positions"][:, 2], grown["positions"][:, 1])
-                grown["positions"] = np.stack([x - origin[0], y - origin[1], z - origin[2]], axis=1)
-                meshes.add("tufts", lod, hedgegen.leaf_material(False), grown)
-        return Output(origin, meshes.parts())
+        # Unmown ground: the covered squares at the ground, over which the client grows the cards (tufts.py).
+        meadow = tufts.ground(cover) if cover else None
+        if meadow is not None:
+            x, y, z = to_engine(box[0] + meadow["positions"][:, 0], box[1] + meadow["positions"][:, 2], meadow["positions"][:, 1])
+            meadow["positions"] = np.stack([x - origin[0], y - origin[1], z - origin[2]], axis=1)
+            own.add("tufts", 0, tufts.material(), meadow)
+            far.add("tufts", 1, tufts.material(far=True), meadow)
+        mine = own.parts()
+        if mine:
+            instances.insert(0, Instances(mine, np.array([[0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0]]), lod=0))
+        return Output(origin, far.parts(), instances)
