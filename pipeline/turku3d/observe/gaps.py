@@ -736,13 +736,17 @@ def pick(out: Path, limit: int = 100, log=print) -> dict:
                 level[s] = max(level[s], LIGHT_WEIGHT)
             district = _district_at(buildings, piece.E, piece.N)
             per_district[district] = per_district.get(district, 0) + 1
+            # The street the view stands on: the pieces of the same OSM way, merged, the part through the piece.
+            way = shapely.line_merge(shapely.unary_union(list(pieces.geometry[pieces.osm_id == piece.osm_id])))
+            way = min(shapely.get_parts(way), key=lambda g: g.distance(shapely.Point(piece.E, piece.N)))
             picks.append({
                 "kind": "street", "value_pct": round(100 * best[0], 2),
                 "stratum": dict(zip(STREET_STRATUM, stratum.split("|"), strict=True)),
                 "covers": {"buildings": sorted(shows), "street": stratum},
                 "size": {"buildings": round(sum(b_share[s] for s in shows) * gap_b), "street_m": round(s_share[stratum] * gap_s)},
                 "piece": {"name": piece["name"], "highway": piece.highway, "E": float(piece.E), "N": float(piece.N),
-                          "district": district, "osm_id": int(piece.osm_id)},
+                          "district": district, "osm_id": int(piece.osm_id),
+                          "line": [[round(x, 1), round(y, 1)] for x, y in way.coords]},
                 "fresh_view": fresh_piece.get(int(j)),
             })
     done_b = {s for s, v in level.items() if v > 0}
@@ -817,23 +821,16 @@ def _street_view(entry: dict, refs: Path, light_cache) -> tuple[dict | None, str
 
     sys.path[:0] = [str(REPO_ROOT / "qa"), str(REPO_ROOT / "textures"), str(REPO_ROOT / "qa/views")]
     from pilot_refs import candidates
-    from street_refs import NEAR_M, ON_STREET_M, nearest_street, osm_layers, street_view
+    from street_refs import NEAR_M, ON_STREET_M, street_view
     from turkutex.streetview.panos import camera_height
 
     from .colour_light import LIGHT_GOOGLE_ZOOM, LIGHT_LOOKAROUND_ZOOM, measure
 
-    if not hasattr(_street_view, "streets"):
-        streets, _, _, _ = osm_layers()
-        _street_view.streets = (streets, shapely.STRtree([s for s, _ in streets]))
-    streets, tree = _street_view.streets
     cache, refreshed = light_cache
     piece = entry["piece"]
-    at = shapely.Point(piece["E"], piece["N"])
-    street = nearest_street(streets, tree, at, 30.0)
-    if not street:
-        return None, "no street within 30 m"
-    line, name = street
-    point = line.interpolate(line.project(at))
+    line, name = shapely.LineString(piece["line"]), piece.get("name")
+    name = name if isinstance(name, str) else None
+    point = line.interpolate(line.project(shapely.Point(piece["E"], piece["N"])))
     found = [m for m in candidates(cache, point.x, point.y, 0, NEAR_M, refreshed) if m.source == "lookaround" or len(m.id) == 22]
     ground = sorted(m.elevation - camera_height(m.source, m.date) for m in found)
     ground = ground[len(ground) // 2] if ground else 0.0
