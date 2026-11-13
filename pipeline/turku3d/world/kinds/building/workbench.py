@@ -1,6 +1,6 @@
 """One-building workbench: a stored description becomes a GLB the preview page shows beside the photo.
 
-  python -m turku3d.world.kinds.building.workbench build DESCRIPTION.json [--view VIEW_ID] [--name NAME]
+  python -m turku3d.world.kinds.building.workbench build DESCRIPTION.json [--view VIEW_ID | --view-file VIEW.json] [--name NAME]
   python -m turku3d.world.kinds.building.workbench watch DESCRIPTION.json [--view VIEW_ID]
 
 `build` reads the building's LoD2 shell (cached per key under $TURKU3D_WORK/workbench/shells), compiles the
@@ -13,6 +13,7 @@ import argparse
 import importlib
 import json
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -58,13 +59,21 @@ def shell_for(key: str, near) -> tuple[dict, dict]:
     return shell, register
 
 
-def build(path: Path, view_id: str | None, name: str | None) -> dict:
+def build(path: Path, view_id: str | None, name: str | None, view_file: Path | None = None) -> dict:
+    """`view_file` is a view outside qa/views: {"image": photo path, "width", "height", "pose": {E, N, H, yaw,
+    pitch, roll, fov}}; its photo is copied beside the GLB so the page can show it."""
     started = time.perf_counter()
     stored = json.loads(path.read_text())
     problems = description.errors(stored)
     key = stored["id"].split("/", 1)[1]
     name = name or path.stem
     view = view_pose(view_id) if view_id else None
+    if view_file is not None:
+        view = json.loads(view_file.read_text())
+        photo = Path(view["image"])
+        (work_root() / name).mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(photo, work_root() / name / f"reference{photo.suffix}")
+        view = {"id": view_file.stem, **view, "photo": f"reference{photo.suffix}"}
     near = None
     for wall in stored.get("walls", []):
         if "frame" in wall:
@@ -124,10 +133,11 @@ def main(argv=None) -> int:
     parser.add_argument("command", choices=["build", "watch"])
     parser.add_argument("description", type=Path)
     parser.add_argument("--view")
+    parser.add_argument("--view-file", type=Path, help="a view outside qa/views: JSON with image, width, height, pose")
     parser.add_argument("--name")
     args = parser.parse_args(argv)
     if args.command == "build":
-        _report(build(args.description, args.view, args.name))
+        _report(build(args.description, args.view, args.name, args.view_file))
         return 0
     package = Path(__file__).parent
     seen = None
@@ -145,7 +155,7 @@ def main(argv=None) -> int:
                     if name.startswith(__package__ + ".") and not name.endswith(".workbench")
                 ]:
                     importlib.reload(module)
-                _report(build(args.description, args.view, args.name))
+                _report(build(args.description, args.view, args.name, args.view_file))
             except Exception as error:  # the watcher survives a broken edit and says what broke
                 print(f"build failed: {type(error).__name__}: {error}")
         time.sleep(0.25)
