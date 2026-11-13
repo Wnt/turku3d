@@ -14,6 +14,7 @@ The cloud is leaf-off and from above: thin posts get tens of returns, boards and
 
 from __future__ import annotations
 
+import math
 import os
 from pathlib import Path
 
@@ -24,7 +25,8 @@ from ... import config
 VERSION = "4"
 TILE = 500.0
 CELL = 1.0
-HEAD_REACH, HEAD_TALLEST, HEAD_RETURNS, HEAD_DEEP = 0.6, 13.5, 5, 1.6  # a lamp head over a shaft the scan lost
+HEAD_REACH, HEAD_TALLEST, HEAD_RETURNS, HEAD_DEEP = 0.6, 13.5, 5, 1.6
+TWIN_RETURNS, TWIN_SPREAD = 10, 35.0  # returns in the layer of two arms; degrees a return may lie off their line  # a lamp head over a shaft the scan lost
 SIDE = int(TILE / CELL)
 GROUND, BUILDING, NOISE = 2, 6, 7
 MIN_HAG, MAX_HAG = 0.25, 40.0
@@ -237,9 +239,37 @@ class ObjectLidar:
             return {"bearing": round(float(mean), 1), "reach": round(float(np.percentile(reach, 95)), 2),
                     "height": round(float(np.median(crown[pick, 2])), 2), "returns": int(pick.sum())}
 
+        def twin_at(top: float) -> dict | None:
+            """Two arms on one pole: a thin layer of returns at the top in two opposite lobes and nothing else round
+            the pole there or under it (a crown fills the layers below; the scan classes arms as vegetation too, so
+            the shape decides and not the class)."""
+            ring = points[(d > 0.4) & (d <= 3.5)]
+            layer = ring[np.abs(ring[:, 2] - top) < 0.8]
+            under = ring[(ring[:, 2] > top - 3.0) & (ring[:, 2] <= top - 0.8)]
+            if len(layer) < TWIN_RETURNS or len(under) > 0.2 * len(layer):
+                return None
+            bearing = np.degrees(np.arctan2(layer[:, 0] - axis[0], layer[:, 1] - axis[1])) % 360
+            reach = np.hypot(layer[:, 0] - axis[0], layer[:, 1] - axis[1])
+            # The line of the two arms: the doubled-angle mean direction of the returns, weighted by their reach.
+            doubled = np.radians(bearing * 2)
+            line = math.degrees(math.atan2(float(np.sum(reach * np.sin(doubled))), float(np.sum(reach * np.cos(doubled))))) / 2 % 180
+            off = (bearing - line + 90) % 180 - 90  # degrees off that line, either way along it
+            one = (np.abs(off) <= TWIN_SPREAD) & (np.abs((bearing - line + 180) % 360 - 180) <= 90)
+            other = (np.abs(off) <= TWIN_SPREAD) & ~one
+            if min(one.sum(), other.sum()) < 4 or min(one.sum(), other.sum()) < 0.4 * max(one.sum(), other.sum()) \
+                    or one.sum() + other.sum() < 0.85 * len(layer):
+                return None
+            reaches = [float(np.percentile(reach[one], 95)), float(np.percentile(reach[other], 95))]
+            if abs(reaches[0] - reaches[1]) > 0.6:
+                return None
+            return {"bearing": round(line, 1), "reach": round(sum(reaches) / 2, 2), "returns": int(len(layer))}
+
         arm = arm_at(top)
         if arm:
             result["arm"] = arm
+        twin = twin_at(top)
+        if twin:
+            result["twin"] = twin
         # A thin pole can return nothing for metres while its head returns well: a shallow cluster of returns over
         # the axis, above an empty gap, is the top of the same pole (flat for a head on a straight pole, up to a
         # metre and a half deep where the pole bends over into its arm; a crown over a low post is deeper).

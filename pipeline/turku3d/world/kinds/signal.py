@@ -39,6 +39,7 @@ KERB_CLEARANCE = 0.35  # m past the carriageway edge
 REACH = 14.0  # m from the centreline within which a carriageway edge is looked for
 NOMINAL = 3.85  # m from the centreline where no surveyed carriageway is under the node
 JOIN = 2.0  # m: posts nearer than this are one post carrying the heads of both
+SNAP, SNAP_TOPS = 2.5, (2.4, 5.5)  # m: reach to a lidar pole from the guessed kerb position; tops a signal or sign post has
 OWN_STOP = 30.0  # m: a crossing with a stop position this near leaves the vehicle heads to it
 VEHICLE_Y, PEDESTRIAN_Y = 2.95, 2.2  # m: centre of a head on the post
 FORWARD = 0.2  # m: a head's body stands this far in front of the post axis
@@ -178,16 +179,24 @@ class Signal:
         if not nodes:
             return []
         stubs = []
+        lidar = registers.lidar_of(sources)
         for post in posts_of(nodes, ways, carriageway(sources, box)):
             e, n = post["e"], post["n"]
             if not area.touches(box_of(e, n, 0.5)):
                 continue
+            # The kerb position is a guess to a couple of metres; a post the scan shows there (a signal post, or the
+            # sign post the heads share: dev_12's photo has head, prohibition and diamond on one pole) is the place.
+            measured = lidar.pole_top(e, n, search=SNAP)
+            snapped = bool(measured) and SNAP_TOPS[0] <= measured["top"] <= SNAP_TOPS[1]
+            if snapped:
+                e, n = round(e + measured["offset"][0], 2), round(n + measured["offset"][1], 2)
             ground = registers.ground_height(sources, e, n)
             if not math.isfinite(ground):
                 continue
             facts = {
                 "at": [e, n, round(ground, 2)], "height": POST, "heads": post["heads"],
-                "basis": f"OSM signal node; post right of the approach at the {post['basis']}", "guessed": ["position"],
+                "basis": f"OSM signal node; post right of the approach at the {post['basis']}" + (", on the pole the lidar shows there" if snapped else ""),
+                "guessed": [] if snapped else ["position"],
                 "interaction": interaction("knock-over", "cylinder", [0.06, POST], 55.0 + 14.0 * len(post["heads"])),
             }
             stubs.append(Stub(f"signal/{post['id']}", box_of(e, n, 1.0), [post["source"]], facts))

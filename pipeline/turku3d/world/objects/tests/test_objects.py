@@ -30,6 +30,7 @@ ASSETS = {
     "lamp street-arm": lambda: lamp_parts(family="street-arm", height=10.1, arm={"bearing": 40.0, "reach": 2.6}),
     "lamp short curved arm": lambda: lamp_parts(family="street-arm", height=9.0, arm={"bearing": 0.0, "reach": 1.25}),
     "lamp street-top": lambda: lamp_parts(family="street-top", height=8.0),
+    "lamp street-twin": lambda: lamp_parts(family="street-twin", height=10.0, arm={"bearing": 30.0, "reach": 1.0}),
     "lamp park": lambda: lamp_parts(family="park", height=4.6),
     "board gate": lambda: fence.gate("board", 1.8, 3.0, "#d8d0b6"),
     "iron gate": lambda: fence.gate("iron", 1.0, 1.0, "#1b1c1e"),
@@ -299,6 +300,14 @@ def test_a_flat_head_over_a_lost_shaft_is_the_pole_and_a_crown_is_not():
     assert "head" not in scan([[0.1, 0.1, h, 5] for h in np.arange(7.0, 12.0, 0.5)])  # a crown is metres deep
     bent = scan([[0.1 * k, 0.0, 8.4 + 0.2 * k, 5] for k in range(6)] + [[0.6 + 0.3 * k, 0.0, 9.5, 1] for k in range(6)])
     assert bent["head"]["top"] == pytest.approx(9.5) and bent["head"]["arm"]["bearing"] == pytest.approx(90.0, abs=1.0)  # a curved top with its arm
+    arms = [[side * (0.5 + 0.1 * k), 0.02 * k, 9.9, 5] for side in (1, -1) for k in range(7)]
+    lidar = ObjectLidar.__new__(ObjectLidar)
+    lidar.around = lambda e, n, radius: np.array([[0.0, 0.0, h, 1] for h in np.arange(0.2, 10.0, 0.25)] + arms, dtype=float)
+    twin = lidar.pole_top(0.0, 0.0)["twin"]  # two opposite lobes in one thin layer at the top, nothing under them
+    assert twin["bearing"] == pytest.approx(90.0, abs=3.0) and twin["reach"] == pytest.approx(1.1, abs=0.1)
+    lidar.around = lambda e, n, radius: np.array([[0.0, 0.0, h, 1] for h in np.arange(0.2, 10.0, 0.25)] + arms
+                                                 + [[0.3 * k - 2, 1.0, 8.0, 5] for k in range(12)], dtype=float)
+    assert "twin" not in lidar.pole_top(0.0, 0.0)  # a crown under the layer
     street = {"bearing": 90.0, "distance": 4.0}
     facts = lamp._family(head, street)
     assert facts["family"] == "street-arm" and facts["height"] == pytest.approx(8.2) and facts["guessed"] == ["arm"]

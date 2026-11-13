@@ -72,7 +72,7 @@ Found in the full-world stills of the dev set beside their photos (dev_04, dev_1
 | Field | Meaning |
 | --- | --- |
 | `at` | base of the pole |
-| `family` | `street-arm`, `street-top`, `park`, `span-pole` (a plain pole a span wire ends at) |
+| `family` | `street-arm`, `street-twin` (two opposite heads on one cross tube), `street-top`, `park`, `span-pole` (a plain pole a span wire ends at) |
 | `height` | metres to the luminaire (to the wire for a span pole) |
 | `arm` | `{bearing, reach}` for `street-arm` |
 | `finish` | `galvanised` or `black` |
@@ -86,6 +86,18 @@ to the head on a straight pole, a shorter one as the bent top of a curved pole. 
 the three nearest fully measured lamps within 120 m. A pole whose head the scan did not see, standing on a street
 stretch a lighting span crosses within 30 m, is a `span-pole` (plain pole, `guessed: ["family"]`): streets lit by
 hung lamps have no arm lamps.
+
+Two-armed lamps and signal posts on the measured pole (rules since 2026-11-13 12:20Z, from the photos of dev_08 and
+dev_12, whose wide streets are lit by masts with a head either way and where the signal head shares the sign's pole):
+- `measured.lidar.twin`: a thin layer of returns at the pole's top (within 0.8 m of it, 0.4 to 3.5 m from the axis,
+  any class) in two opposite lobes of like reach (each 4 returns or more, the weaker 40 % of the stronger, together
+  85 % of the layer, within 35 degrees of one line), with next to nothing in the 2 m under it (a crown fills
+  those), is a pair of arms: `{bearing (the line, 0 to 180), reach, returns}`. A pole of 6.5 m or more with it is a
+  `street-twin`; a lamp of the same street whose arm is a guess becomes one too when most of its measured
+  neighbours are.
+- A signal post's kerb position is a guess to a couple of metres: when the lidar shows a pole with its top at 2.4
+  to 5.5 m within 2.5 m, the post stands on it (`guessed` loses `position`); the sign post measured there carries
+  the heads.
 
 Own street first and the head over a lost shaft (rules since 2026-11-13 11:50Z, found in the full-world still of
 dev_01 beside its photo: an 8 m lamp was drawn as a 3.3 m lantern and its neighbour 2.4 m too tall):
