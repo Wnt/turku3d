@@ -909,21 +909,26 @@ def prepare(out: Path, root: Path, jobs: int = 3, log=print) -> dict:
         chosen = max(good, key=lambda o: o["score"]) if good else None
         state[p["id"]] = {"kind": "building", "chosen": chosen, "options": options,
                           "ready": chosen is not None, "why": None if chosen else "no candidate the street sees enough of"}
+    for stale in set(state) - {p["id"] for p in listing["picks"]}:
+        del state[stale]
     light_cache = (PanoCache(), set())
     rows = []
     for p in listing["picks"]:
         if p["kind"] != "street":
             continue
+        sig = f"{p['covers']['street']}@{p['piece']['osm_id']}"
+        if state.get(p["id"], {}).get("sig") == sig and state[p["id"]].get("ready"):
+            continue  # made by an earlier run for the same pick
         if p.get("fresh_view"):
             state[p["id"]] = {"kind": "street", "ready": True, "view": p["fresh_view"]["id"], "fresh": True,
-                              "location": p["fresh_view"].get("area")}
+                              "location": p["fresh_view"].get("area"), "sig": sig}
             continue
         try:
             view, said = _street_view(p, refs, light_cache)
         except Exception as error:  # noqa: BLE001 - one street must not stop the others
             view, said = None, f"{type(error).__name__}: {error}"[:200]
         if view is None:
-            state[p["id"]] = {"kind": "street", "ready": False, "why": said}
+            state[p["id"]] = {"kind": "street", "ready": False, "why": said, "sig": sig}
             continue
         pose = view["pose"]
         scene = lod2.scene_around(pose["E"], pose["N"], light.REACH_M + 50)
@@ -931,7 +936,7 @@ def prepare(out: Path, root: Path, jobs: int = 3, log=print) -> dict:
         rows.append(view)
         state[p["id"]] = {"kind": "street", "ready": True, "view": view["id"], "said": said, "shows": shown,
                           "overcast": view["source"].get("overcast"), "date": view.get("capture_date"),
-                          "location": p["id"]}
+                          "location": p["id"], "sig": sig}
         state_path.write_text(json.dumps(state, indent=1, ensure_ascii=False))
     old = [json.loads(x) for x in (folder / "views.jsonl").read_text().splitlines() if x.strip()] if (folder / "views.jsonl").exists() else []
     merged = {r["id"]: r for r in old + rows}
