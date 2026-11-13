@@ -110,3 +110,27 @@ def test_rows_without_rectangles_become_storeys_with_one_opening_per_bay():
         and doc["opening_types"][upper["openings"][0]["type"]]["head"] == "round"
     )
     assert [b["kind"] for b in doc["walls"][0]["bands"]] == ["string_course", "eaves_cornice"]
+
+
+def test_a_ground_storey_nobody_could_see_is_hidden_not_blank():
+    doc = convert.convert(
+        program(
+            windows={"rectangles_m": [[1.0, 5.5, 1.0, 1.6], [7.0, 5.5, 1.0, 1.6]]},
+            observation={"excluded_rectangles_m": [[0.0, 0.0, 10.0, 4.5]]},
+            structure={"floors": [{"bays": ["unknown"], "bay_count": None}, {"bays": ["window", "window"], "bay_count": 2}]},
+        )
+    )
+    assert description.errors(doc) == []
+    # The excluded rectangle (x, y, w, h) becomes [u0, v0, u1, v1]; the unknown floor lies inside it already.
+    assert doc["walls"][0]["observed"] == {"hidden_m": [[0.0, 0.0, 10.0, 4.5]]}
+
+
+def test_reviewed_appearance_sets_the_material_and_an_uncalibrated_stone_colour_is_not_kept():
+    look = {
+        "building": {"material_class": {"value": "stone", "support": 1}},
+        "walls": {"b_w": {"wall": {"colour": {"value": "#7e96a4", "source": "patch medians; uncalibrated photo"}}}},
+    }
+    doc = convert.convert(convert.with_appearance(program(), look))
+    wall = doc["materials"]["wall"]
+    assert wall["family"] == "granite" and "colour" not in wall and wall["conf"] == {"colour": 0.2}
+    assert convert.ours(None) and not convert.ours({"provenance": [{"by": "w2-observe", "source": "panorama"}]})

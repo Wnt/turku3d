@@ -53,7 +53,9 @@ What a building looks like when nobody has read it (`describe.automatic`, rules 
   family's range, because a photograph's pixels carry its exposure. It counts by its confidence against the
   palette pick: not under 0.2, half at 0.2, all of it from 0.5 (blended in CIELAB).
   `measured.roof.colour` takes the place of the orthophoto's roof colour. `measured.trim` and `measured.plinth`
-  are stored for later use. A stored description may consist of `measured` alone, with tier `auto`. A material
+  are stored for later use. A stored description may consist of `measured` alone, with tier `auto`. A stored
+  description whose default wall material has no colour, or one at colour confidence 0.2 or less (a palette pick,
+  an uncalibrated photo sample), takes `measured.wall` beside it the same way; glass keeps its own. A material
   somebody described always wins over a measurement. A colour measured by the panorama batch
   (`python -m turku3d.observe colour --batch`) also says where it comes from: `from {provider, id, date,
   overcast}` (overcast 0 sunny .. 1 overcast), `visible` (share of the part free of trees, cars and fences),
@@ -146,7 +148,7 @@ material and plinth instead of the default's.
 | `bay_windows` | By `type`: `box`, `canted`, `bow`, `corner_turret`, `stair_tower`; from storey to storey. |
 | `attached` | `porch`, `canopy`, `steps`, `downpipe`, `sign`, `lamp`, `flagpole`, `ladder`, `vent_grille`, `hatch`. |
 | `like` | Inherit every field of another wall, then override. |
-| `observed` | How much of the wall was visible and which rectangles were hidden. |
+| `observed` | How much of the wall was visible and which rectangles were hidden. A hidden rectangle is not blank: the generator adds there the openings the automatic tier would give the wall (with its roles: shopfronts at mapped premises, the street door), where they clear what was described. |
 
 ### Openings on the grid
 
@@ -296,12 +298,18 @@ wall known only by its rows becomes storeys with one opening per bay; the materi
 colour, string courses and the cornice carry over, and the programs' `support` becomes `conf`. A wall of which the
 program read nothing is left out, so the priors describe it: 256 of the 650 programs hold something a description
 can carry (313 walls, 4,044 openings); the other 394 only say why the wall could not be read. `--store` never
-replaces a description somebody else stored. Nothing else reads the old format.
+replaces a description somebody else stored (a measured wall colour stored beside a conversion is kept). The
+reviewed overlay `textures/library/facade-appearance.json` is laid over the programs: its building material class
+replaces the register's word, its wall colours the programs'; an uncalibrated colour counts as a guess (0.2) and a
+natural stone front keeps its family's colour. A rectangle the program excluded and a storey whose bays it could not
+tell become `observed.hidden_m`. Nothing else reads the old format.
 
 ## Changes
 
 A change that readers must follow gets a line on the campaign board. Additive fields keep version 1.
 
+- 2026-11-13: `observed.hidden_m` is drawn with the automatic tier's openings; a guessed wall colour (confidence
+  <= 0.2) gives way to `measured.wall`.
 - 2026-11-13: `measured.<part>` may carry `from`, `visible`, `agreement` and `n` (the panorama batch).
 - 2026-11-13: `measured` (wall, trim, plinth, roof colours sampled without a reading); style type `row_house`;
   the attachment kind `porch` is built (deck, steps, posts, roof `shed` / `gable` / `flat`; types `open`,

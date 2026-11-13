@@ -262,6 +262,32 @@ def only_measured(held: dict | None) -> bool:
     return held is None or (held.get("tier") == "auto" and not set(held) - {"schema", "id", "tier", "provenance", "measured"})
 
 
+def wall_colour_unread(held: dict | None) -> bool:
+    """Whether a stored description says nothing read of its wall colour: none at all, or its default wall
+    material has no colour or one picked from a palette (colour confidence at most 0.2, as the facade program
+    conversion gives). Such a description takes `measured.wall` beside what it says (describe.guessed_colours)."""
+    if only_measured(held):
+        return True
+    name = (held.get("wall_defaults") or {}).get("material")
+    material = (held.get("materials") or {}).get(name) if isinstance(name, str) else name
+    if isinstance(material, dict) and "colour" not in material:
+        return True
+    if not isinstance(material, dict):
+        return not any(isinstance(w.get("material"), (dict, str)) for w in held.get("walls", []))
+    conf = material.get("conf") or {}
+    return conf.get("colour", conf.get("*", 1.0)) <= 0.2
+
+
+def with_measured(held: dict | None, fresh: dict) -> dict:
+    """The description to store: `fresh` (a colour-only description) where nobody described the building, else
+    the held description with `measured` merged in and the measurement's provenance appended, all else kept."""
+    if only_measured(held):
+        return fresh
+    out = {**held, "measured": {**(held.get("measured") or {}), **fresh["measured"]}}
+    out["provenance"] = [p for p in held.get("provenance", []) if p.get("by") != fresh["provenance"][0]["by"]] + fresh["provenance"]
+    return out
+
+
 def apply(lines: list[dict]) -> dict:
     """Stores measured blocks for the buildings that have no stored description (a described material always wins,
     and the store never lowers a tier). A block the description schema refuses is not stored."""
@@ -275,10 +301,12 @@ def apply(lines: list[dict]) -> dict:
         if building_description.errors(description(line["building"], line["measured"], line.get("panoramas", []))):
             refused += 1
             continue
-        if not only_measured(store.read_description(f"building/{line['building']}")):
+        held = store.read_description(f"building/{line['building']}")
+        if not wall_colour_unread(held):
             skipped += 1
             continue
-        store.write_description(description(line["building"], line["measured"], line.get("panoramas", [])), BY, "wall colour sample")
+        fresh = description(line["building"], line["measured"], line.get("panoramas", []))
+        store.write_description(with_measured(held, fresh), BY, "wall colour sample")
         stored += 1
     return {"stored": stored, "described_already": skipped, "refused": refused}
 

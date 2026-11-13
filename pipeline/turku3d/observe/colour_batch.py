@@ -353,12 +353,13 @@ def description(key: str, block: dict, panoramas: list) -> dict:
 
 
 def store(lines: list[dict], least: float = 0.0) -> dict:
-    """Stores `measured.wall` for the buildings nobody has read (a reading always wins; an earlier colour-only
-    description is replaced). A block the description schema refuses is not stored."""
+    """Stores `measured.wall` for the buildings whose wall colour nobody has read (a reading always wins; an earlier
+    colour-only description is replaced; a description without a read wall colour keeps all it says and takes
+    `measured` beside it). A block the description schema refuses is not stored."""
     from turku3d.world import store as world_store
     from turku3d.world.kinds.building import description as building_description
 
-    from .colour import only_measured
+    from .colour import wall_colour_unread, with_measured
 
     stored = skipped = refused = unsure = 0
     for line in lines:
@@ -372,9 +373,10 @@ def store(lines: list[dict], least: float = 0.0) -> dict:
         if building_description.errors(doc):
             refused += 1
             continue
-        if not only_measured(world_store.read_description(f"building/{line['building']}")):
+        held = world_store.read_description(f"building/{line['building']}")
+        if not wall_colour_unread(held):
             skipped += 1
             continue
-        world_store.write_description(doc, BY, "wall colour measured")
+        world_store.write_description(with_measured(held, doc), BY, "wall colour measured")
         stored += 1
     return {"stored": stored, "described_already": skipped, "refused": refused, "under_least_conf": unsure}

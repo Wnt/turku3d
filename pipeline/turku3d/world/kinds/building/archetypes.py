@@ -114,7 +114,11 @@ def infer(doc: dict) -> str:
     single = storeys <= 1 and (not height or height < 6.5)
     if use == "outbuilding" or (single and area < 70 and (use in ANCILLARY or use in UNKNOWN or use == "1100")):
         return "garage" if area >= 15 and short >= 2.8 else "outbuilding"
-    if use in ANCILLARY:
+    # An ancillary building of the register from before 1940, not of brick and larger than a shed, is a house of its
+    # time used as a store or workshop: the 1807 town house at Linnankatu 29 (photographed: boarded, two street
+    # doors), the 1938 block at Puutarhakatu 9a (read: classicist, shopfronts). It is typed below as the houses are.
+    old_ancillary = (dated or 9999) < 1940 and material in ("puu", "muu materiaali", None, "") and area >= 70
+    if use in ANCILLARY and not old_ancillary:
         return "garage" if area < 150 and single else "industrial"
     used = use_class(use)
     if used == "industrial":
@@ -134,7 +138,7 @@ def infer(doc: dict) -> str:
         return "public"
     if use in SMALL_RESIDENTIAL and low:
         return "wooden_house" if old_house else "detached_house"
-    if use in FLATS and low:
+    if (use in FLATS or (use in ANCILLARY and old_ancillary)) and low:
         if old_house:
             return "wooden_house"
         if year >= 1940:
@@ -940,13 +944,31 @@ def wall_roles(doc: dict, kind: str, walls: list, pitch: float) -> dict:
             us = [c for k, c in enumerate(centres) if k % every == first % every and all(abs(c - u) > 0.1 for u in taken)]
             width = min(part["w_m"], pitch - 0.3) if every == 1 else part["w_m"]
             roles[sunny["index"]]["balconies"] = [{**part, "w_m": round(width, 2), "u_m": round(u, 2)} for u in us]
-    if kind in BLOCKS | OLD_MASONRY | HALLS:
+    if kind in BLOCKS | OLD_MASONRY | HALLS | OLD_WOODEN:
         fronts = shop_walls(doc, kind, walls, longest)
         for w in fronts:
             count = len(bay_centres(w["width"], pitch))
+            if kind in OLD_WOODEN and "p0" in w:
+                # A cafe, restaurant or shop in an old wooden house keeps the house's windows: its front is a street
+                # door under a canopy with a name board over it (as photographed: Sergio's at Läntinen Rantakatu 27,
+                # the corner shop of Puutarhakatu 42a), one at the bay nearest each mapped premise.
+                us = set()
+                for e, n in doc.get("register", {}).get("premises") or []:
+                    gap, t, nearest = min(_gap(e, n, x) for x in walls if "p0" in x and x["width"] >= 4.0)
+                    if nearest == w["index"]:
+                        us.add(round(nearest_bay(w["width"], pitch, t * w["width"]), 2))
+                if not us:
+                    continue
+                doors = sorted(us)
+                roles[w["index"]].update(doors=doors, canopy=True, signs=doors)
+                roles[w["index"]].pop("porch", None)
+                continue
             if count:
                 turn = zlib.crc32(f"{doc.get('id', '')}/shop/{w['index']}".encode()) % 3
                 roles[w["index"]]["shops"] = ["@shop_door" if k % 3 == turn else "@shop" for k in range(count)]
+                # A customer front is glass and doors with its sign band, never a garage or loading door.
+                roles[w["index"]].pop("loading", None)
+                roles[w["index"]].pop("garage", None)
     return roles
 
 
@@ -984,6 +1006,13 @@ def balcony(doc: dict, kind: str) -> dict | None:
     )
     return {"type": "glazed", "w_m": 3.6, "depth_m": 1.6 if band == "eighties" else 1.8, "every": 2, "first": 0,
             "railing": rail, "slab": {"thickness_m": 0.22, "colour": "#d0cfc8"}}  # fmt: skip
+
+
+def _gap(e: float, n: float, w: dict) -> tuple[float, float, int]:
+    """(distance, position along 0..1, index) of a point to a wall's ground line."""
+    (ax, ay), (bx, by) = w["p0"], w["p1"]
+    t = max(0.0, min(1.0, ((e - ax) * (bx - ax) + (n - ay) * (by - ay)) / (w["width"] ** 2)))
+    return math.hypot(e - ax - t * (bx - ax), n - ay - t * (by - ay)), t, w["index"]
 
 
 def shop_walls(doc: dict, kind: str, walls: list, longest: dict) -> list:

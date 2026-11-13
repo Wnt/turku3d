@@ -62,4 +62,24 @@ def effective(key: str, shell: dict, register: dict, stored: dict | None) -> dic
             doc[field] = doc["provenance"] + value
         else:
             doc[field] = value
-    return measured(doc)
+    return measured(guessed_colours(doc, stored))
+
+
+GUESSED = 0.2  # a colour confidence at or under this is a pick from a palette, not a reading of the building
+
+
+def guessed_colours(doc: dict, stored: dict) -> dict:
+    """The default wall material of a stored description whose colour nobody read (a palette pick, as the facade
+    program conversion gives a wall whose material word alone was read) takes the measured wall colour the way an
+    automatic wall does (archetypes.measured_colour). An automatic material has taken it already."""
+    wall = doc.get("measured", {}).get("wall")
+    name = doc.get("wall_defaults", {}).get("material")
+    material = doc.get("materials", {}).get(name) if isinstance(name, str) else None
+    # Glass shows the sky it mirrors, not a paint: a measurement of it is not its colour.
+    if not wall or not material or name not in stored.get("materials", {}) or material.get("family") == "metal":
+        return doc
+    conf = material.get("conf", {})
+    if "colour" in material and conf.get("colour", conf.get("*", 1.0)) > GUESSED:
+        return doc
+    doc["materials"] = {**doc["materials"], name: archetypes.measured_colour(material, wall)}
+    return doc

@@ -118,3 +118,17 @@ def test_a_measured_wall_with_its_panorama_validates():
     block = colour_batch.wall_block(result)
     doc = colour_batch.description("1033533534", {"wall": block}, ["google:abc"])
     assert description.errors(doc) == [] and doc["measured"]["wall"]["from"]["overcast"] == 0.98
+
+
+def test_a_measured_wall_joins_a_description_whose_wall_colour_nobody_read():
+    from turku3d.observe import colour
+
+    guessed = {"schema": "turku-description/building/1", "id": "building/x", "tier": "observed",
+               "provenance": [{"by": "building.convert", "source": "facade-program"}], "walls": [{"id": "w00"}],
+               "materials": {"wall": {"family": "plaster", "colour": "#bfc2b5", "conf": {"colour": 0.2}}},
+               "wall_defaults": {"material": "wall"}}
+    read = {**guessed, "materials": {"wall": {"family": "plaster", "colour": "#e4c574", "conf": {"*": 0.6}}}}
+    assert colour.wall_colour_unread(guessed) and not colour.wall_colour_unread(read)
+    fresh = colour.description("x", {"colour": "#dfd4c2", "conf": {"*": 0.54}}, [])
+    out = colour.with_measured(guessed, fresh)
+    assert out["tier"] == "observed" and out["walls"] == guessed["walls"] and out["measured"]["wall"]["colour"] == "#dfd4c2"

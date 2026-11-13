@@ -592,6 +592,8 @@ def fitted_wall(doc: dict, wall: dict, height: float, role: dict | None = None) 
                 "window": "@attic",
             },
         ]
+        # A customer door of a cafe or shop in the house (the only role an old wooden house's wall has but a gable).
+        role_parts(doc, out, role, main, out.get("plinth", {}).get("height_m", 0.0), g)
         return out
     count = max(1, int(doc.get("register", {}).get("storeys") or 1))
     knee = basement = 0.0
@@ -637,46 +639,7 @@ def fitted_wall(doc: dict, wall: dict, height: float, role: dict | None = None) 
         out["storeys"][0].update(sill_m=g["ground_sill"], window="@ground")
     if shops:
         out["storeys"][0] = {"kind": "ground", "height_m": round(ground, 2), "sill_m": 0.0, "row": list(shops)}
-    openings = []
-    for name, key in (("@door", "doors"), ("@garage", "garage"), ("@loading", "loading")):
-        spec = resolve_opening(doc, name)
-        # A door is as high as the wall lets it be: a low garage has a low door.
-        fits = min(spec["h_m"], available - 0.2)
-        for u in role.get(key, []):
-            if fits >= 1.8:
-                placed = {"type": name, "u_m": round(u, 2)}
-                openings.append(placed if fits == spec["h_m"] else {**placed, "h_m": round(fits, 2)})
-    if openings:
-        out["storeys"][0]["openings"] = openings
-    if role.get("porch") and role.get("doors") and available >= 2.5:
-        out["attached"] = out.get("attached", []) + [
-            {
-                "kind": "porch",
-                "type": "open",
-                "roof": "shed",
-                "u_m": round(u, 2),
-                "w_m": 2.2,
-                "h_m": 2.3,
-                "depth_m": 1.5,
-                "supports": {"kind": "posts", "count": 2, "diameter_m": 0.1, "colour": g["trim"]},
-            }
-            for u in role["doors"]
-        ]
-    if role.get("canopy") and role.get("doors") and available >= 3.4:
-        door = resolve_opening(doc, "@door")
-        out["attached"] = out.get("attached", []) + [
-            {
-                "kind": "canopy",
-                "type": "slab",
-                "u_m": round(u, 2),
-                "v_m": round(plinth + door["h_m"] + 0.35, 2),
-                "w_m": round(door["w_m"] + 1.8, 2),
-                "h_m": 0.16,
-                "depth_m": 1.8,
-                "colour": door["frame"]["colour"],
-            }
-            for u in role["doors"]
-        ]
+    role_parts(doc, out, role, available, plinth, g)
     if count > 1:
         out["storeys"].append(
             {
@@ -720,6 +683,61 @@ def fitted_wall(doc: dict, wall: dict, height: float, role: dict | None = None) 
             {"type": name, "u_m": round(apex, 2), "v_m": round(height + lift, 2)}
         ]
     return out
+
+
+
+def role_parts(doc: dict, out: dict, role: dict, available: float, plinth: float, g: dict) -> None:
+    """What a wall's role (archetypes.wall_roles) adds to its ground storey: street, garage and loading doors, a
+    porch or canopy over the doors, a name board over a customer door."""
+    openings = []
+    for name, key in (("@door", "doors"), ("@garage", "garage"), ("@loading", "loading")):
+        spec = resolve_opening(doc, name)
+        # A door is as high as the wall lets it be: a low garage has a low door.
+        fits = min(spec["h_m"], available - 0.2)
+        for u in role.get(key, []):
+            if fits >= 1.8:
+                placed = {"type": name, "u_m": round(u, 2)}
+                openings.append(placed if fits == spec["h_m"] else {**placed, "h_m": round(fits, 2)})
+    if openings:
+        out["storeys"][0]["openings"] = openings
+    if role.get("porch") and role.get("doors") and available >= 2.5:
+        out["attached"] = out.get("attached", []) + [
+            {
+                "kind": "porch",
+                "type": "open",
+                "roof": "shed",
+                "u_m": round(u, 2),
+                "w_m": 2.2,
+                "h_m": 2.3,
+                "depth_m": 1.5,
+                "supports": {"kind": "posts", "count": 2, "diameter_m": 0.1, "colour": g["trim"]},
+            }
+            for u in role["doors"]
+        ]
+    if role.get("signs") and available >= 3.0:
+        # A name board over a customer door: the premise's sign, in a colour a shop sign has.
+        door = resolve_opening(doc, "@door")
+        sign = archetypes.pick(doc, "sign", ["#2f3a45", "#e6e3da", "#3a3c3f", "#7a2e2a", "#2f5a4a", "#d9d2bd"])
+        out["attached"] = out.get("attached", []) + [
+            {"kind": "sign", "type": "board", "u_m": round(u, 2), "v_m": round(plinth + door["h_m"] + 0.55, 2),
+             "w_m": 1.8, "h_m": 0.45, "colour": sign}
+            for u in role["signs"]
+        ]
+    if role.get("canopy") and role.get("doors") and available >= 3.4:
+        door = resolve_opening(doc, "@door")
+        out["attached"] = out.get("attached", []) + [
+            {
+                "kind": "canopy",
+                "type": "slab",
+                "u_m": round(u, 2),
+                "v_m": round(plinth + door["h_m"] + 0.35, 2),
+                "w_m": round(door["w_m"] + 1.8, 2),
+                "h_m": 0.16,
+                "depth_m": 1.8,
+                "colour": door["frame"]["colour"],
+            }
+            for u in role["doors"]
+        ]
 
 
 def resolve_wall(doc: dict, wall: dict | None) -> dict:

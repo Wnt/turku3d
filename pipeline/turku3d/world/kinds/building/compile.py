@@ -189,6 +189,10 @@ def compile(description: dict) -> Output:  # noqa: A001 - the contract's name
     # What each wall of a building nobody described carries besides its windows: the street door, garage doors,
     # a gable window (archetypes.wall_roles). A building somebody described in part keeps plain automatic walls.
     roles = {} if described else wall_roles(doc, shell)
+    # A described wall's hidden rectangles (`observed.hidden_m`: nobody saw them) take the openings the automatic
+    # tier would give that wall, with the roles it would give it (shopfronts at mapped premises, the street door).
+    hiding = any((described[i].get("observed") or {}).get("hidden_m") for i in described)
+    fill_roles = wall_roles(doc, shell) if hiding else {}
     for facade in shell.facades:
         wall = priors.resolve_wall(doc, described.get(facade.index))
         if facade.index in corners:
@@ -206,6 +210,17 @@ def compile(description: dict) -> Output:  # noqa: A001 - the contract's name
                 facades_module.eaves_height(facade.outline, facade.width) - foot,
                 roles.get(facade.index),
             )
+        elif (wall.get("observed") or {}).get("hidden_m"):
+            foot = float(facade.ground[:, 1].min()) if len(facade.ground) else 0.0
+            wall = {
+                **wall,
+                "fill": priors.fitted_wall(
+                    doc,
+                    priors.resolve_wall(doc, None),
+                    facades_module.eaves_height(facade.outline, facade.width) - foot,
+                    fill_roles.get(facade.index),
+                ),
+            }
         if facade.index == 0 or facade.index in described:
             wall_family = palette.record(wall.get("material"))["family"]
         blocked = facades_module.blocked_region(facade, neighbours) if neighbours else None

@@ -218,6 +218,30 @@ def layout(facade, wall: dict, doc: dict, report: list) -> Layout:
             opening.get("w_m"),
             opening.get("h_m"),
         )
+    # What nobody saw of a described wall (`observed.hidden_m`) is not blank: the automatic wall's openings that lie
+    # inside a hidden rectangle and clear of what was described are added (`fill`: the automatic wall, compile.py).
+    hidden = (wall.get("observed") or {}).get("hidden_m") or []
+    if hidden and wall.get("fill") is not None:
+        boxes = []
+        for u0, v0, u1, v1 in hidden:
+            a, b = sorted((to_u(u0), to_u(u1)))
+            boxes.append((a, datum + v0, b, datum + v1))
+        taken = list(out.placed)
+        for p in layout(facade, wall["fill"], doc, []).placed:
+            inside = any(
+                a - 0.3 <= p.u0 and p.u0 + p.width <= b + 0.3 and lo - 0.6 <= p.v0 and p.v0 + p.height <= hi + 0.6
+                for a, lo, b, hi in boxes
+            )
+            clear = all(
+                p.u0 + p.width + 0.15 <= q.u0
+                or q.u0 + q.width + 0.15 <= p.u0
+                or p.v0 + p.height <= q.v0
+                or q.v0 + q.height <= p.v0
+                for q in taken
+            )
+            if inside and clear:
+                out.placed.append(p)
+                taken.append(p)
     # A wall dormer that the shell has as a gable of this wall is built with the wall (roofs.py leaves it out):
     # its window goes into that gable, centred on the gable as the shell has it and as large as fits it.
     inside = None

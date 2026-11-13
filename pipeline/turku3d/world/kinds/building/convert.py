@@ -20,7 +20,12 @@ from . import priors
 from .description import SCHEMA_ID, errors
 
 PROGRAMS = Path(__file__).resolve().parents[5] / "textures/library/facade-programs.json"
+# Reviewed corrections laid over the programs (the old game merged them the same way): a building's material class
+# where the register is wrong (Jonni's word on a granite Jugend block), wall and trim colours from reviewed patches.
+APPEARANCE = PROGRAMS.with_name("facade-appearance.json")
 BY = "building.convert"
+# The wall colour measurers whose `measured` block a conversion keeps (observe colour, colour_batch).
+MEASURERS = ("w2-colour batch 1", "w2-observe colour sampler 1")
 
 MATERIALS = {
     "render": {"family": "plaster", "finish": "fine"},
@@ -31,13 +36,15 @@ MATERIALS = {
         "profile": "bevel",
         "scale_m": 0.13,
     },
-    "stone": {"family": "stone", "finish": "ashlar"},
+    # The stone fronts the programs and their reviews name are granite, rock-faced (the Jugend blocks by the river).
+    "stone": {"family": "granite", "finish": "rock_faced", "scale_m": 0.6, "colour2": "#6f6d69"},
     "concrete": {"family": "concrete", "finish": "cast"},
     "concrete_panel": {"family": "concrete", "finish": "panel"},
     "metal": {"family": "sheet_metal", "profile": "cassette"},
     "metal_panel": {"family": "sheet_metal", "profile": "cassette"},
     "glass": {"family": "metal", "finish": "gloss"},
 }
+NATURAL_STONE = {"granite", "stone", "rubble"}
 # The program's material words in the register's vocabulary, whose usual colours the priors know.
 REGISTER_WORD = {
     "render": "kivi",
@@ -128,12 +135,46 @@ def lights_of(divisions) -> dict | None:
 
 
 def material_of(wall: dict, building_material) -> dict | None:
-    """The wall's material when its colour was measured; the family from the wall, else from the building."""
-    colour = value(wall.get("wall", {}).get("colour"))
+    """The wall's material when its colour was measured; the family from the wall, else from the building. A colour
+    of uncalibrated photo appearance counts as a guess (confidence 0.2): a calibrated measurement replaces it."""
+    field = wall.get("wall", {}).get("colour")
+    colour = value(field)
     if not colour:
         return None
     family = MATERIALS.get(value(wall.get("wall", {}).get("material")) or building_material)
-    return {**(family or MATERIALS["render"]), "colour": colour}
+    out = {**(family or MATERIALS["render"]), "colour": colour}
+    if isinstance(field, dict) and "uncalibrated" in str(field.get("source", "")):
+        if out["family"] in NATURAL_STONE:
+            # Natural stone has its family's narrow range of colour; an uncalibrated photo's hue is the sky's cast
+            # (a grey granite front in shade reads blue): the family's colour stands.
+            out.pop("colour")
+        out["conf"] = {"colour": 0.2}
+    return out
+
+
+def with_appearance(program: dict, look: dict | None) -> dict:
+    """The program with its reviewed appearance laid over it: the building's material class replaces the
+    register's word, a reviewed wall colour the program's (keyed by wall id)."""
+    if not look:
+        return program
+    out = dict(program)
+    material_class = value((look.get("building") or {}).get("material_class"))
+    if material_class in MATERIALS:
+        out["material"] = {"value": material_class, "source": "facade-appearance"}
+    walls = []
+    for wall in program.get("walls", []):
+        seen = (look.get("walls") or {}).get(wall.get("wall_id"), {})
+        colour = (seen.get("wall") or {}).get("colour")
+        if colour or material_class in MATERIALS:
+            paint = dict(wall.get("wall") or {})
+            if colour:
+                paint["colour"] = colour
+            if material_class in MATERIALS:
+                paint["material"] = {"value": material_class, "source": "facade-appearance"}
+            wall = {**wall, "wall": paint}
+        walls.append(wall)
+    out["walls"] = walls
+    return out
 
 
 def wall_of(program: dict, index: int, types: Types, building_material) -> dict:
@@ -289,6 +330,24 @@ def wall_of(program: dict, index: int, types: Types, building_material) -> dict:
                 }
             )
 
+    # What the photograph did not show (a terrace, people or cars in front of the ground storey; a storey whose
+    # bays could not be told apart) is hidden, not blank: the automatic tier draws its openings there.
+    hidden = []
+    for rect in (program.get("observation") or {}).get("excluded_rectangles_m") or []:
+        x, y, w, h = rect
+        a, b = sorted((u(max(0.0, x)), u(min(width, x + w))))
+        if b - a > 0.5 and h > 0.5 and y < height:
+            hidden.append([a, round(y, 3), b, round(min(height, y + h), 3)])
+    if floors and height > 2.2:
+        each = height / len(floors)
+        for k, floor in enumerate(floors):
+            if not floor.get("bay_count") and set(floor.get("bays") or ["unknown"]) <= {"unknown"}:
+                rect = [0.0, round(k * each, 3), round(width, 3), round((k + 1) * each, 3)]
+                if not any(r[0] <= rect[0] and r[1] <= rect[1] and r[2] >= rect[2] and r[3] >= rect[3] for r in hidden):
+                    hidden.append(rect)
+    if hidden:
+        out["observed"] = {"hidden_m": hidden}
+
     zones = []
     base_colour = value(base.get("colour"))
     base_height = value(program.get("split", {}).get("base_height_m"))
@@ -361,8 +420,9 @@ def convert(program: dict) -> dict | None:
             word = seen
         if "material" in described and (shown is None or main):
             shown = described["material"]
-        # A wall of which nothing was read stays with the priors: described without openings it would be blank.
-        if described.get("openings") or described["storeys"]:
+        # A wall of which nothing was read stays with the priors: described without openings it would be blank. A
+        # wall seen only in part keeps what was seen; its hidden part takes the automatic openings.
+        if described.get("openings") or described["storeys"] or described.get("observed"):
             walls.append(described)
     doc = {
         "schema": SCHEMA_ID,
@@ -395,25 +455,27 @@ def convert(program: dict) -> dict | None:
 
 
 def ours(stored: dict | None) -> bool:
-    """True where the store holds nothing, or only an earlier conversion."""
-    return stored is None or all(p.get("by") == BY for p in stored.get("provenance", [{}]))
+    """True where the store holds nothing, or only an earlier conversion (with a wall colour measured beside it)."""
+    return stored is None or all(p.get("by") in (BY, *MEASURERS) for p in stored.get("provenance", [{}]))
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="building.convert")
     parser.add_argument("keys", nargs="*", help="building keys; all programs when omitted")
     parser.add_argument("--programs", type=Path, default=PROGRAMS)
+    parser.add_argument("--appearance", type=Path, default=APPEARANCE)
     target = parser.add_mutually_exclusive_group(required=True)
     target.add_argument("--out", type=Path, help="write KEY.json files into this directory")
     target.add_argument("--store", action="store_true", help="write into the description store")
     args = parser.parse_args(argv)
     programs = json.loads(args.programs.read_text())
+    looks = json.loads(args.appearance.read_text()) if args.appearance.exists() else {}
     written = kept = invalid = empty = 0
     for program in programs:
         key = program["building_id"]
         if args.keys and key not in args.keys:
             continue
-        doc = convert(program)
+        doc = convert(with_appearance(program, looks.get(key)))
         if doc is None:
             empty += 1
             continue
@@ -425,9 +487,13 @@ def main(argv=None) -> int:
         if args.store:
             from ...store import read_description, write_description
 
-            if not ours(read_description(doc["id"])):
+            held = read_description(doc["id"])
+            if not ours(held):
                 kept += 1
                 continue
+            if held and held.get("measured"):
+                doc["measured"] = held["measured"]
+                doc["provenance"] += [p for p in held["provenance"] if p.get("by") in MEASURERS]
             write_description(doc, "w2-buildings", "converted from facade-programs.json")
         else:
             args.out.mkdir(parents=True, exist_ok=True)
