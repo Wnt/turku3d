@@ -39,6 +39,7 @@ DECK_DRIVEN = 5.0       # m of a street's centre line on a register bridge polyg
 DECK_RANK = 1.2         # a bridge deck the register does not map lies over the water and green, under the register
 RAIL_VERGE = 3.0        # m of unmown verge beside a track bed
 RAIL_RANK = 1.5         # a track bed lies over green and unmapped land and under everything the street register maps
+PASSAGE_RANK = 1.8      # a passage's floor under a building lies over green and yards, under the street register
 CROSSING_WIDTH = 4.0
 JUNCTION_CLEAR = 10.0   # lane lines stop this far from where roads meet
 DASH, GAP = 3.0, 5.0    # centre line in town
@@ -110,6 +111,7 @@ def _surfaces(box) -> list[tuple]:
             'use': _text(row, 'Viheralueosalaji'), 'surface': _text(row, 'Pintamateriaali'),
             'rank': 2}))
     if mapped is not None:
+        found += _passage_floors(mapped)
         areas = mapped[mapped.geom_type.isin(('Polygon', 'MultiPolygon')) & mapped.building.isna()]
         rows = []
         for row in areas.itertuples():
@@ -136,6 +138,35 @@ def _surfaces(box) -> list[tuple]:
         found.append((shape, {'key': key, 'source': 'osm', 'level': 'high', 'use': 'railway', 'surface': '', 'rank': RAIL_RANK}))
         found.append((shape.buffer(RAIL_VERGE, cap_style='flat', join_style='mitre'),
                       {'key': key.replace(':bed', ':verge'), 'source': 'osm', 'level': 'high', 'use': 'rough', 'surface': '', 'rank': UNMAPPED_RANK - 1}))
+    return found
+
+
+def _passage_floors(mapped) -> list[tuple]:
+    """The floor of a building passage or arcade (the building kind opens its ground storey: building/passages.py):
+    the way's corridor under the map's buildings, paved as the way says (a service way asphalt, a footway pavers).
+    It lies under the register (an arcade's footway is the register's where it maps one) and over green and yards:
+    nothing grows under a roof."""
+    from ..building import passages
+
+    roofs = mapped[mapped.building.notna() & mapped.geom_type.isin(('Polygon', 'MultiPolygon'))]
+    if not len(roofs):
+        return []
+    tree = shapely.STRtree(list(roofs.geometry))
+    found = []
+    for row in mapped[(mapped.geom_type == 'LineString') & mapped.highway.notna()].itertuples():
+        tags = _tags(row)
+        if not passages.at_ground_under_roof(tags):
+            continue
+        under = [roofs.geometry.iloc[i] for i in tree.query(row.geometry, predicate='intersects')]
+        if not under:
+            continue
+        width, _clear, road = passages.dimensions(tags)
+        floor = passages.mouths(row.geometry, width).intersection(shapely.unary_union(under))
+        if floor.area < 1.0:
+            continue
+        name = covers.of_osm({'surface': tags.get('surface')}) or ('asphalt-yard' if road else 'pavers-yard')
+        found.append((shapely.make_valid(floor), {'key': f'osm:{row.osm_type}/{row.osm_id}:passage', 'source': 'osm',
+                                                  'level': 'high', 'use': name, 'surface': '', 'rank': PASSAGE_RANK}))
     return found
 
 
