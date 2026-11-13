@@ -202,6 +202,7 @@ def producer_paths():
             *landmark_sources(),
             Path(__file__).parents[1] / "layers.py",
             Path(__file__).parents[1] / "facade_assets.py",
+            Path(__file__).parents[1] / "facade_readings.py",  # facade_assets.description_row's last source
             Path(__file__).parents[1] / "package/gltf.py",
             Path(__file__).parents[1] / "ground/water.py",
             *sorted((Path(__file__).parents[1] / "col").glob("*.py")),
