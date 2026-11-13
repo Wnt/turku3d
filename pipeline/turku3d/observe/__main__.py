@@ -5,6 +5,11 @@
     python -m turku3d.observe assemble                descriptions again from the saved readings, no model call
     python -m turku3d.observe review [--building KEY...]   compare each wall with a drawing of what gets built
 
+Views can be prepared on another machine and read here: run `views` there (scripts/dev/on-host HOST --data
+raw/laz/maanpinta --pull observe/buildings -- python -m turku3d.observe views --view ID... --min-share 0.01), then
+`describe --prepared` with the same selection: a packet with its crops is taken as it is, and the panoramas stay
+on that machine.
+
 `views` writes the crops and views.json of each building under $TURKU3D_WORK/observe/buildings/<key>/ and reports
 the walls no panorama sees. `describe` also reads them and writes the description to
 $TURKU3D_WORK/observe/descriptions/building/<key>.json (the layout of a private descriptions root), and stores it
@@ -171,7 +176,8 @@ def review(packet: Path, root: Path, effort: str, force: bool = False) -> dict:
     return {**done, **line}
 
 
-def visible_in_view(view: dict, scene: lod2.Scene, grid=(96, 72), reach: float = 250.0) -> dict:
+def visible_in_view(view: dict, scene: lod2.Scene, grid=(96, 72), reach: float = 250.0,
+                    least: float = VISIBLE_SHARE) -> dict:
     """{building key: share of the view's pixels} from rays against the LoD2 scene."""
     from qalib.camera import pixel_rays
 
@@ -182,7 +188,7 @@ def visible_in_view(view: dict, scene: lod2.Scene, grid=(96, 72), reach: float =
     share = {}
     for k in who[np.isfinite(hit)]:
         share[scene.ids[k]] = share.get(scene.ids[k], 0) + 1 / len(rays)
-    return {k: round(v, 4) for k, v in sorted(share.items(), key=lambda kv: -kv[1]) if v >= VISIBLE_SHARE}
+    return {k: round(v, 4) for k, v in sorted(share.items(), key=lambda kv: -kv[1]) if v >= least}
 
 
 def select(args) -> tuple[lod2.Scene, list, dict]:
@@ -200,7 +206,7 @@ def select(args) -> tuple[lod2.Scene, list, dict]:
         if not scene.buildings:
             sys.exit(f"no LoD2 buildings around {', '.join(args.view)}")
         for v in views:
-            for key, share in visible_in_view(v, scene).items():
+            for key, share in visible_in_view(v, scene, least=args.min_share).items():
                 why.setdefault(key, {})[v["id"]] = share
         return scene, [scene.buildings[k] for k in why], why
     if args.at:
@@ -222,6 +228,11 @@ def main(argv=None) -> int:
     ap.add_argument("--view", nargs="*", help="reference view ids: every building visible in them")
     ap.add_argument("--views-file", type=Path, default=REPO / "qa/views/views.jsonl",
                     help="the view set --view names come from (one JSON view per line)")
+    ap.add_argument("--min-share", type=float, default=VISIBLE_SHARE,
+                    help="with --view: the share of a view's pixels a building must fill to be selected")
+    ap.add_argument("--prepared", action="store_true",
+                    help="take a building's views from its packet when views.json and its crops are there "
+                         "(prepared by `views`, possibly on another machine)")
     ap.add_argument("--effort", default=reader.EFFORT)
     ap.add_argument("--out", type=Path, default=None, help="root (default $TURKU3D_WORK/observe)")
     ap.add_argument("--jobs", type=int, default=4, help="readings in parallel")
@@ -278,10 +289,15 @@ def main(argv=None) -> int:
     local = threading.local()
 
     def prepared(b):  # views and crops of one building, with this thread's own panorama reader
-        if not hasattr(local, "panos"):
-            local.panos = Panoramas(root / "panoramas")
         started = time.time()
         packet = root / "buildings" / b.id
+        if a.prepared and (packet / "views.json").exists():
+            record = json.loads((packet / "views.json").read_text())
+            if all((packet / Path(c["file"]).name).exists() for c in record["crops"] + record["contexts"]):
+                record["selected_by"] = why.get(b.id, record.get("selected_by", {}))
+                return record, 0.0
+        if not hasattr(local, "panos"):
+            local.panos = Panoramas(root / "panoramas")
         record = prepare(scene, b, local.panos, packet)
         record["selected_by"] = why.get(b.id, {})
         packet.mkdir(parents=True, exist_ok=True)  # a building no panorama sees has no crops, but keeps its record
