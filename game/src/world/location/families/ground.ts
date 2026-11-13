@@ -36,7 +36,7 @@ export function asphaltMean(tone: number): number {
   return 1.295 * (0.035 + 0.14 * tone);
 }
 
-interface Photographic { key: string; tint: THREE.Color; relief: number }
+interface Photographic { key: string; tint: THREE.Color; relief: number; metres?: number }
 
 /** The library surface a family's parameters are drawn from and how it is toned, or null for a synthesised one. */
 function photographic(family: string, params: GroundParams): Photographic | null {
@@ -47,8 +47,16 @@ function photographic(family: string, params: GroundParams): Photographic | null
     const tint = typeof params.tint === 'string' ? new THREE.Color(params.tint).multiplyScalar(4 * level) : new THREE.Color(level, level, level);
     return { key: 'asphalt_worn', tint, relief: 0.25 };
   }
-  if (family === 'grass') return { key: 'grass', tint: new THREE.Color(1, 1, 1), relief: 0.6 };
+  if (family === 'grass') {
+    // The library's lawn is paler and greyer than Turku's summer grass in the street photos (against the asphalt
+    // beside it: green 0.7 of the asphalt's, red 0.8 and blue 0.35 of the green): a mown lawn is deep green, an
+    // unmown verge a little darker and yellower.
+    const mown = number(params.mown, 0.8);
+    return { key: 'grass', tint: new THREE.Color(0.7 - 0.04 * mown, 0.74 + 0.04 * mown, 0.36 + 0.06 * mown), relief: 0.6 };
+  }
   if (family === 'gravel') {
+    // Railway ballast: crushed grey granite, stones of 3 to 6 cm, darker and cooler than a gravel path.
+    if (params.grade === 'ballast') return { key: 'gravel', tint: new THREE.Color(0.5, 0.5, 0.54), relief: 1.0, metres: 5 };
     const level = params.grade === 'coarse' ? 1 : number(params.packed, 0) > 0.5 ? 0.78 : 0.9;
     return { key: 'gravel', tint: new THREE.Color(level * 1.04, level, level * 0.9), relief: 0.6 };
   }
@@ -90,15 +98,17 @@ function kerbStones() {
 }
 
 /** What years of traffic and repair leave on asphalt, placed in world space so cells agree: repairs of newer, darker
- *  and smoother asphalt with crisp edges, broad pale worn stretches, and sealed cracks near the camera. */
+ *  asphalt, broad pale worn stretches, and sealed cracks near the camera. Sizes are set against the street photos of
+ *  the random dev points: a repair is a shade darker, not a black blot, and a crack is a centimetre or two wide and
+ *  seen only close by (wide dark lines metres long read as drawn on). */
 function asphaltWear(place: Node<'vec2'>) {
-  const repair = smoothstep(0.2, 0.225, mx_noise_float(vec3(place.mul(0.085), 5.3)).add(mx_noise_float(vec3(place.mul(0.4), 1.9)).mul(0.08)));
+  const repair = smoothstep(0.2, 0.26, mx_noise_float(vec3(place.mul(0.085), 5.3)).add(mx_noise_float(vec3(place.mul(0.4), 1.9)).mul(0.08)));
   const worn = mx_noise_float(vec3(place.mul(vec2(0.021, 0.034)), 7.7)).mul(0.1);
-  const cracked = smoothstep(0.1, 0.35, mx_noise_float(vec3(place.mul(0.045), 12.4)));
-  const line = float(1).sub(smoothstep(0.004, 0.012, mx_noise_float(vec3(place.mul(0.55), 21.8)).add(mx_noise_float(vec3(place.mul(2.3), 4.1)).mul(0.06)).abs()));
-  const near = float(1).sub(smoothstep(12, 40, positionWorld.sub(cameraPosition).length()));
+  const cracked = smoothstep(0.22, 0.42, mx_noise_float(vec3(place.mul(0.045), 12.4)));
+  const line = float(1).sub(smoothstep(0.0012, 0.0045, mx_noise_float(vec3(place.mul(0.55), 21.8)).add(mx_noise_float(vec3(place.mul(2.3), 4.1)).mul(0.06)).abs()));
+  const near = float(1).sub(smoothstep(5, 18, positionWorld.sub(cameraPosition).length()));
   const sealed = line.mul(cracked).mul(near);
-  return { tone: float(1).add(worn).mul(float(1).sub(repair.mul(0.28))).mul(float(1).sub(sealed.mul(0.45))), sealed: sealed.max(repair.mul(0.5)) };
+  return { tone: float(1).add(worn).mul(float(1).sub(repair.mul(0.1))).mul(float(1).sub(sealed.mul(0.3))), sealed: sealed.max(repair.mul(0.3)) };
 }
 
 const cache = new Map<string, THREE.Material>();
@@ -142,7 +152,8 @@ export function groundMaterial(family: string, params: GroundParams = {}): THREE
     material.name = `ground-${family}`;
     const photo = photographic(family, params);
     if (photo) {
-      const { metres, scattered } = LIBRARY[photo.key];
+      const { scattered } = LIBRARY[photo.key];
+      const metres = photo.metres ?? LIBRARY[photo.key].metres;
       const at = uv().div(metres);
       const grid = scattered ? scatter(at) : null;
       const read = (layer: 'albedo' | 'normal' | 'orm') => (grid ? scattered3(image(photo.key, layer), grid) : texture(image(photo.key, layer), at).rgb);

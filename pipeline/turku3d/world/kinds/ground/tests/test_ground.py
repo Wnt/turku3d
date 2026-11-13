@@ -107,3 +107,18 @@ def test_a_tile_the_survey_lacks_continues_its_neighbour(tmp_path, monkeypatch):
         assert abs(across[0] - across[1]) < 1e-4
     finally:
         lidar.tile.cache_clear()
+
+
+def test_a_carriageway_is_measured_across_its_way():
+    """A 7 m carriageway whose mapped centre line runs 0.5 m right of its middle: the cross sections give the width
+    and how far to the left of the way the middle lies, which is where the lane lines are set out from."""
+    import shapely
+
+    from turku3d.world.kinds.ground import _section
+
+    carriageway = shapely.box(0, -3.5, 100, 3.5)
+    width, middle = _section(carriageway, shapely.LineString([(5, -0.5), (95, -0.5)]))
+    assert abs(width - 7.0) < 1e-6 and abs(middle - 0.5) < 1e-6
+    # A way outside any carriageway, and one on a square too wide to have edges, are not measured.
+    assert _section(carriageway, shapely.LineString([(5, 20), (95, 20)])) is None
+    assert _section(shapely.box(0, -50, 100, 50), shapely.LineString([(5, 0), (95, 0)])) is None

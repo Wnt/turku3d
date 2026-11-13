@@ -16,6 +16,7 @@ import shapely
 from ...api import Area, Output, Stub, envelope
 from ...frame import CELL, cell_at, cell_box_en, cell_key
 from ...street import lidar, osm, registers
+from .. import rail
 from . import aerial, banks, covers
 from .mesh import compile_cell
 
@@ -29,6 +30,13 @@ ROADS = ('motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified'
 CENTRE_LINED = ('motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'motorway_link', 'trunk_link', 'primary_link',
                 'secondary_link', 'tertiary_link')
 CENTRE_LINED_WHEN_LANES_TAGGED = ('residential', 'unclassified')
+MINOR_LINED_KMH = 40    # a residential street with tagged lanes carries a centre line from this speed limit (30 zones do not)
+LANE_GAP = 9.0          # gap of the dashed line between lanes of one direction (3 m dashes)
+LANE_WIDTHS = (2.6, 4.6)  # a lane count is believed where the measured carriageway gives lanes this wide
+SECTION = 8.0           # m between the cross sections a carriageway's width is measured at
+REACH = 16.0            # m either side of a way a cross section looks for the carriageway's edges
+RAIL_VERGE = 3.0        # m of unmown verge beside a track bed
+RAIL_RANK = 1.5         # a track bed lies over green and unmapped land and under everything the street register maps
 CROSSING_WIDTH = 4.0
 JUNCTION_CLEAR = 10.0   # lane lines stop this far from where roads meet
 DASH, GAP = 3.0, 5.0    # centre line in town
@@ -113,7 +121,48 @@ def _surfaces(box) -> list[tuple]:
             wet = name == 'water'
             found.append((shape, {'key': key, 'source': 'osm', 'level': 'bed' if wet else 'high', 'use': name,
                                   'surface': '', 'rank': 2.5 if wet else 3 + order}))
+    # Railway track beds: ballast along every track on the ground (the `rail` kind lays sleepers and rails on it).
+    # Beside the bed the orthophoto sees ballast, weeds and shadow in ragged patches: the strip along the track is the
+    # railway's unmown verge wherever nothing else is mapped.
+    for shape, key in rail.beds(box):
+        found.append((shape, {'key': key, 'source': 'osm', 'level': 'high', 'use': 'railway', 'surface': '', 'rank': RAIL_RANK}))
+        found.append((shape.buffer(RAIL_VERGE, cap_style='flat', join_style='mitre'),
+                      {'key': key.replace(':bed', ':verge'), 'source': 'osm', 'level': 'high', 'use': 'rough', 'surface': '', 'rank': UNMAPPED_RANK - 1}))
     return found
+
+
+def _speed(row) -> float:
+    try:
+        return float(row.maxspeed)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _section(carriageway, line) -> tuple[float, float] | None:
+    """(width, offset of its middle to the left of the way) of the carriageway along `line`, as the medians of cross
+    sections every SECTION metres; None where the way does not run in a carriageway."""
+    count = max(int(line.length // SECTION), 1)
+    at = (np.arange(count) + 0.5) * line.length / count
+    here = shapely.get_coordinates(shapely.line_interpolate_point(line, at))
+    ahead = shapely.get_coordinates(shapely.line_interpolate_point(line, np.minimum(at + 0.5, line.length)))
+    behind = shapely.get_coordinates(shapely.line_interpolate_point(line, np.maximum(at - 0.5, 0.0)))
+    run = ahead - behind
+    run /= np.maximum(np.linalg.norm(run, axis=1, keepdims=True), 1e-9)
+    left = np.column_stack([-run[:, 1], run[:, 0]])
+    widths, middles = [], []
+    for point, normal in zip(here, left):
+        cut = shapely.LineString([point - normal * REACH, point + normal * REACH]).intersection(carriageway)
+        centre = shapely.Point(point)
+        for piece in shapely.get_parts(cut):
+            if piece.geom_type == 'LineString' and piece.distance(centre) < 0.3:
+                ends = (np.asarray(piece.coords)[[0, -1]] - point) @ normal
+                # A section that reaches the end of its look-out found no edge there (a square, a junction).
+                if abs(ends).max() < REACH - 0.5:
+                    widths.append(abs(ends[1] - ends[0]))
+                    middles.append(ends.mean())
+    if len(widths) < max(count // 2, 1):
+        return None
+    return float(np.median(widths)), float(np.median(middles))
 
 
 def _junctions(roads):
@@ -128,11 +177,14 @@ def _junctions(roads):
                                or [shapely.Polygon()])
 
 
-def _paint(box) -> tuple[list, list]:
-    """Marked crossings as walking lines and centre-lined roads as (line, station of its start), survey frame."""
+def _paint(box, surfaces) -> tuple[list, list]:
+    """Marked crossings as walking lines and the lines along roads (the line between the directions and the lines
+    between lanes of one direction) as (line, station of its start, key, dash, gap), survey frame."""
     mapped = osm.features(box)
     if mapped is None:
         return [], []
+    low = [shape for shape, row in surfaces if row['level'] == 'low']
+    carriageway = shapely.unary_union(low) if low else None
     lines = mapped[mapped.geom_type == 'LineString']
     roads = lines[lines.highway.isin(ROADS)]
     crossings = []
@@ -164,13 +216,37 @@ def _paint(box) -> tuple[list, list]:
     junctions = _junctions(roads)
     lanes = []
     for row in roads.itertuples():
-        if getattr(row, 'oneway', None) == 'yes':
+        count, oneway = _lanes(row), getattr(row, 'oneway', None) == 'yes'
+        if row.highway not in CENTRE_LINED and not (row.highway in CENTRE_LINED_WHEN_LANES_TAGGED and count >= 2
+                                                    and _speed(row) >= MINOR_LINED_KMH):
             continue
-        if row.highway not in CENTRE_LINED and not (row.highway in CENTRE_LINED_WHEN_LANES_TAGGED and _lanes(row) >= 2):
+        if oneway and count < 2:
             continue
+        tags = _tags(row)
+        try:
+            back = 0 if oneway else int(tags.get('lanes:backward', max(count, 2) // 2))
+        except ValueError:
+            back = 0 if oneway else max(count, 2) // 2
         for part in shapely.get_parts(row.geometry.difference(junctions)):
-            if part.geom_type == 'LineString' and part.length > DASH:
-                lanes.append((part, float(row.geometry.project(shapely.Point(part.coords[0]))), f'osm:way/{row.osm_id}', DASH, GAP))
+            if part.geom_type != 'LineString' or part.length <= DASH:
+                continue
+            start = float(row.geometry.project(shapely.Point(part.coords[0])))
+            section = _section(carriageway, part) if carriageway is not None and count >= 2 else None
+            if section is None or not LANE_WIDTHS[0] <= section[0] / count <= LANE_WIDTHS[1]:
+                # The lane count does not fit what is measured (or nothing is): the line between the directions on
+                # the way itself, as the old rules drew it.
+                if not oneway:
+                    lanes.append((part, start, f'osm:way/{row.osm_id}', DASH, GAP))
+                continue
+            width, middle = section
+            for k in range(1, count):
+                offset = middle + width / 2 - k * width / count   # to the left of the way
+                line = part.offset_curve(offset) if abs(offset) > 0.05 else part
+                between = k == back
+                for n, piece in enumerate(p for p in shapely.get_parts(line) if p.geom_type == 'LineString' and p.length > DASH):
+                    lanes.append((piece, float(row.geometry.project(shapely.Point(piece.coords[0]))),
+                                  f'osm:way/{row.osm_id}' if between and n == 0 else f'osm:way/{row.osm_id}:lane-{k}-{n}',
+                                  DASH, GAP if between else LANE_GAP))
     return crossings, lanes
 
 
@@ -264,7 +340,7 @@ class Ground:
         box = area.bbox(CELL + MARGIN)
         with sources.timed('street:surfaces'):
             surfaces = _surfaces(box)
-            crossings, lanes = _paint(box)
+            crossings, lanes = _paint(box, surfaces)
             bands, edges = _strips(box, surfaces)
             surfaces += bands
             lanes += edges

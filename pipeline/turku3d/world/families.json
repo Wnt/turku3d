@@ -32,7 +32,7 @@
     "paving": { "owner": "w2-street", "params": { "size_x": "number", "size_y": "number", "bond": ["running", "stack"], "tone": "number", "joint_m": "number", "stone": ["concrete", "granite", "slate"], "tint": "colour" } },
     "setts": { "owner": "w2-street", "params": { "size_x": "number", "size_y": "number", "tone": "number" } },
     "cobbles": { "owner": "w2-street", "params": { "size_m": "number" } },
-    "gravel": { "owner": "w2-street", "params": { "grade": ["fine", "coarse"], "packed": "number" } },
+    "gravel": { "owner": "w2-street", "params": { "grade": ["fine", "coarse", "ballast"], "packed": "number" } },
     "grass": { "owner": "w2-street", "params": { "mown": "number" } },
     "soil": { "owner": "w2-street", "params": { "kind": ["bed", "forest"] } },
     "sand": { "owner": "w2-street", "params": {} },

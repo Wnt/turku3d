@@ -13,7 +13,7 @@ frame (ETRS-GK23 east, north; N2000 heights) and in metres unless a field name s
 | `relief` | The lidar ground as a node lattice: `step` (0.5 m), `halo` (nodes beyond the cell edge on every side), `side` (nodes per row and column), `heights_mm` (row-major from the north-west node, integers). |
 | `surfaces` | Polygons that say what the ground is, clipped to the cell and its halo. Each has `key` (`street:<id>`, `green:<id>`, `osm:<type>/<id>`, `#n` for further pieces), `source`, `use` and `surface` (the register's own words), `level` (`low` for carriageways, `high` for everything else), `rank` (the lower rank wins where polygons overlap), `rings` (exterior first) and `cover`. |
 | `crossings` | Marked pedestrian crossings: `key`, `line` (the walking line) and `width`. |
-| `lanes` | Dashed centre lines: `key`, `line`, `start` (station of the line's first point along the whole street, so dashes continue across cells), `dash` and `gap`. |
+| `lanes` | Dashed lines along the carriageway (between the directions, between lanes of one direction, along cycle lanes and parking bays): `key`, `line`, `start` (station of the line's first point along the whole street, so dashes continue across cells), `dash` and `gap`. |
 | `base` | The cover of land no surface describes. |
 | `kerb` | The cover of the kerb stones. |
 
@@ -44,3 +44,14 @@ A stored description (`descriptions/ground/c_<i>_<j>.json`) replaces what the re
 - **Height field.** `Output.heightfield`: the skin's heights at 0.5 m spacing, stored beside the mesh.
 - **Far level** (lod 1). The relief at 2.5 m spacing with the mean colour of the cover at each node, family
   `ground_far`.
+- **Lane lines.** A street carries lines when its class is tertiary or above, or residential/unclassified with
+  tagged lanes and a speed limit of 40 km/h or more (30 zones have none in the photos). The carriageway is measured
+  across the way every 8 m (`_section`: width and where its middle lies beside the way); where the tagged lane
+  count gives lanes 2.6 to 4.6 m wide, every lane boundary is drawn there: 3 m dashes with 5 m gaps between the
+  directions, 9 m gaps between lanes of one direction (one-way streets with two or more lanes included). Where the
+  count does not fit, a two-way street keeps one line on the way itself. No edge lines yet.
+- **Railways.** A track bed (`use: railway`, key `osm:way/<id>:bed`, rank 1.5: over green and unmapped land,
+  under the street register) 2.3 m either side of every track of the `rail` kind, and a 3 m unmown verge (`use:
+  rough`, key `...:verge`) beside it wherever nothing else is mapped.
+- **Verges and woodland.** The green register's `Kasvillisuus` and `Metsä` and OpenStreetMap woods and scrub are
+  unmown grass (`mown` 0.2 and 0), not bare soil; soil stays for planting beds.
