@@ -245,6 +245,8 @@ def test_a_fence_reading_replaces_the_guesses_and_an_unseen_fence_builds_nothing
     assert (stored["tier"], stored["family"], stored["height"], stored["colour"], stored["guessed"]) == ("observed", "mesh", 1.2, "#3a4a3c", [])
     assert stored["seen"]["hedge"]  # the whole reading is kept beside the fields it replaces
     assert fence.Fence().compile({**automatic, **stored}).instances
+    grey = fence.Fence().compile({**automatic, **stored, "family": "iron", "colour": "#5a5f63"})
+    assert grey.instances[0].asset[0].material.params["colour"] == "#5a5f63"  # an iron fence takes its read paint
     assert fenceread.observed(automatic, {**reading, "confidence": "low"}, strip, {}) is None
     gone = fenceread.observed(automatic, {**reading, "family": "none", "height_m": 0}, strip, {})
     assert "height" not in gone

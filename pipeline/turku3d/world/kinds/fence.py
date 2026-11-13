@@ -87,9 +87,9 @@ def board_panel(height: float, colour: str) -> Mesh:
     return mesh
 
 
-def iron_panel(height: float) -> Mesh:
-    """An open steel fence, 2 m long: square bars between a top and a bottom rail, painted black."""
-    steel = painted_metal(IRON)
+def iron_panel(height: float, colour: str = IRON) -> Mesh:
+    """An open steel fence, 2 m long: square bars between a top and a bottom rail, black unless its paint was read."""
+    steel = painted_metal(colour)
     mesh = Mesh()
     length, pitch, bar = PANEL["iron"], 0.11, 0.014
     count = round(length / pitch)
@@ -152,7 +152,7 @@ def post(family: str, height: float, colour: str) -> Mesh:
     elif family == "mesh":
         mesh.tube("post", painted_metal(colour), [[0, -BURY, 0], [0, height + 0.02, 0]], 0.025, sides=8)
     elif family == "iron":
-        mesh.box("post", painted_metal(IRON), [0, (height + 0.04 - BURY) / 2, 0], [0.05, height + 0.04 + BURY, 0.05])
+        mesh.box("post", painted_metal(colour), [0, (height + 0.04 - BURY) / 2, 0], [0.05, height + 0.04 + BURY, 0.05])
     else:
         mesh.box("post", painted_wood(colour), [0, (height + 0.08 - BURY) / 2, -0.06], [0.1, height + 0.08 + BURY, 0.1])
     return mesh
@@ -332,7 +332,7 @@ class Fence:
     def compile(self, description: dict) -> Output:
         family = description.get("family", "board")
         height = round(float(description.get("height", 1.6)) * 10) / 10
-        colour = description.get("colour", DEFAULT_WOOD)
+        colour = description.get("colour", IRON if family == "iron" else DEFAULT_WOOD)
         block = description.get("interaction") or {}
         entity = description["id"]
         if family == "none":  # a reader saw no fence on the register's line
@@ -368,7 +368,7 @@ class Fence:
         last = points[-1]
         posts.append([last[0], last[1], last[2], posts[-1][3], 1.0, 1.0, 1.0])
         asset = {"board": lambda: board_panel(height, colour), "picket": lambda: picket_panel(height, colour),
-                 "iron": lambda: iron_panel(height), "mesh": lambda: mesh_panel(height, colour), "stone-wall": lambda: wall_panel(height), "railing": lambda: railing_panel(height)}.get(family, lambda: board_panel(height, colour))()
+                 "iron": lambda: iron_panel(height, colour), "mesh": lambda: mesh_panel(height, colour), "stone-wall": lambda: wall_panel(height), "railing": lambda: railing_panel(height)}.get(family, lambda: board_panel(height, colour))()
         items = [Instances(asset.parts(), np.round(np.array(panels), 4), ids=[f"{entity}#p{k}" for k in range(len(panels))],
                            behaviour=block.get("behaviour"), collision=block.get("collision"))]
         if family != "stone-wall":
