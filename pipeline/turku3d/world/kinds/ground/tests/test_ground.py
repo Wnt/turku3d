@@ -77,3 +77,33 @@ def test_cell_is_one_height_field_with_kerb_solids():
     assert field.spacing == STEP and np.asarray(field.heights).shape == (126, 126)
     heights = np.asarray(field.heights)
     assert 0.05 < heights[52, 10] - heights[63, 10] < 0.15
+
+
+def test_a_tile_the_survey_lacks_continues_its_neighbour(tmp_path, monkeypatch):
+    """Past the survey's edge the ground runs level from the last measured cells, the same for every window."""
+    from turku3d.world.street import lidar
+
+    here, west = '23463500_6707000', '23463000_6707000'
+    rows = (20.0 + 0.01 * np.arange(lidar.SIDE, dtype=np.float32))[:, None]
+    measured = dict(ground=np.repeat(rows, lidar.SIDE, axis=1), measured=np.ones((lidar.SIDE, lidar.SIDE), bool),
+                    canopy=np.zeros((lidar.SIDE, lidar.SIDE), np.uint16))
+
+    def laz_path(name):
+        if name != west:
+            raise lidar.NotSurveyed(name)
+        return tmp_path / 'west.laz'
+
+    monkeypatch.setenv('TURKU3D_WORLD_DATA', str(tmp_path))
+    monkeypatch.setattr(lidar, 'laz_path', laz_path)
+    monkeypatch.setattr(lidar, 'build', lambda name: measured if name == west else laz_path(name))
+    lidar.tile.cache_clear()
+    try:
+        filled = lidar.tile(here)
+        assert not filled['measured'].any() and not filled['canopy'].any()
+        assert np.array_equal(filled['ground'][:, 0], measured['ground'][:, -1])
+        assert np.array_equal(filled['ground'][:, -1], filled['ground'][:, 0])
+        e0, n0 = lidar.tile_corner(here)
+        across = lidar.Window(e0 - 20, n0 + 100, e0 + 20, n0 + 101).sample('ground', np.array([e0 - 10.0, e0 + 10.0]), np.full(2, n0 + 100.25))
+        assert abs(across[0] - across[1]) < 1e-4
+    finally:
+        lidar.tile.cache_clear()
