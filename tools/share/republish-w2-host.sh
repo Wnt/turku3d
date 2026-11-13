@@ -8,7 +8,8 @@
 # starts from this track's earlier store by hard links, so nothing that is unchanged compiles again. A build that
 # fails keeps the location's previous manifest; its log says why. Exit 1 when any build failed.
 #
-#   bash tools/share/republish-w2-host.sh [NAME...]     only the named locations (default: all the lab lists)
+#   bash tools/share/republish-w2-host.sh [NAME | NEW=OLD]...   only these (default: all the lab lists); NEW=OLD builds
+#                                                               NEW from the query of OLD
 set -uo pipefail
 BUILDS=${BUILDS:-3}
 INDEX=$HOME/turku3d-local/city/world/index.json
@@ -34,8 +35,11 @@ areas = set()
 for line in Path('qa/views/views.jsonl').read_text().splitlines():
     if line.strip():
         areas.add(json.loads(line).get('area'))
-only = set(sys.argv[2:])
-rows = [row for row in json.load(open(sys.argv[1]))['locations'] if not only or row['name'] in only]
+# NEW=OLD builds location NEW from the query of the listed location OLD (a copy under another name, when OLD's
+# published build is evidence that must stay as it is).
+asked = dict(arg.split('=', 1) if '=' in arg else (arg, arg) for arg in sys.argv[2:])
+listed = {row['name']: row for row in json.load(open(sys.argv[1]))['locations']}
+rows = [dict(listed[old], name=new) for new, old in asked.items() if old in listed] if asked else list(listed.values())
 # The pilot areas first: they are what a visitor opens first, and what is judged again.
 for row in sorted(rows, key=lambda row: (row['name'] not in areas, row['name'])):
     query, name = row['query'], row['name']
