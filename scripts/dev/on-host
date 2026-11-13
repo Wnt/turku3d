@@ -101,11 +101,11 @@ def push(host, source, target, delete=False, excludes=()):
        + [f'{source}/', f'{at(host, target)}/'], check=True)
 
 
-def pull(host, source, target, keep_existing=False):
+def pull(host, source, target, keep_existing=False, flags=()):
     if remote(host, f'test -d {shlex.quote(source)}', check=False).returncode != 0:
         return False
     Path(target).mkdir(parents=True, exist_ok=True)
-    sh(rsync(host) + (['--ignore-existing'] if keep_existing else []) + [f'{at(host, source)}/', f'{target}/'], check=True)
+    sh(rsync(host) + (['--ignore-existing'] if keep_existing else []) + list(flags) + [f'{at(host, source)}/', f'{target}/'], check=True)
     return True
 
 
@@ -238,7 +238,11 @@ def main():
     times['run'] = time.time() - start
     start = time.time()
     store = os.environ.get('TURKU3D_WORLD_STORE', f'{work}/world')
-    merged = pull(a.host, f'{root}/work/world', store, keep_existing=True)
+    # Objects and build records are named by their content, so the copy here stands. A location manifest is named by the
+    # location: the newer one wins, or a manifest that came back earlier would hide the build this call just made.
+    # The marker of a running build says nothing about this machine and stays on the host.
+    merged = pull(a.host, f'{root}/work/world', store, keep_existing=True, flags=['--exclude=/building', '--exclude=/locations'])
+    pull(a.host, f'{root}/work/world/locations', f'{store}/locations', flags=['--update'])
     for rel in a.pull:
         pull(a.host, f'{root}/work/{rel}', f'{work}/{rel}')
     for rel in a.pull_data:
