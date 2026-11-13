@@ -17,7 +17,8 @@ Description `turku-description/trees/1`:
                measured: {the census row}, species?}]
     absent   register trees the lidar does not show and no rule builds: [{e, n, layer, key, ...}]
     cleared  ids of trees left out because they stand within 3 m of a reference camera (see CAMERA_CLEARANCE)
-    felled   ids of crowns of the 2021 scan on a street that the city's tree register no longer lists (see `on_street`)
+    felled   ids of crowns of the 2021 scan on a street that the city's tree register no longer lists (see `on_street`),
+             and of crowns only the lidar shows that stand in a carriageway out of reach of its edge (see `carriageway`)
 
 A stored description overrides the automatic one per tree: `{"trees": {"<id>": {"family": "lime", "height": 14,
 "crown": {...}, "remove": true}}, "add": [{...a full tree row...}]}`. Observation writes there what panoramas show
@@ -43,7 +44,19 @@ from ..green import census, treegen
 from ..street import registers
 
 GROWTH_YEARS = 5  # the scan is from April 2021; the reference photos are from summer 2026
-LEAF_MARGIN = 0.4  # metres added to a leaf-off crown diameter: the foliage beyond the twig tips
+LEAF_MARGIN = 0.4  # metres added to a leaf-off broadleaf crown diameter: the foliage beyond the twig tips
+# Nothing grows in a carriageway and no bough hangs low over one: lorries keep 4.5 m clear, and a street-level camera
+# must not sit in leaves. A crown only the lidar shows with its trunk on the carriageway is a garden tree whose top
+# leans over the street (moved to the edge when its crown reaches it) or a lorry, a pole or a felled tree (left out).
+ROAD_CLEAR = 4.5  # metres: the crown base of a tree whose crown reaches over a carriageway
+ROAD_TALL = 7.0  # metres: a lower tree cannot be pruned that high; its crown stops at the carriageway's edge
+ROAD_HALF = 2.5  # metres: half the carriageway of a street only OpenStreetMap draws
+VERGE = 0.6  # metres from the carriageway's edge to a trunk moved off it
+# Garden conifers the scan shows green and no register names are thuja columns far more often than young spruces
+# (the photos of the detached-house dev points): a narrow column each, and a long or wide crown is a row or a clump.
+THUJA_MAX = 9.0  # metres in the scan
+THUJA_SPREAD = 0.55  # a column is at most this wide for its height
+THUJA_GROUP = 16  # columns one measured crown is split into at most
 # The tree library: family x size class x seed. A tree is an instance of the nearest model, fitted by its row's
 # scale (at most about a quarter either way), so a location draws a few dozen tree meshes however many trees it has.
 HEIGHTS = (4.0, 6.3, 10.0, 16.0, 25.0)
@@ -103,6 +116,43 @@ def on_street(rows: list[dict], box: tuple[float, float, float, float]) -> dict[
     return found
 
 
+def carriageway(rows: list[dict], box: tuple[float, float, float, float]) -> dict[str, dict]:
+    """Trees at a carriageway: id -> {"d": metres from the trunk to the carriageway (negative: the trunk stands this
+    far inside it), "to": [e, n] the nearest ground VERGE off it, for a trunk inside}. Carriageways are the street
+    register's (GIS:Katualueet, Ajorata and Pyöräkaista) and, where it draws none, the mapped roads at ROAD_HALF."""
+    from ..street import osm
+
+    if not rows:
+        return {}
+    streets = registers.layer("GIS:Katualueet", box)
+    low = [shapely.make_valid(shapely.force_2d(row.geometry)) for row in streets.itertuples()
+           if row.geometry.geom_type == "Polygon" and str(getattr(row, "Katuosalaji", "")).lower() in ("ajorata", "pyöräkaista")]
+    mapped = osm.features(box)
+    if mapped is not None and len(mapped):
+        roads = mapped[mapped.geom_type.isin(("LineString", "MultiLineString")) & mapped.highway.isin(ROADS)]
+        low += [shape.buffer(ROAD_HALF, cap_style="flat") for shape in roads.geometry]
+    if not low:
+        return {}
+    area = shapely.union_all(low)
+    found = {}
+    for row in rows:
+        trunk = shapely.Point(row["e"], row["n"])
+        distance = float(area.distance(trunk))
+        if distance > 15.0:
+            continue
+        if distance > 0.0:
+            found[row["id"]] = {"d": round(distance, 2)}
+            continue
+        edge = area.boundary
+        inside = float(edge.distance(trunk))
+        at = edge.interpolate(edge.project(trunk))
+        out = np.array([at.x - trunk.x, at.y - trunk.y]) / max(inside, 1e-6)
+        found[row["id"]] = {"d": round(-inside, 2), "to": [round(float(at.x + out[0] * VERGE), 2), round(float(at.y + out[1] * VERGE), 2)]}
+    return found
+
+
+ROADS = ("motorway", "trunk", "primary", "secondary", "tertiary", "unclassified", "residential", "living_street",
+         "motorway_link", "trunk_link", "primary_link", "secondary_link", "tertiary_link")
 GENERA = {
     "tilia": "lime", "acer": "maple", "ulmus": "elm", "quercus": "oak", "fraxinus": "ash", "betula": "birch",
     "populus": "poplar", "sorbus": "rowan", "prunus": "fruit", "malus": "fruit", "pyrus": "fruit", "crataegus": "fruit",
@@ -143,7 +193,7 @@ def family_of(tree: dict, seed: int) -> tuple[str, str]:
     broadleaf = (register and not register.get("conifer")) or mapped.get("leaf_type") == "broadleaved"
     if conifer or (evergreen and not broadleaf):
         why = "register conifer" if conifer else "lidar: green in a leaf-off scan"
-        if spread < 0.24 and height < 9:
+        if height < THUJA_MAX and (spread < 0.24 or not (register or mapped)):
             return "thuja", why
         return ("pine", why) if base / height > 0.4 and height > 8 else ("spruce", why)
     fraction = (seed % 1000) / 1000.0
@@ -161,6 +211,15 @@ def family_of(tree: dict, seed: int) -> tuple[str, str]:
 GUESSED = ("lidar: small broadleaf", "lidar: tall and narrow", "lidar: broadleaf")
 TOGETHER = 12.0  # metres between trees of one planting
 ROW = 4  # trees of a like size standing together from this many on are a planted row or avenue
+STAND = 12  # from this many on, and not in a line, they are a stand nobody planted: the region's wild broadleaves
+WILD = (("birch", 0.55), ("poplar", 0.15), ("maple", 0.12), ("rowan", 0.08), ("oak", 0.05), ("willow", 0.05))
+
+
+def in_line(rows: list[dict]) -> bool:
+    """True when the trees stand along one line (a row or an avenue) rather than over an area."""
+    points = np.array([[row["e"], row["n"]] for row in rows])
+    spread = np.sqrt(np.maximum(np.linalg.eigvalsh(np.cov((points - points.mean(axis=0)).T)), 0.0))
+    return bool(spread[0] < 0.25 * spread[1])
 
 
 def families(rows: list[dict]) -> dict[str, tuple[str, str]]:
@@ -192,9 +251,12 @@ def families(rows: list[dict]) -> dict[str, tuple[str, str]]:
     out = dict(first)
     for leader, rows_of in members.items():
         near = sorted((math.hypot(a["e"] - b["e"], a["n"] - b["n"]), b["id"]) for a in rows_of for b in named if alike(a, b))
+        wild = len(rows_of) >= STAND and not in_line(rows_of)
         for row in rows_of:
             if near:
                 out[row["id"]] = first[near[0][1]][0], "the species of the register tree beside it"
+            elif wild and first[row["id"]][1] != "lidar: small broadleaf":
+                out[row["id"]] = pick(WILD, (seed_of(row["id"]) % 1000) / 1000.0), "a stand of unknown species: wild broadleaves, mostly birch"
             elif len(rows_of) >= ROW and first[row["id"]][1] == "lidar: broadleaf":
                 out[row["id"]] = "lime", "a planted row of unknown species: the city's commonest planted tree"
             else:
@@ -202,18 +264,30 @@ def families(rows: list[dict]) -> dict[str, tuple[str, str]]:
     return out
 
 
-def grown(height: float) -> float:
-    """Height in the photo year from the height in the scan year."""
-    rate = 0.35 if height < 6 else 0.25 if height < 10 else 0.15 if height < 16 else 0.05
-    return height + rate * GROWTH_YEARS
+def growth(row: dict, family: str) -> float:
+    """Metres a tree gains in height a year after the scan. A street tree the register dates grew at its own mean rate
+    since it was planted (about 3.5 m tall); an undated register tree at its size's rate. A tree only the lidar shows
+    is a garden tree: mature and pruned, it gains a decimetre a year (4.2 m in the scan stood about 4.5 m in the
+    photos of the house points, where the street trees' rates drew it at 6 m). A thuja column gains 0.3 m."""
+    height, register = row["height"], row.get("register", {})
+    if family == "thuja":
+        return 0.3
+    if not register:
+        return 0.1 if height < 12 else 0.05
+    year = register.get("planted") or 0
+    if 1900 < year < 2021:
+        return min(max((height - 3.5) / (2021 - year), 0.05), 0.35)
+    return 0.2 if height < 6 else 0.15 if height < 10 else 0.1 if height < 16 else 0.05
 
 
 def tree_row(row: dict, chosen: tuple[str, str] | None = None) -> dict:
     seed = seed_of(row["id"])
     family, why = chosen or family_of(row, seed)
-    height = grown(row["height"])
-    stretch = 1 + 0.6 * (height / row["height"] - 1)
-    major, minor = row["major"] * stretch + LEAF_MARGIN, row["minor"] * stretch + LEAF_MARGIN
+    height = row["height"] + growth(row, family) * GROWTH_YEARS
+    broadleaf = treegen.FAMILIES[family]["kind"] != "spruce" and treegen.FAMILIES[family]["kind"] != "pine"
+    stretch = 1 + 0.6 * (height / row["height"] - 1) if family != "thuja" else 1.0
+    margin = LEAF_MARGIN if broadleaf else 0.0
+    major, minor = row["major"] * stretch + margin, row["minor"] * stretch + margin
     mean = math.sqrt(major * minor)
     major, minor = min(major, 1.3 * mean), max(minor, mean / 1.3)  # a model is stretched at most this far
     register = row.get("register", {})
@@ -233,6 +307,56 @@ def tree_row(row: dict, chosen: tuple[str, str] | None = None) -> dict:
     if register.get("planted"):
         out["planted"] = register["planted"]
     return out
+
+
+def thuja_columns(tree: dict, row: dict) -> list[dict]:
+    """The columns of a thuja crown only the lidar shows: one column as wide as the crown's short axis and at most
+    THUJA_SPREAD of its height, and as many of them along (and across) the crown as it is long (and wide)."""
+    # The crown as measured: the described one is limited to what one model can be stretched to.
+    crown = {**tree["crown"], "major": row.get("major", tree["crown"]["major"]), "minor": row.get("minor", tree["crown"]["minor"])}
+    width = max(min(crown["minor"], THUJA_SPREAD * tree["height"]), 0.8)
+    along, across = max(1, round(crown["major"] / width)), max(1, round(crown["minor"] / width))
+    while along * across > THUJA_GROUP:
+        along, across = max(1, along - 1), max(1, across - (1 if across > along else 0))
+    angle = math.radians(crown["angle"])
+    axis, side = (math.sin(angle), math.cos(angle)), (math.cos(angle), -math.sin(angle))
+    centre = row.get("centre") or (tree["e"], tree["n"])
+    out = []
+    for a in range(along):
+        for b in range(across):
+            key = tree["id"] if along * across == 1 else f"{tree['id']}-{chr(97 + a)}{chr(97 + b) if across > 1 else ''}"
+            seed = seed_of(key)
+            u = (a - (along - 1) / 2) * crown["major"] / along
+            v = (b - (across - 1) / 2) * crown["minor"] / across
+            size = 0.88 + 0.12 * ((seed >> 4) % 100) / 99 if along * across > 1 else 1.0  # the tallest of a row was measured
+            wide = round(width * (0.9 + 0.2 * ((seed >> 12) % 100) / 99), 2)
+            out.append({**tree, "id": key, "seed": seed, "e": round(centre[0] + axis[0] * u + side[0] * v, 2),
+                        "n": round(centre[1] + axis[1] * u + side[1] * v, 2), "height": round(tree["height"] * size, 2),
+                        "crown": {"major": wide, "minor": wide, "angle": 0.0, "base": 0.3}})
+    return out
+
+
+def off_carriageway(tree: dict, at: dict | None) -> dict | None:
+    """The tree as it stands beside a carriageway (`at` from `carriageway`): None when it cannot stand there at all."""
+    if at is None:
+        return tree
+    crown = dict(tree["crown"])
+    reach = (crown["major"] + crown["minor"]) / 4
+    distance = at["d"]
+    if distance < 0:
+        if tree["source"] != "lidar":
+            distance = 0.0  # a surveyed trunk: the register's place is kept, its boughs are lifted
+        elif -distance + VERGE <= max(crown["major"] / 2, 1.5):
+            tree, distance = {**tree, "e": at["to"][0], "n": at["to"][1], "moved": "off the carriageway"}, VERGE
+        else:
+            return None
+    if reach > distance:
+        if tree["height"] >= ROAD_TALL:
+            crown["base"] = round(max(crown["base"], min(ROAD_CLEAR, 0.6 * tree["height"])), 2)
+        else:
+            wide = max(2 * (distance + 0.3), 1.0)
+            crown["major"], crown["minor"] = round(min(crown["major"], wide), 2), round(min(crown["minor"], wide), 2)
+    return {**tree, "crown": crown}
 
 
 def planted_since_scan(row: dict) -> dict | None:
@@ -262,6 +386,8 @@ def model_of(tree: dict) -> treegen.Shape:
     base = nearest(BASES, max(tree["crown"]["base"], 0.3) / tree["height"])
     if treegen.FAMILIES[tree["family"]]["kind"] == "shrub":
         base = 0.0
+    if tree["family"] == "thuja":
+        base = 0.3 / height  # a column is green to the ground
     broadleaf = treegen.FAMILIES[tree["family"]]["kind"] == "broadleaf"
     age = "young" if height <= 6.3 and broadleaf and tree["family"] not in ("fruit", "rowan") else "old" if height >= 25 else "mature"
     variant = tree["seed"] % VARIANTS if spread == SPREADS[1] else 0
@@ -294,7 +420,7 @@ class Trees:
                 wide = (cell[0] - 20.0, cell[1] - 20.0, cell[2] + 20.0, cell[3] + 20.0)
                 stubs.append(Stub(f"trees/{cell_key(i, j)}", cell, [*refs, {"source": "turku-wfs:GIS:Katualueet", "key": cell_key(i, j)}],
                                   {"cell": [i, j], "trees": found["trees"], "absent": found["absent"], "cameras": cameras(wide),
-                                   "onStreet": on_street(found["trees"], wide)}))
+                                   "onStreet": on_street(found["trees"], wide), "carriageway": carriageway(found["trees"], wide)}))
         return stubs
 
     def describe(self, stub: Stub, stored: dict | None) -> dict:
@@ -304,7 +430,19 @@ class Trees:
         felled = sorted(row["id"] for row in stub.facts["trees"]
                         if street.get(row["id"], 0.0) > row["width"] / 2 and not overrides.get(row["id"], {}).get("keep"))
         chosen = families(stub.facts["trees"])
-        trees = [tree_row(row, chosen[row["id"]]) for row in stub.facts["trees"] if row["id"] not in felled]
+        roads = stub.facts.get("carriageway", {})
+        trees = []
+        for row in stub.facts["trees"]:
+            if row["id"] in felled:
+                continue
+            tree = off_carriageway(tree_row(row, chosen[row["id"]]), None if overrides.get(row["id"], {}).get("keep") else roads.get(row["id"]))
+            if tree is None:
+                felled.append(row["id"])
+            elif tree["family"] == "thuja" and row["source"] == "lidar":
+                trees += thuja_columns(tree, row)
+            else:
+                trees.append(tree)
+        felled.sort()
         absent = []
         for row in stub.facts["absent"]:
             young = planted_since_scan(row)

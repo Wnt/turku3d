@@ -33,7 +33,14 @@ from ..frame import CELL, cell_at, cell_box_en, cell_key, to_engine
 from ..geometry import seed as seed_of
 from ..green import census, hedgegen, treegen
 
-LEAF_MARGIN = 0.25  # metres a leaf-off hedge gains in width in leaf (half of it in height)
+LEAF_MARGIN = 0.25  # metres a leaf-off hedge or shrub gains in width in leaf (half of it in height)
+# A leafless hedge returns from its twig mass, not from the outline its leaves draw: the summer top stands this far
+# above the scan's (dev points: 0.9 m in the scan for a hedge of about 1.4 m in the photo).
+HEDGE_TOP = {False: 0.3, True: 0.1}  # by evergreen
+# A garden hedge is let grow to a screen: one lower than GROWN in the scan gained up to GROWTH in the five summers
+# since (dev points: a newly planted row 0.4 m in the scan stands 1.5 m in the photo). A hedge on the city's ground
+# (street or green area) is kept at its height.
+GROWN, GROWTH = 1.4, 0.75
 SHRUB_HEIGHTS = (0.6, 0.8, 1.0, 1.3, 1.6, 2.0, 2.5, 3.2)
 SHRUB_SPREADS = (0.35, 0.5, 0.7, 1.0, 1.4)  # crown radius / height
 VARIANTS = 2
@@ -44,12 +51,18 @@ def hedge_row(row: dict) -> dict:
     key = f"hedge-{row['source'].split(':')[-1].lower()}-{row['key']}-{round(row['line'][0][0] * 10)}-{round(row['line'][0][1] * 10)}"
     measured = row.get("measured", True)
     grow = LEAF_MARGIN if measured else 0.0
+    top = HEDGE_TOP[bool(row["evergreen"])] if measured else 0.0
+    height = [h + top for h in row["height"]]
+    if row.get("garden", True) and measured:
+        height = [max(h, min(h + GROWTH, GROWN)) for h in height]
     out = {
         "id": key, "source": row["source"], "line": row["line"], "ground": row["ground"],
-        "width": [round(w + grow, 2) for w in row["width"]], "height": [round(h + grow / 2, 2) for h in row["height"]],
+        "width": [round(w + grow, 2) for w in row["width"]], "height": [round(h, 2) for h in height],
         "form": row["form"], "evergreen": row["evergreen"], "seed": seed_of(key),
-        "measured": {"level": row["level"], "even": row["even"]} if measured else False,
+        "measured": {"level": row["level"], "even": row["even"], "seen": row.get("seen", 1.0)} if measured else False,
     }
+    if row.get("sparse"):
+        out["sparse"] = True
     if row.get("genus"):
         out["genus"] = row["genus"]
     return out

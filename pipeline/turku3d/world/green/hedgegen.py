@@ -2,8 +2,10 @@
 
 A hedge is its measured line swept by a cross-section of its measured width and height: boxy with a level top
 when clipped, rounder and uneven when loose. The body is a closed solid (sides, top, underside, both ends) in the
-material family `hedge`; small leaf cards from the nature library's foliage atlas stand out of its surface, so its
-edge against the sky is leaves, not a ruled line. A shrub mass is the same for an outline instead of a line.
+material family `hedge`, a dark tone of the leaf: the depth between the leaves. Leaf sprays from the nature
+library's foliage atlas cover it like shingles: on the sides they lie along the surface, lifted a little at their
+upper edge, several deep; on the top they stand, so its edge against the sky is leaves, not a ruled line. A shrub
+mass is the same for an outline instead of a line.
 
 Coordinates in: engine metres relative to the entity origin, y up. TEXCOORD_0 of the body is metres (along, around).
 """
@@ -95,23 +97,49 @@ def sweep(points: np.ndarray, width: np.ndarray, height: np.ndarray, form: str, 
         "positions": every, "normals": np.concatenate([normals.reshape(-1, 3), cap_normals]),
         "uvs": np.concatenate([uv.reshape(-1, 2), np.zeros((2, 2))]), "colors": np.concatenate([shade.reshape(-1), [0.7, 0.7]]),
         "triangles": outward(every - every.mean(axis=0), np.concatenate([faces, caps])),
-        "surface": {"p": positions[visible], "n": normals[visible], "shade": shade[visible],
+        "surface": {"p": positions[visible], "n": normals[visible], "shade": shade[visible], "grid": (n, int((up > 0).sum())), "closed": False,
                     "area": float(along[-1] * around[-1] * np.mean(width + height) / 2 + 1e-6)},
     }
 
 
-def mass(ring: np.ndarray, base_y: float, height: float, rng) -> dict:
-    """A shrub mass over an outline (engine x, z ring, counter-clockwise seen from above): a closed dome."""
+def densified(ring: np.ndarray, values: np.ndarray, step: float = 0.8) -> tuple[np.ndarray, np.ndarray]:
+    """The closed ring with a vertex at least every `step` metres, and `values` per vertex carried along."""
+    points, carried = [], []
+    for k in range(len(ring)):
+        a, b = ring[k], ring[(k + 1) % len(ring)]
+        parts = max(1, int(np.ceil(np.linalg.norm(b - a) / step)))
+        t = np.arange(parts)[:, None] / parts
+        points.append(a + (b - a) * t)
+        carried.append(values[k] + (values[(k + 1) % len(ring)] - values[k]) * t[:, 0])
+    return np.concatenate(points), np.concatenate(carried)
+
+
+def inset(ring: np.ndarray, distance: np.ndarray) -> np.ndarray:
+    """A counter-clockwise ring moved inward by `distance` per vertex, along the bisector of its two edges."""
+    back, ahead = treegen.unit(ring - np.roll(ring, 1, axis=0)), treegen.unit(np.roll(ring, -1, axis=0) - ring)
+    inward = treegen.unit(np.stack([-back[:, 1], back[:, 0]], axis=1) + np.stack([-ahead[:, 1], ahead[:, 0]], axis=1))
+    sharp = np.clip(-back[:, 1] * inward[:, 0] + back[:, 0] * inward[:, 1], 0.5, 1.0)
+    return ring + inward * (distance / sharp)[:, None]
+
+
+def mass(ring: np.ndarray, base_y, height: float, rng) -> dict:
+    """A shrub mass over an outline (engine x, z ring; `base_y` the ground under it, one height or one per vertex):
+    a closed dome whose sides stand on the outline and lean in towards a flat top, by the same distance all round,
+    so that a long bed is a bank and not a tent."""
     turn = float(np.sum(ring[:, 0] * np.roll(ring[:, 1], -1) - np.roll(ring[:, 0], -1) * ring[:, 1]))
-    ring = ring if turn > 0 else ring[::-1]
-    centre = ring.mean(axis=0)
-    levels = ((1.0, -SINK), (1.0, 0.55 * height), (0.86, 0.85 * height), (0.6, height))
+    base = np.broadcast_to(np.asarray(base_y, float), (len(ring),))
+    ring, base = (ring, base) if turn > 0 else (ring[::-1], base[::-1])
+    area = 0.5 * abs(turn)
+    perimeter = float(np.linalg.norm(ring - np.roll(ring, 1, axis=0), axis=1).sum())
+    ring, base = densified(ring, base)
     n = len(ring)
+    lean = min(0.6, 0.45 * height, 0.5 * area / max(perimeter, 1e-6))  # the top ring's inset: half the narrowest half-width at most
+    levels = ((0.0, -SINK), (0.0, 0.55 * height), (0.4, 0.85 * height), (1.0, height))
     rings = []
-    for scale, y in levels:
-        wobble = 1.0 + (0.06 * rng.normal(size=(n, 1)) if y > 0 else 0.0)
-        xz = centre + (ring - centre) * scale * wobble
-        rings.append(np.stack([xz[:, 0], np.full(n, base_y + y), xz[:, 1]], axis=1))
+    for share, y in levels:
+        wobble = rng.normal(0.0, 0.06, n) if y > 0 else 0.0
+        xz = inset(ring, lean * share + wobble)
+        rings.append(np.stack([xz[:, 0], base + y, xz[:, 1]], axis=1))
     positions = np.concatenate(rings)
     faces = []
     for level in range(len(levels) - 1):
@@ -120,48 +148,62 @@ def mass(ring: np.ndarray, base_y: float, height: float, rng) -> dict:
         faces.append(np.stack([a, a + n, b, b, a + n, b + n], axis=-1).reshape(-1, 3))
     top = earcut([rings[-1][:, [0, 2]]]) + (len(levels) - 1) * n
     bottom = earcut([rings[0][:, [0, 2]]])[:, ::-1]
-    middle = np.array([centre[0], base_y + 0.4 * height, centre[1]])
-    normals = treegen.unit((positions - middle) * np.array([1.0, 1.6, 1.0]))
+    out = treegen.unit(np.stack([-(np.roll(ring, -1, axis=0) - np.roll(ring, 1, axis=0))[:, 1], (np.roll(ring, -1, axis=0) - np.roll(ring, 1, axis=0))[:, 0]], axis=1)) * -1.0
+    rise = (0.0, 0.25, 0.7, 1.6)  # the normal turns up towards the top
+    normals = treegen.unit(np.concatenate([np.stack([out[:, 0], np.full(n, up), out[:, 1]], axis=1) for up in rise]))
     shade = np.concatenate([np.full(n, 0.5), np.full(n, 0.75), np.full(n, 0.92), np.full(n, 1.0)])
     uv = positions[:, [0, 2]]
-    visible = np.arange(len(positions)) >= n
-    perimeter = float(np.linalg.norm(np.diff(np.vstack([ring, ring[:1]]), axis=0), axis=1).sum())
-    area = 0.5 * abs(float(np.sum(ring[:, 0] * np.roll(ring[:, 1], -1) - np.roll(ring[:, 0], -1) * ring[:, 1])))
     triangles = np.concatenate([*faces, top[:, ::-1], bottom[:, ::-1]])
     return {"positions": positions, "normals": normals, "uvs": uv, "colors": shade, "triangles": triangles,
-            "surface": {"p": positions[visible], "n": normals[visible], "shade": shade[visible], "area": perimeter * height + area}}
+            "surface": {"p": positions, "n": normals, "shade": shade, "grid": (len(levels), n), "closed": True, "area": perimeter * height * 1.15 + 0.3 * area}}
+
+
+DENSITY = {"clipped": 26.0, "loose": 20.0}  # leaf sprays a square metre of surface
+SPRAY = {"clipped": (0.26, 0.36), "loose": (0.4, 0.58)}  # metres across a spray
+TILT = {"clipped": (6.0, 20.0), "loose": (14.0, 40.0)}  # degrees a spray on a side is lifted off the surface
+EVERGREEN = 1.6  # times as many sprays on an evergreen: a frond is narrower than a leafy spray
+FAR = (0.15, 2.3)  # the distant level: this share of the sprays, this much larger
 
 
 def shell(surface: dict, form: str, evergreen: bool, rng, far: bool = False) -> dict | None:
-    """Leaf cards standing out of a body's surface; `far` is the distant level: a fifth of them, larger."""
-    density = (15.0 if form == "clipped" else 9.0) * (0.2 if far else 1.0)
-    count = int(np.clip(surface["area"] * density, 6, 6000))
-    source = len(surface["p"])
-    if source < 3:
+    """Leaf sprays over a body's surface. `surface` is a grid of points (rows along the hedge or up the mass,
+    columns round its section) with normals; the sprays are spread evenly between the grid's points."""
+    rows, cols = surface["grid"]
+    if rows < 2 or cols < 2:
         return None
-    # Samples between neighbouring surface vertices, so the cards do not line up on the sweep's rings.
-    a = rng.integers(0, source, count)
-    b = np.clip(a + rng.integers(-1, 2, count), 0, source - 1)
-    w = rng.random(count)[:, None]
-    p = surface["p"][a] * (1 - w) + surface["p"][b] * w
-    normal = treegen.unit(surface["n"][a] * (1 - w) + surface["n"][b] * w + rng.normal(0, 0.15, (count, 3)))
-    shade = surface["shade"][a] * (1 - w[:, 0]) + surface["shade"][b] * w[:, 0]
-    size = (rng.uniform(0.28, 0.4, count) if form == "clipped" else rng.uniform(0.42, 0.6, count)) * (1.7 if far else 1.0)
-    lift = 0.18 if form == "clipped" else 0.55
-    up = treegen.unit(normal * lift + UP * rng.uniform(0.3, 1.0, count)[:, None] + rng.normal(0, 0.45, (count, 3)))
-    facing = normal - up * np.sum(normal * up, axis=1, keepdims=True)
-    facing = treegen.unit(np.where(np.linalg.norm(facing, axis=1, keepdims=True) < 0.1, treegen.any_perp(up), facing))
-    side = treegen.unit(np.cross(up, facing))
-    start = p - normal * (0.1 * size[:, None]) - up * (0.35 * size[:, None])
+    count = int(np.clip(surface["area"] * DENSITY[form] * (EVERGREEN if evergreen else 1.0) * (FAR[0] if far else 1.0), 6, 16000))
+    grid_p, grid_n, grid_s = surface["p"].reshape(rows, cols, 3), surface["n"].reshape(rows, cols, 3), surface["shade"].reshape(rows, cols)
+    u = rng.random(count) * (rows - 1)
+    v = rng.random(count) * (cols if surface["closed"] else cols - 1)
+    r0, c0 = np.minimum(u.astype(int), rows - 2), v.astype(int) % cols
+    c1 = (c0 + 1) % cols if surface["closed"] else np.minimum(c0 + 1, cols - 1)
+    fu, fv = (u - r0)[:, None], (v - np.floor(v))[:, None]
+
+    def at(grid):
+        g = grid[..., None] if grid.ndim == 2 else grid
+        return (g[r0, c0] * (1 - fu) * (1 - fv) + g[r0, c1] * (1 - fu) * fv + g[r0 + 1, c0] * fu * (1 - fv) + g[r0 + 1, c1] * fu * fv)
+
+    p, normal, shade = at(grid_p), treegen.unit(at(grid_n)), at(grid_s)[:, 0]
+    size = rng.uniform(*SPRAY[form], count) * (FAR[1] if far else 1.0)
+    # On a side a spray climbs the surface; on the top it has no way up and stands in any direction.
+    climb = UP - normal * normal[:, 1:2]
+    top = np.linalg.norm(climb, axis=1) < 0.45
+    around = treegen.any_perp(normal)
+    turn = rng.uniform(0, 2 * np.pi, count)[:, None]
+    climb = treegen.unit(np.where(top[:, None], around * np.cos(turn) + np.cross(normal, around) * np.sin(turn), climb))
+    tilt = np.radians(np.where(top, rng.uniform(35.0, 80.0, count), rng.uniform(*TILT[form], count)))[:, None]
+    up = treegen.unit(climb * np.cos(tilt) + normal * np.sin(tilt) + rng.normal(0, 0.12, (count, 3)))
+    side = treegen.unit(np.cross(up, normal))
+    out = rng.uniform(0.0, 0.1 if form == "loose" else 0.03, count)[:, None]
+    start = p + normal * (out - 0.03) - up * (0.3 * size[:, None])
     grid = np.array([[-0.5, 0.0], [0.5, 0.0], [-0.5, 1.0], [0.5, 1.0]])
     positions = start[:, None] + side[:, None] * (grid[:, 0][None, :, None] * size[:, None, None]) + up[:, None] * (grid[:, 1][None, :, None] * size[:, None, None])
-    cell = "juniper" if evergreen else "hedge"
+    cell, tone = leaf(form, evergreen)
     u0, u1, v0, v1 = treegen.cell_uv(cell)
     uv = np.tile(np.stack([u0 + (u1 - u0) * (grid[:, 0] + 0.5), v1 + (v0 - v1) * grid[:, 1]], axis=1), (count, 1))
     # COLOR_0 of the foliage family: ambient occlusion, leaf brightness, leaf warmth (treegen's convention).
     vary = rng.uniform(-1.0, 1.0, (count, 2))
-    tone = (0.85, -0.03) if evergreen else (0.95, 0.0)
-    colors = np.repeat(np.stack([0.35 + 0.65 * shade, tone[0] * (1 + treegen.CARD_TONE[0] * vary[:, 0]),
+    colors = np.repeat(np.stack([0.45 + 0.55 * shade, tone[0] * (1 + 1.5 * treegen.CARD_TONE[0] * vary[:, 0]),
                                  1 + tone[1] + treegen.CARD_TONE[1] * vary[:, 1]], axis=1), 4, axis=0)
     wind = np.stack([np.full(count * 4, 0.04), np.tile(grid[:, 1] * 0.5, count), np.repeat(rng.random(count), 4), np.ones(count * 4)], axis=1)
     faces = (np.array([[0, 1, 2], [1, 3, 2]])[None] + (np.arange(count) * 4)[:, None, None]).reshape(-1, 3)
@@ -169,11 +211,18 @@ def shell(surface: dict, form: str, evergreen: bool, rng, far: bool = False) -> 
             "colors": colors, "wind": wind, "triangles": faces}
 
 
+def leaf(form: str, evergreen: bool) -> tuple[str, tuple[float, float]]:
+    """(atlas cell, (brightness, warmth)) of a hedge's sprays. The atlas's own hedge leaf and its juniper fill a
+    fifth of their card and leave the body bare. A leafy hedge takes the lilac's spray (half its card is leaf), an
+    evergreen one the spruce frond, lightened and warmed to a thuja's green and laid closer."""
+    return ("spruce", (1.3, 0.07)) if evergreen else ("lilac", (0.95, 0.0))
+
+
 def body_material(evergreen: bool) -> Material:
-    colour = (0.028, 0.06, 0.03) if evergreen else (0.045, 0.085, 0.028)
+    colour = (0.006, 0.012, 0.006) if evergreen else (0.008, 0.017, 0.005)  # far darker than the leaf: the depth between the sprays
     return Material("hedge", {}, colour, 0.95)
 
 
 def leaf_material(evergreen: bool) -> Material:
-    return Material("foliage", {"atlas": "nature", "cell": "juniper" if evergreen else "hedge", "uv": "atlas"},
+    return Material("foliage", {"atlas": "nature", "uv": "atlas"},
                     (0.04, 0.09, 0.04) if evergreen else (0.07, 0.13, 0.035), 0.92, double_sided=True, surface="masked")

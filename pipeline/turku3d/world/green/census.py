@@ -16,7 +16,10 @@ from . import hedges, inventory, lidar, osm
 # Names the measuring method. Change it when a cell would be measured differently (lidar.py, inventory.py,
 # hedges.py, osm.py or this file): every location then re-measures, 20 to 60 s for a pilot location and minutes a
 # lidar tile on a loaded host, so an edit that measures the same must leave it alone.
-RECIPE = "20261113-crown-base"
+RECIPE = "20261113-mapped-whole"
+
+
+FENCES = ("66636", "66630", "66632", "62534")  # kanta:Rakenne: wooden and stone fences, railings
 
 
 def path_of(i: int, j: int) -> Path:
@@ -41,7 +44,13 @@ def cell(i: int, j: int, features) -> dict:
              for feature in features("kanta:Pensasaita", wide) for geom in feature.geoms if geom.type == "LineString"]
     lines += [{"line": hedge["line"], "source": "osm", "key": str(hedge["id"])} for hedge in mapped["hedges"]]
     lines.sort(key=lambda row: (row["source"], row["key"]))
-    result.update(hedges.measure(box, window, lines, result.pop("window_trees")))
+    fences = [[[round(x, 2), round(y, 2)] for x, y, *_ in geom.shape.coords] for feature in features("kanta:Rakenne", wide)
+              if feature.attrs.get("kplkoodi", "") in FENCES for geom in feature.geoms if geom.type == "LineString"]
+    import shapely
+
+    public = shapely.union_all([shapely.make_valid(shapely.force_2d(geom.shape)) for layer in ("GIS:Katualueet", "GIS:Viheralueet")
+                                for feature in features(layer, wide) for geom in feature.geoms if geom.type == "Polygon"])
+    result.update(hedges.measure(box, window, lines, result.pop("window_trees"), fences, public))
     result["cell"] = [i, j]
     path.parent.mkdir(parents=True, exist_ok=True)
     part = path.with_name(f"{path.name}.{os.getpid()}.part")

@@ -93,10 +93,11 @@ FAMILIES: dict[str, dict] = {
                    up1=0.18, droop1=0.12, noise=0.06, d2=3.2, l2ratio=0.45, hang=0.55, droop2=0.6, card=1.3, spacing=0.3,
                    cards=1250, ref=(16.5, 3.0), trunk=0.9, card_up=-0.15, card_along=1.0, card_out=0.35, card_roll=0.5,
                    card_sky=1.2, aspect=1.0, flat=0.55),
-    "thuja": dict(tone=(0.9, 0.03), kind="spruce", cell="juniper", bark="spruce", whorl=0.35, per_whorl=(4, 6), elev=(35, 70), ratio=0.3,
-                  up1=0.3, droop1=0.0, noise=0.05, d2=4.0, l2ratio=0.5, hang=-0.3, droop2=0.0, card=0.7, spacing=0.2,
-                  cards=1100, ref=(5.0, 0.9), trunk=0.7, card_up=0.9, card_along=0.3, card_out=0.5, card_roll=0.6,
-                  card_sky=0.4, aspect=1.0, flat=0.0),
+    # A thuja column: a closed flame of upright sprays, green to the ground; its stem and boughs are never seen.
+    "thuja": dict(tone=(1.3, 0.07), kind="spruce", column=True, cell="spruce", bark="spruce", whorl=0.35, per_whorl=(4, 6), elev=(35, 70),
+                  ratio=0.3, up1=0.3, droop1=0.0, noise=0.05, d2=4.0, l2ratio=0.5, hang=-0.3, droop2=0.0, card=0.55, spacing=0.2,
+                  cards=480, ref=(6.0, 1.1), trunk=0.7, card_up=0.9, card_along=0.2, card_out=0.45, card_roll=0.5,
+                  card_sky=0.3, aspect=1.0, flat=0.0),
     "lilac": dict(tone=(0.95, 0.0), kind="shrub", cell="lilac", bark="smooth", stems=8, spread=0.09, elev=(55, 82), stem=0.035, up=0.0,
                   droop=0.12, d2=3.6, l2=1.0, start=0.3, card=0.6, spacing=0.17, cards=700, ref=(3.4, 1.8),
                   card_up=0.2, card_along=0.6, card_out=0.6, card_roll=0.9, card_sky=1.2, aspect=1.0),
@@ -306,6 +307,21 @@ def conifer(shape: Shape, sp: dict, rng) -> dict:
     points = np.stack([np.sin(t * 3 + shape.seed) * 0.01 * H * t, t * H * 0.98, np.cos(t * 2.5 + shape.seed) * 0.01 * H * t], axis=1)
     radius = r_ground * (1 - 0.92 * t) * (1 + 0.4 * np.exp(-t * H * 0.98 / 0.4))
     trunk = Branches(0, points[None], radius[None], (0.25 * t * t)[None], np.array([H]), rng.random(1))
+    if sp.get("column"):
+        # Full width up to a quarter of the height, then a convex taper to the tip. Sprays stand on the outline
+        # and, a quarter of them, on a second one inside it, so that no sky shows through the column.
+        def flame(y):
+            f = np.clip((np.asarray(y, float) - 0.25 * H) / (0.77 * H), 0.0, 1.0)
+            return R * (1 - f ** 1.8) ** 0.75 * np.clip(np.asarray(y, float) / 0.25 + 0.75, 0.75, 1.0)
+
+        budget = card_budget(sp, shape, CARD_DENSITY, 120, 1400)
+        outer = shell(flame, 0.0, H * 0.97, budget - budget // 4, rng)
+        inner = shell(lambda y: 0.55 * flame(y), 0.0, H * 0.9, budget // 4, rng)
+        # The stem is drawn as the column's dark inside: a closed solid at three quarters of the outline, which is
+        # what shows between the sprays instead of the garden behind.
+        core = Branches(0, points[None], np.maximum(0.72 * flame(points[:, 1]), 0.03)[None], (0.25 * t * t)[None], np.array([H]), rng.random(1))
+        return {"branches": [core, None, None], "anchors": merge([outer, inner]), "crown": (y0, (y0 + H) / 2, (H - y0) / 2, R),
+                "conifer": True, "trunk": r_ground}
     if sp["kind"] == "pine":
         env = lambda y: R * np.maximum(0.0, np.sin(np.pi * np.minimum(1.0, (y - y0) / (H - y0)) * 0.92 + 0.12)) ** 0.7  # noqa: E731
     else:
@@ -611,6 +627,8 @@ def build(shape: Shape, lod: int = 0) -> list[Part]:
     tint = (1.0, 1.0, 1.0)
     if sp["kind"] == "pine":
         tint = lambda q: np.where((q[:, 1] > 0.45 * shape.height)[:, None], [1.25, 0.86, 0.62], [1.0, 1.0, 1.0])  # noqa: E731
+    if sp.get("column"):
+        tint = (0.16, 0.3, 0.13)  # the bark atlas darkened to the green-black inside of a thuja
     segs = (10, 6, 3) if lod == 0 else (4, 0, 0)
     rings = (11, 4, 3) if lod == 0 else (5, 0, 0)
     minimum = (0.0, 0.02, 0.045) if lod == 0 else (0.0, 0.045, 1.0)  # thinner boughs are hidden by the leaves they carry

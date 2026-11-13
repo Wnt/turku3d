@@ -94,3 +94,58 @@ def test_planting_compiles_hedges_to_parts_and_shrubs_to_instances():
     body = next(part for part in output.parts if part.name == "body-leafy" and part.lod == 0)
     assert body.material.family == "hedge" and open_edges(body.triangles) == 0
     assert {("shrub-foliage", 0), ("shrub-bark", 0), ("shrub-foliage", 1)} <= names and not output.instances
+
+
+def test_a_garden_conifer_is_thuja_columns_and_no_lidar_crown_stands_in_a_carriageway():
+    conifer = census_row("lidar-t", 23459500.0, 6704500.0, 5.0, green=0.2, major=6.0, minor=2.0, centre=[23459500.0, 6704500.0])
+    in_road = census_row("lidar-r", 23459520.0, 6704500.0, 8.0)
+    at_kerb = census_row("lidar-k", 23459540.0, 6704500.0, 8.0)
+    street_tree = census_row("puut-2", 23459560.0, 6704500.0, 12.0, source="register+lidar", register={"species": "Tilia"})
+    garden = census_row("lidar-g", 23459580.0, 6704500.0, 4.2)
+    stub = trees.Stub("trees/c_0_0", (0, 0, 1, 1), [], {
+        "cell": [0, 0], "trees": [conifer, in_road, at_kerb, street_tree, garden], "absent": [], "cameras": [], "onStreet": {},
+        "carriageway": {"lidar-r": {"d": -3.5, "to": [23459520.0, 6704504.1]}, "lidar-k": {"d": -0.5, "to": [23459540.0, 6704501.1]},
+                        "puut-2": {"d": 1.0}}})
+    description = trees.Trees().describe(stub, None)
+    found = {tree["id"]: tree for tree in description["trees"]}
+    columns = [tree for key, tree in found.items() if key.startswith("lidar-t-")]
+    assert len(columns) == 3 and all(tree["family"] == "thuja" and tree["crown"]["major"] <= 0.55 * 6.5 * 1.1 for tree in columns)
+    assert max(tree["e"] for tree in columns) - min(tree["e"] for tree in columns) < 0.1  # along the crown's long axis: north
+    assert description["felled"] == ["lidar-r"]  # 3.5 m inside the carriageway: out of its crown's reach of the edge
+    assert found["lidar-k"]["n"] == 6704501.1 and found["lidar-k"]["moved"]  # its top leant over the kerb
+    assert found["puut-2"]["crown"]["base"] >= trees.ROAD_CLEAR  # a street tree's boughs clear the lorries
+    assert found["lidar-g"]["height"] == 4.7  # a garden tree gained a decimetre a year, not a street sapling's 0.35
+
+
+class FakeWindow:
+    """A lidar window of bare flat ground with the given shrub-layer returns."""
+
+    def __init__(self, box, e, n, h):
+        from turku3d.world.green import lidar
+
+        self.box, self.col0, self.row0 = box, int(box[0] / lidar.GRID), int(box[1] / lidar.GRID)
+        shape = (int((box[3] - box[1]) / lidar.GRID), int((box[2] - box[0]) / lidar.GRID))
+        self.roof = np.zeros(shape, np.float32)
+        count = len(e)
+        self.returns = lidar.Returns(np.asarray(e, float), np.asarray(n, float), np.asarray(h, np.float32), np.full(count, 4, np.uint8),
+                                     np.tile(np.array([[90, 100, 80]], np.uint8), (count, 1)), np.ones(count, bool))
+
+    def ground_height(self, e, n):
+        return np.zeros(np.shape(e)) + 10.0
+
+
+def test_a_hedge_both_maps_draw_is_built_once_and_whole_though_the_leafless_scan_shows_it_thinly():
+    from turku3d.world.green import hedges
+
+    rng = np.random.default_rng(4)
+    along = rng.uniform(2.0, 9.0, 60)  # returns on the first metres only, eight a metre: no density test finds a hedge
+    window = FakeWindow((0.0, 0.0, 40.0, 40.0), 10.0 + along, 20.0 + rng.normal(0.0, 0.3, 60), rng.uniform(0.5, 1.5, 60))
+    mapped = [{"line": [[10.0, 20.0], [30.0, 20.0]], "source": "kanta:Pensasaita", "key": "a"},
+              {"line": [[10.5, 20.4], [30.0, 20.5]], "source": "osm", "key": "1"},
+              {"line": [[10.0, 30.0], [30.0, 30.0]], "source": "osm", "key": "2"}]
+    found = hedges.measure((0.0, 0.0, 40.0, 40.0), window, mapped)["hedges"]
+    assert [hedge["source"] for hedge in found] == ["kanta:Pensasaita"]  # not the same hedge again, nor a line without returns
+    line = np.array(found[0]["line"])
+    assert line[0, 0] < 10.6 and line[-1, 0] > 29.4 and 1.0 < np.median(found[0]["height"]) < 1.6
+    young = planting.hedge_row({**found[0], "height": [0.5] * len(line), "garden": True})
+    assert min(young["height"]) > 1.2  # a garden hedge low in the scan has grown since

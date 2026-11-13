@@ -1,6 +1,7 @@
 """python -m turku3d.world.green: measure the planting of an area and report how the lidar and the registers agree.
 
   report --area NAME | --at E,N [--radius R] [--image FILE] [--json FILE]
+  plan   --at E,N [--radius R] [--yaw DEG] --image FILE     the shrub layer round a camera beside what the maps draw
 """
 
 from __future__ import annotations
@@ -113,6 +114,92 @@ def draw(area: Area, result: dict, path: str) -> None:
     cv2.imwrite(path, image)
 
 
+def plan(e: float, n: float, radius: float, yaw: float | None, path: str, features) -> None:
+    """The shrub layer round a point at 12 pixels a metre, to see what a view's planting is measured from: shrub-layer
+    returns per 0.25 m cell (grey), crowns above (dark green), roofs (blue), carriageways (dark red), the street
+    area's edge (white), register fences (yellow), mapped hedges (thin magenta), and what the census made of it:
+    hedges (orange loose, magenta clipped, at their width), masses and shrubs (cyan), trunks (white dots)."""
+    import cv2
+    import shapely
+
+    from . import hedges as hedge_census
+    from . import lidar
+
+    scale = 12
+    box = (e - radius, n - radius, e + radius, n + radius)
+    window = lidar.Window(box)
+    grid = hedge_census.layer(window, box)
+    returns = window.returns
+    low = (returns.h >= hedge_census.LOW) & (returns.h < hedge_census.HIGH)
+    cols, rows = grid["cols"], grid["rows"]
+
+    def count(use):
+        index = np.clip(((returns.n[use] - box[1]) / 0.25).astype(int), 0, rows - 1) * cols + np.clip(((returns.e[use] - box[0]) / 0.25).astype(int), 0, cols - 1)
+        return np.bincount(index, minlength=rows * cols).reshape(rows, cols)
+
+    image = np.zeros((rows, cols, 3), np.uint8)
+    image[..., 1] = np.clip(count(returns.h >= hedge_census.HIGH) * 25, 0, 70)
+    shrub = np.clip(count(low) * 60, 0, 255).astype(np.uint8)
+    image = np.maximum(image, shrub[..., None])
+    side = int(2 * radius * scale)
+    image = cv2.resize(image[::-1], (side, side), interpolation=cv2.INTER_NEAREST)
+    roof = cv2.resize((window.roof > 2.5).astype(np.uint8)[::-1], (side, side), interpolation=cv2.INTER_NEAREST)
+    image[roof > 0] = (110, 40, 0)
+
+    def pixel(x, y):
+        return int((x - box[0]) * scale), int((box[3] - y) * scale)
+
+    def lines(shape, colour, width=1):
+        for part in shapely.get_parts(shape):
+            rings = [part.exterior, *part.interiors] if part.geom_type == "Polygon" else [part] if part.geom_type == "LineString" else []
+            for ring in rings:
+                cv2.polylines(image, [np.array([pixel(x, y) for x, y, *_ in ring.coords], np.int32)], False, colour, width, cv2.LINE_AA)
+
+    from ..street import registers
+
+    streets = registers.layer("GIS:Katualueet", box)
+    parts = [(shapely.make_valid(shapely.force_2d(row.geometry)), str(getattr(row, "Katuosalaji", ""))) for row in streets.itertuples()]
+    if parts:
+        lines(shapely.union_all([shape for shape, _ in parts]), (255, 255, 255))
+        for shape, use in parts:
+            if use in ("Ajorata", "Pyöräkaista"):
+                lines(shape, (40, 40, 160))
+    for feature in features("kanta:Rakenne", box):
+        if feature.attrs.get("kplkoodi", "") in ("66636", "66630", "66632", "62534"):
+            for geom in feature.geoms:
+                lines(geom.shape, (0, 220, 255))
+    for feature in features("kanta:Pensasaita", box):
+        for geom in feature.geoms:
+            lines(geom.shape, (255, 0, 255))
+    from . import osm
+
+    for hedge in osm.features(box)["hedges"]:
+        lines(shapely.LineString(hedge["line"]), (200, 100, 255))
+    area = Area(e, n, radius)
+    for i, j in cells_of(area):
+        found = census.cell(i, j, features)
+        for hedge in found["hedges"]:
+            colour = (255, 0, 255) if hedge["form"] == "clipped" else (0, 140, 255)
+            shape = shapely.LineString(hedge["line"]).buffer(float(np.median(hedge["width"])) / 2, cap_style="flat")
+            lines(shape, colour, 2)
+            cv2.putText(image, f"{np.median(hedge['height']):.1f}", pixel(*hedge["line"][len(hedge["line"]) // 2]), cv2.FONT_HERSHEY_SIMPLEX, 0.4, colour, 1, cv2.LINE_AA)
+        for item in found["masses"]:
+            cv2.polylines(image, [np.array([pixel(x, y) for x, y in item["ring"]], np.int32)], True, (255, 220, 0), 2, cv2.LINE_AA)
+            cv2.putText(image, f"{item['height']:.1f}", pixel(*item["ring"][0]), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 220, 0), 1, cv2.LINE_AA)
+        for item in found["shrubs"]:
+            cv2.circle(image, pixel(item["e"], item["n"]), max(2, int(item["width"] * scale / 2)), (255, 220, 0), 1, cv2.LINE_AA)
+        for tree in found["trees"]:
+            cv2.circle(image, pixel(tree["e"], tree["n"]), 4, (255, 255, 255), -1)
+            cv2.ellipse(image, pixel(*tree["centre"]), (int(tree["major"] * scale / 2), int(tree["minor"] * scale / 2)), tree["angle"] - 90, 0, 360, (90, 160, 90), 1, cv2.LINE_AA)
+            cv2.putText(image, f"{tree['height']:.0f}", pixel(tree["e"] + 0.4, tree["n"]), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
+    cv2.drawMarker(image, pixel(e, n), (0, 0, 255), cv2.MARKER_CROSS, 20, 2)
+    if yaw is not None:
+        for turn in (-30, 30):
+            angle = np.radians(yaw + turn)
+            cv2.line(image, pixel(e, n), pixel(e + 0.9 * radius * np.sin(angle), n + 0.9 * radius * np.cos(angle)), (0, 0, 255), 1, cv2.LINE_AA)
+    cv2.imwrite(path, image)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m turku3d.world.green", description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -123,8 +210,18 @@ def main() -> None:
     command.add_argument("--radius", type=float)
     command.add_argument("--image")
     command.add_argument("--json")
+    command = commands.add_parser("plan")
+    command.add_argument("--at", metavar="E,N", required=True)
+    command.add_argument("--radius", type=float, default=40.0)
+    command.add_argument("--yaw", type=float)
+    command.add_argument("--image", required=True)
     args = parser.parse_args()
     from ..sources import Sources
+
+    if args.command == "plan":
+        e, n = (float(v) for v in args.at.split(","))
+        plan(e, n, args.radius, args.yaw, args.image, Sources(log=lambda *_: None).wfs.features)
+        return
 
     if args.area:
         from ..driver import area_of_views
