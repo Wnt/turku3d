@@ -197,3 +197,25 @@ def test_the_source_readers_load_arrow_with_the_module_not_in_a_fetch_thread():
 
     code = "import sys, turku3d.world.sources; sys.exit(0 if {'pyarrow.parquet', 'geopandas'} <= set(sys.modules) else 1)"
     assert subprocess.run([sys.executable, "-c", code], timeout=120).returncode == 0
+
+
+def test_lidar_make_searches_a_tile_once_its_neighbourhood_is_reduced_and_skips_a_failed_one(monkeypatch):
+    """No barrier between the phases: with one worker, a tile's search runs right after its reductions, before
+    the next tile's; a tile whose reductions failed is not searched, and the batch goes on."""
+    from turku3d.world.sources import lidar
+
+    near, far = "23460000_6704000", "23470000_6704000"  # 10 km apart: not neighbours
+    monkeypatch.setattr(lidar, "missing", lambda tiles, also=(): [{near: ("objects",), far: ("objects",)}, {near: ("spans",), far: ("spans",)}])
+    monkeypatch.setattr(lidar, "slots", lambda: 4)
+    calls = []
+
+    def fake(job):
+        calls.append((job[0], job[1]))
+        if job[0] == far and job[1] == ("objects",):
+            raise RuntimeError("worker died")
+        return job[0], list(job[1]), 0.1, 10.0
+
+    monkeypatch.setattr(lidar, "_in_process", fake)
+    done = lidar.make([near, far], log=lambda line: None, jobs=1, keep_going=True)
+    assert calls == [(near, ("objects",)), (near, ("spans",)), (far, ("objects",))]
+    assert done["failed"] == [far] and done["made"] == 2

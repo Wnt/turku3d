@@ -77,8 +77,9 @@ def warm_order(tiles: list[str], points: list[tuple[float, float]], reach: float
 
 
 def warm_tiles(args) -> None:
-    """Makes the lidar products of the survey's tiles in rounds: first the tiles that locations at the points of
-    `--first` need, then nearest first to `--at`, leaving one of the machine's lidar slots to builds someone waits
+    """Makes the lidar products of the survey's tiles in one queue (no rounds: a tile's search starts when its
+    neighbourhood is reduced): first the tiles that locations at the points of `--first` need, then nearest first
+    to `--at`, leaving one of the machine's lidar slots to builds someone waits
     for. A tile that has everything costs nothing, so the command can be stopped and started again; a tile whose
     process fails is logged and left to the next run. It waits while a disk is below `--keep-free` or the machine
     has less than `--keep-memory` available."""
@@ -124,28 +125,28 @@ def warm_tiles(args) -> None:
     phases = lidar.missing(tiles)
     lacking = set(phases[0]) | set(phases[1])
     say(f"{len(tiles)} tiles, {len(lacking & known)} lack a product ({len(phases[0])} to reduce, {len(phases[1])} to search), "
-        f"{len(points)} points first, {jobs} worker(s) of {lidar.slots()} slots, rounds of {args.batch}; products in {lidar.products_root()}")
+        f"{len(points)} points first, {jobs} worker(s) of {lidar.slots()} slots; products in {lidar.products_root()}")
     if args.plan:
         return
-    started, made, checked, failed = time.perf_counter(), 0, 0, []
-    for first in range(0, len(tiles), args.batch):
-        batch = tiles[first:first + args.batch]
-        checked += len(batch)
-        if not lacking.intersection(batch):
-            continue
+    started, ended = time.perf_counter(), [0]
+
+    def before() -> None:
         while short := room():
             say("waiting 5 min: " + "; ".join(short))
             time.sleep(300)
-        near = sorted({name for tile in batch for name in lidar.neighbours(tile) if name in known} - set(batch))
-        done = lidar.make(batch, lambda line: print(line, flush=True), jobs, spare=1, also=near, keep_going=True)
-        made += len(lacking.intersection(batch)) - len(set(done["failed"]) & set(batch))
-        failed += done["failed"]
-        hours = (time.perf_counter() - started) / 3600
-        left = len(lacking.intersection(tiles[first + args.batch:]))
-        say(f"{checked} of {len(tiles)} tiles checked, {made} made in {hours * 60:.1f} min ({made / hours:.0f} an hour), {left} left: "
-            f"about {left / max(made / hours, 1e-6):.1f} h; largest worker {done['peakMb']} MB, {len(failed)} failed")
-    say(f"pass complete: {made} tiles made in {(time.perf_counter() - started) / 3600:.2f} h"
-        + (f"; FAILED, made on the next run: {' '.join(sorted(set(failed)))}" if failed else ""))
+
+    def log(line: str) -> None:
+        print(line, flush=True)
+        if line.startswith("  lidar tile "):
+            ended[0] += 1
+            if ended[0] % args.batch == 0:
+                hours = (time.perf_counter() - started) / 3600
+                say(f"{ended[0]} tile processes ended in {hours * 60:.1f} min ({ended[0] / hours:.0f} an hour)")
+
+    done = lidar.make(tiles, log, jobs, spare=1, keep_going=True, before=before)
+    say(f"pass complete: {done['made']} tile processes made products in {(time.perf_counter() - started) / 3600:.2f} h, "
+        f"largest worker {done['peakMb']} MB"
+        + (f"; FAILED, made on the next run: {' '.join(done['failed'])}" if done["failed"] else ""))
 
 
 def main() -> None:
@@ -176,7 +177,7 @@ def main() -> None:
     warm.add_argument("--at", metavar="E,N", help="the point to start from (default: the middle of the survey)")
     warm.add_argument("--reach", type=float, help="metres from the point to which tiles are made (default: the whole survey)")
     warm.add_argument("--jobs", type=int, help="worker processes (default: all but one of the machine's lidar slots)")
-    warm.add_argument("--batch", type=int, default=12, help="tiles per round; each round is complete when it ends")
+    warm.add_argument("--batch", type=int, default=12, help="a progress line every this many tile processes")
     warm.add_argument("--first", action="append", metavar="FILE", help="a file of points, one line each with E and N: the tiles locations there need are made first")
     warm.add_argument("--first-reach", type=float, default=400.0, help="metres around each point of --first (a location's background)")
     warm.add_argument("--keep-free", type=float, default=25.0, help="GiB that stay free on the data disk and the products disk; the batch waits below that")

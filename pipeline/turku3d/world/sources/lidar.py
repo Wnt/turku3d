@@ -416,38 +416,69 @@ def _in_process(job):
 
 
 def make(tiles: list[str], log=print, jobs: int | None = None, spare: int = 0, also: tuple[str, ...] | list[str] = (),
-         keep_going: bool = False) -> dict:
+         keep_going: bool = False, before=None) -> dict:
     """Makes every lidar product the tiles lack on this machine (and the reductions of the tiles in `also`).
     Returns {tiles, made, s, peakMb, failed}: how many tiles lacked something, how many products' worth of tiles
-    were made, the largest worker, and the tiles whose process failed. A failure is raised when the first phase
-    has ended, unless `keep_going`: a batch logs it and goes on, and the tile is made on a later run."""
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    were made, the largest worker, and the tiles whose process failed.
+
+    At most `jobs` tile processes run at once, in the order of `tiles` (nearest first). There is no barrier
+    between the phases: a tile's search starts as soon as its own and its neighbours' reductions and rings have
+    ended, and goes before further reductions, so workers never wait for the slowest tile of a round. A tile whose
+    reductions failed is not searched (the search would decode it again on its own). A failure stops new work and
+    is raised at the end, unless `keep_going`: a batch logs it and goes on, and the tile is made on a later run.
+    `before()` is called before each process starts (a batch waits there while the machine is short of room)."""
+    from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
     started = time.perf_counter()
-    phases = missing(tiles, also)
-    count = len(set(phases[0]) | set(phases[1]))
+    first, second = missing(tiles, also)
+    count = len(set(first) | set(second))
     made, peak, failed = 0, 0.0, {}
     if count:
-        workers = max(1, min(jobs or int(os.environ.get("TURKU3D_JOBS") or 1), slots(), max(len(phase) for phase in phases)))
-        log(f"  lidar: {len(phases[0])} tiles to reduce, {len(phases[1])} to search for wires and spans, {workers} at a time "
+        rank = {name: k for k, name in enumerate(tiles)}
+        reduce = sorted(first, key=lambda name: (rank.get(name, len(rank)), name))
+        search = sorted(second, key=lambda name: (rank.get(name, len(rank)), name))
+        needs = {name: ({name, *neighbours(name)} & set(first)) for name in search}
+        ended: set[str] = set()  # first-phase tiles that ended, made or failed
+        workers = max(1, min(jobs or int(os.environ.get("TURKU3D_JOBS") or 1), slots(), count))
+        log(f"  lidar: {len(first)} tiles to reduce, {len(second)} to search for wires and spans, {workers} at a time "
             f"(this machine has {slots()} slots)")
+        running: dict = {}
         with ThreadPoolExecutor(workers) as pool:  # a thread waits for each tile's process
-            for phase in phases:
-                # A tile whose reductions failed is not searched: the search would decode it again in its own process.
-                waiting = {pool.submit(_in_process, (name, labels, spare)): name for name, labels in phase.items() if name not in failed}
-                for done in as_completed(waiting):
+            while True:
+                while len(running) < workers and (keep_going or not failed):
+                    ready = next((name for name in search if needs[name] <= ended), None)
+                    if ready is not None:
+                        search.remove(ready)
+                        if ready in failed:
+                            continue
+                        job = (ready, second[ready], 1)
+                    elif reduce:
+                        name = reduce.pop(0)
+                        job = (name, first[name], 0)
+                    else:
+                        break
+                    if before:
+                        before()
+                    running[pool.submit(_in_process, (job[0], job[1], spare))] = job
+                if not running:
+                    break
+                finished, _ = wait(running, return_when=FIRST_COMPLETED)
+                for done in finished:
+                    name, _, phase = running.pop(done)
+                    if phase == 0:
+                        ended.add(name)
                     try:
                         name, labels, seconds, worker_peak = done.result()
                     except Exception as error:  # noqa: BLE001 - the tile's process died or raised; the others go on
-                        failed[waiting[done]] = error
-                        log(f"  lidar tile {waiting[done]} FAILED: {str(error).strip().splitlines()[0][:300]}")
+                        failed[name] = error
+                        log(f"  lidar tile {name} FAILED: {str(error).strip().splitlines()[0][:300]}")
                         continue
                     peak = max(peak, worker_peak)
                     if labels:
                         made += 1
                         log(f"  lidar tile {name}: {', '.join(labels)} in {seconds:.1f} s, {worker_peak:.0f} MB")
-                if failed and not keep_going:
-                    raise next(iter(failed.values()))
+        if failed and not keep_going:
+            raise next(iter(failed.values()))
     return {"tiles": count, "made": made, "s": round(time.perf_counter() - started, 2), "peakMb": round(peak), "failed": sorted(failed)}
 
 
