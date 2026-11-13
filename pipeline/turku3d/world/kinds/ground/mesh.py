@@ -155,7 +155,12 @@ def partition(description: dict, e0: float, n1: float):
     cell = shapely.box(0, 0, CELL, CELL)
     surfaces = [(local_shape(s['rings'], e0, n1), s) for s in sorted(description['surfaces'], key=lambda s: s['rank'])]
     low_area = shapely.unary_union([shape for shape, s in surfaces if s['level'] == 'low']) if surfaces else shapely.Polygon()
-    kerbed = shapely.unary_union([shape for shape, s in surfaces if s['level'] == 'high' and s['source'] == 'street'])
+    # A kerb stone lines the carriageway against everything the street register maps beside it and against green
+    # (a verge, a lawn, a park): 22 of the 25 carriageways read from the dev points' photos have a kerb, grass
+    # verges included. Unmapped land, yards and track beds get none: a street that runs on unmapped has no stone
+    # across it.
+    kerbed = shapely.unary_union([shape for shape, s in surfaces if s['level'] == 'high'
+                                  and (s['source'] in ('street', 'green') or s.get('cover', {}).get('family') in ('grass', 'soil'))])
     if low_area.is_empty or kerbed.is_empty:
         kerb_lines, band = shapely.LineString(), shapely.Polygon()
     else:

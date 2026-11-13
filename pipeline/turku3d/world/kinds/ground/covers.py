@@ -22,16 +22,18 @@ REGISTER = (
     # sampled register parts: "Betonikivi" is mostly red-brown block paving and "Betonilaatta" footways are small grey
     # pavers in running bond, not half-metre slabs; "Maatiili" is clay brick.
     ('maatiili', {'family': 'paving', 'params': {'size_x': 0.1, 'size_y': 0.2, 'bond': 'running', 'tone': 0.45, 'joint_m': 0.004, 'stone': 'concrete', 'tint': '#ffc8b0'},
-                  'color': (0.232, 0.133, 0.101), 'roughness': 0.86}),
+                  'color': (0.229, 0.137, 0.103), 'roughness': 0.86}),
     # Cast concrete on footways, measured against the asphalt beside it in the street photos of the random dev
     # points (suburbs, house and work areas; 9 footways): weathered concrete is warm grey, about as bright as old
     # asphalt up to 1.4 times it, a little redder than green and clearly less blue (red 1.02-1.15, blue 0.74-0.90 of
     # green). "Betonilaatta" is 30 cm slabs in half bond, "Betonikivi" small pavers with a muted red-brown cast.
     # Pale blue-grey slabs and a vivid red band, as drawn before, are what the judge named at five points.
-    ('betonilaatta', {'family': 'paving', 'params': {'size_x': 0.3, 'size_y': 0.3, 'bond': 'running', 'tone': 0.42, 'joint_m': 0.006, 'stone': 'concrete', 'tint': '#fff5e1'},
-                      'color': (0.236, 0.214, 0.178), 'roughness': 0.86}),
-    ('betonikivi', {'family': 'paving', 'params': {'size_x': 0.1, 'size_y': 0.2, 'bond': 'running', 'tone': 0.42, 'joint_m': 0.004, 'stone': 'concrete', 'tint': '#ffdfc4'},
-                    'color': (0.236, 0.172, 0.128), 'roughness': 0.86}),
+    # The light readings of the same photos (descriptions/location/dev_*.json, 14 paving-stone footways) agree on
+    # the hue and put the slabs lighter: median #a39a90 beside asphalt #77777a, the reddish ones #8e7872.
+    ('betonilaatta', {'family': 'paving', 'params': {'size_x': 0.3, 'size_y': 0.3, 'bond': 'running', 'tone': 0.68, 'joint_m': 0.006, 'stone': 'concrete', 'tint': '#fff5e1'},
+                      'color': (0.297, 0.271, 0.223), 'roughness': 0.86}),
+    ('betonikivi', {'family': 'paving', 'params': {'size_x': 0.1, 'size_y': 0.2, 'bond': 'running', 'tone': 0.42, 'joint_m': 0.004, 'stone': 'concrete', 'tint': '#ffe2da'},
+                    'color': (0.223, 0.172, 0.156), 'roughness': 0.86}),
     ('noppakivi', {'family': 'setts', 'params': {'size_x': 0.09, 'size_y': 0.09, 'tone': 0.5}, 'color': (0.171, 0.149, 0.135), 'roughness': 0.81}),
     ('nupukivi', {'family': 'setts', 'params': {'size_x': 0.14, 'size_y': 0.2, 'tone': 0.45}, 'color': (0.238, 0.229, 0.218), 'roughness': 0.82}),
     ('kenttäkivi', {'family': 'cobbles', 'params': {'size_m': 0.14}, 'color': (0.153, 0.134, 0.116), 'roughness': 0.8}),
@@ -93,7 +95,7 @@ NAMED = {
     'cycle-lane': {'family': 'asphalt', 'params': {'tone': 0.7, 'tint': '#92807a'}, 'color': (0.198, 0.149, 0.134), 'roughness': 0.93},
     'gravel': {'family': 'gravel', 'params': {'grade': 'fine'}, 'color': (0.273, 0.248, 0.21), 'roughness': 0.95},
     'asphalt-yard': {'family': 'asphalt', 'params': {'tone': 0.8}, 'color': (0.19, 0.19, 0.19), 'roughness': 0.93},
-    'pavers-yard': {'family': 'paving', 'params': {'size_x': 0.14, 'size_y': 0.21, 'bond': 'running', 'tone': 0.45, 'joint_m': 0.005, 'stone': 'concrete', 'tint': '#fff5e1'}, 'color': (0.243, 0.221, 0.184), 'roughness': 0.86},
+    'pavers-yard': {'family': 'paving', 'params': {'size_x': 0.14, 'size_y': 0.21, 'bond': 'running', 'tone': 0.5, 'joint_m': 0.005, 'stone': 'concrete', 'tint': '#fff5e1'}, 'color': (0.242, 0.222, 0.182), 'roughness': 0.86},
     'setts-yard': {'family': 'setts', 'params': {'size_x': 0.09, 'size_y': 0.09, 'tone': 0.5}, 'color': (0.171, 0.149, 0.135), 'roughness': 0.81},
     # Land nobody mapped and the orthophoto shows neither green nor gravel: a yard's asphalt (the old generator's choice).
     'unmapped': {'family': 'asphalt', 'params': {'tone': 0.8}, 'color': (0.19, 0.19, 0.19), 'roughness': 0.93},
