@@ -31,6 +31,7 @@ PANEL = {"board": 2.4, "picket": 2.4, "iron": 2.0, "mesh": 2.0, "stone-wall": 2.
 LIMITS = {"wood-fence": (0.7, 2.6), "stone-fence": (0.3, 3.0), "railing": (0.8, 1.3)}
 DEFAULT_HEIGHT = {"wood-fence": 1.6, "stone-fence": 0.9, "railing": 1.0}
 PRESENT = {"wood-fence": 0.3, "stone-fence": 0.2, "railing": 0.1}  # share of the line the lidar must see standing
+OVERGROWN = 0.15  # m under the upper limit: a wood fence measured this high is overgrown, its height not measured
 SCAN_DATE = "2021-04-17"
 BURY = 0.2  # m a panel reaches below its base, so stepped panels leave no gap on a slope
 OPEN = 4.0  # lidar returns per metre of fence under which it is open bars, not boards (boards: 20 to 35, bars: about 1)
@@ -219,6 +220,11 @@ class Fence:
             guessed = []
             if len(standing) >= 2 and coverage >= PRESENT[kind]:
                 height = float(np.clip(np.percentile(standing, 60), low, high))
+                if kind == "wood-fence" and height > high - OVERGROWN:
+                    # What stands this high on a garden fence's line is the planting on it, not the fence (four of
+                    # four such lines read from panoramas: 1.0 to 1.65 m, or no fence).
+                    height = DEFAULT_HEIGHT[kind]
+                    guessed.append("height")
             else:
                 height = DEFAULT_HEIGHT[kind]
                 guessed.append("height")

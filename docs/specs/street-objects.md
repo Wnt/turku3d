@@ -178,4 +178,5 @@ fields it replaces (`family`, `height`, `colour`, `guessed` without them) and th
 stored description is never overwritten. `none` builds nothing; `mesh` (a top rail over a grid of wires in the read colour) is a family only a reading gives.
 Measured on three Portsa fences: 6 to 12 s and 0.03 to 0.06 USD notional each at low effort. Gates read this way are
 kept in `seen` and not built yet.
-
+A wood fence whose scan height lands within 0.15 m of the upper limit (2.6 m) is overgrown: the height is not
+measured, the default (1.6 m) is used and `height` is marked guessed, until a reading replaces it.
