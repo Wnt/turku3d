@@ -64,6 +64,31 @@ def watch(name: str, store: Store) -> None:
                 print(f"  {type(error).__name__}: {error}", flush=True)
 
 
+def warm_tiles(args) -> None:
+    """Makes the lidar products of the survey's tiles, nearest first, in rounds, leaving one of the machine's lidar
+    slots to builds someone waits for. A tile that has everything costs nothing, so the command can be stopped
+    and started again."""
+    import numpy as np
+
+    from .sources import lidar
+
+    at = tuple(float(v) for v in args.at.split(",")) if args.at else (None, None)
+    tiles = lidar.city_tiles(*at)
+    if args.reach is not None:
+        if not args.at:
+            raise SystemExit("--reach needs --at")
+        tiles = [name for name in tiles if np.hypot(*(np.array(lidar.tile_corner(name)) + lidar.TILE / 2 - at)) <= args.reach]
+    jobs = args.jobs or max(1, lidar.slots() - 1)
+    started, made = time.perf_counter(), 0
+    print(f"{len(tiles)} tiles, {jobs} worker(s), rounds of {args.batch}", flush=True)
+    for first in range(0, len(tiles), args.batch):
+        done = lidar.make(tiles[first:first + args.batch], lambda line: print(line, flush=True), jobs, spare=1)
+        made += done["made"]
+        elapsed = time.perf_counter() - started
+        print(f"{time.strftime('%H:%M:%SZ', time.gmtime())} {min(first + args.batch, len(tiles))} of {len(tiles)} tiles checked, {made} made, "
+              f"{elapsed / 60:.1f} min, largest worker {done['peakMb']} MB", flush=True)
+
+
 def main() -> None:
     if sys.argv[1:2] == ["check-readiness"]:  # its own options: docs/design/render-readiness.md, section 9
         from .readiness.__main__ import main as check_readiness
@@ -88,6 +113,11 @@ def main() -> None:
         command.add_argument("--location", required=True)
     roads = commands.add_parser("roads", help="give a built location its street graphs (manifest `roads`) without building it again")
     roads.add_argument("--location", required=True)
+    warm = commands.add_parser("warm", help="make the lidar products of survey tiles ahead, nearest first, so that later builds there are not cold")
+    warm.add_argument("--at", metavar="E,N", help="the point to start from (default: the middle of the survey)")
+    warm.add_argument("--reach", type=float, help="metres from the point to which tiles are made (default: the whole survey)")
+    warm.add_argument("--jobs", type=int, help="worker processes (default: all but one of the machine's lidar slots)")
+    warm.add_argument("--batch", type=int, default=12, help="tiles per round; each round is complete when it ends")
     describe = commands.add_parser("describe", help="print the effective description of an entity of a built location")
     describe.add_argument("id")
     commands.add_parser("gc", help="delete objects that no location manifest of this store references")
@@ -116,6 +146,8 @@ def main() -> None:
             store.put_location(manifest)
     elif args.command == "watch":
         watch(args.location, store)
+    elif args.command == "warm":
+        warm_tiles(args)
     elif args.command == "describe":
         from .kinds import KINDS
 

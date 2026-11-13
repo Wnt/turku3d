@@ -4,9 +4,9 @@ Four reductions read the point cloud (ground rasters for `street`, vegetation re
 and overhead wires for `objects`). Each keeps its own product per tile in the shared source cache; what they share
 is here:
 
-- `laz_path(name)`: the tile's file. A read-only mirror first (`$TURKU3D_DATA/raw/laz/pistepilvi`, on
-  osgallery-dev a link to the whole survey), else the shared cache, else fetched once from the city. None where the
-  survey has no tile (the city's edge, open sea), remembered as `<name>.absent`.
+- `laz_path(name)`: the tile's file. A read-only mirror first (`$TURKU3D_DATA/raw/laz-survey`, on osgallery-dev
+  a link to the whole survey; `raw/laz/pistepilvi`, the pilot tiles), else the shared cache, else fetched once
+  from the city. None where the survey has no tile (the city's edge, open sea), remembered as `<name>.absent`.
 - `read(path)`: the decoded tile. Inside `keeping()` the last tile stays in memory, so the reductions of one tile
   made one after another decode it once.
 - `ring(name)`: what the wire detection of the neighbouring tiles needs of this tile, its 60 m edge reduced to
@@ -87,7 +87,8 @@ def laz_path(name: str, fetch: bool = True) -> Path | None:
     """The tile's LAZ file, fetched when it is nowhere on this machine; None where the survey has none (or, with
     `fetch` off, where this machine has none)."""
     cached = _cached(name)
-    for path in (config.raw_dir("laz") / "pistepilvi" / f"{name}.laz", config.raw_dir("laz-3x3") / f"{name}.laz", cached):
+    mirrors = (config.raw_dir("laz-survey"), config.raw_dir("laz") / "pistepilvi", config.raw_dir("laz-3x3"))
+    for path in (*(mirror / f"{name}.laz" for mirror in mirrors), cached):
         if path.exists():
             return path
     if not fetch or absent(name):
@@ -182,7 +183,8 @@ def tile_wire_returns(name: str, box: tuple[float, float, float, float] | None =
     e, n, h, cls = np.asarray(las.x), np.asarray(las.y), np.asarray(las.z), np.asarray(las.classification)
     if box is not None:
         inside = (e >= box[0]) & (e < box[2]) & (n >= box[1]) & (n < box[3])
-        e, n, h, cls = e[inside], n[inside], h[inside], cls[inside]
+        if not inside.all():
+            e, n, h, cls = e[inside], n[inside], h[inside], cls[inside]
     if not len(e):
         return np.zeros((0, 4))
     keep = wire_returns(e, n, h, cls)
@@ -226,8 +228,12 @@ def ring(name: str, fetch: bool = False) -> np.ndarray | None:
 
 
 def slots() -> int:
-    """How many tiles are decoded and reduced at once on this machine, over all builds."""
-    return max(1, int(os.environ.get("TURKU3D_LIDAR_SLOTS") or min(4, (os.cpu_count() or 4) // 4)))
+    """How many tiles are decoded and reduced at once on this machine, over all builds. A dense tile's wire search
+    holds about 5 GB: one slot per 12 GB of memory and per four cores, three at most."""
+    if os.environ.get("TURKU3D_LIDAR_SLOTS"):
+        return max(1, int(os.environ["TURKU3D_LIDAR_SLOTS"]))
+    memory_gb = os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE") / 2**30
+    return max(1, min(3, (os.cpu_count() or 4) // 4, int(memory_gb // 12)))
 
 
 @contextmanager
@@ -242,13 +248,14 @@ def _locked(path: Path):
 
 
 @contextmanager
-def slot():
-    """One of the machine's decode slots, waited for."""
+def slot(spare: int = 0):
+    """One of the machine's decode slots, waited for. `spare` leaves that many of them to others: a batch over
+    the city takes all but one, so that a location someone waits for still gets its tiles."""
     root = sources_root() / ".locks"
     root.mkdir(parents=True, exist_ok=True)
     count = slots()
     while True:
-        for index in range(count):
+        for index in range(min(spare, count - 1), count):
             handle = open(root / f"slot-{index}", "w")
             try:
                 fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -291,61 +298,91 @@ def _products() -> dict:
     }
 
 
-def _work(job: tuple[str, tuple[str, ...]]) -> tuple[str, list[str], float]:
-    """Makes the named products of one tile in a worker process: (name, what was made, seconds)."""
-    name, labels = job
+def _work(job: tuple[str, tuple[str, ...], int]) -> tuple[str, list[str], float, float]:
+    """Makes the named products of one tile in a worker process: (name, what was made, seconds, peak MB)."""
+    name, labels, spare = job
+    import resource
+    import sys
+
     from . import Sources
 
     os.environ.setdefault("RAYON_NUM_THREADS", "4")  # the decode's threads; several workers share the machine
     sources = Sources(log=lambda *_: None)
     products = _products()
+    phase = products[labels[0]][2]
     started = time.perf_counter()
     made = []
     # One process at a time per tile and phase, on the whole machine: a second build waits here, then finds the
     # products made.
-    with _locked(sources_root() / ".locks" / f"{name}-{products[labels[0]][2]}"):
+    with _locked(sources_root() / ".locks" / f"{name}-{phase}"):
         todo = [label for label in labels if not products[label][0](name)]
         if todo:
-            with slot(), keeping():
-                for label in todo:
-                    products[label][1](name, sources)
-                    made.append(label)
-    return name, made, time.perf_counter() - started
+            with slot(spare):
+                if phase == 1:  # the reductions share the decode; a detection reads it once and lets it go
+                    with keeping():
+                        for label in todo:
+                            products[label][1](name, sources)
+                            made.append(label)
+                else:
+                    for label in todo:
+                        products[label][1](name, sources)
+                        made.append(label)
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (2**20 if sys.platform == "darwin" else 2**10)
+    return name, made, time.perf_counter() - started, peak
 
 
-def missing(box: tuple[float, float, float, float], margin: float = RING) -> list[dict[str, tuple[str, ...]]]:
-    """What the tiles of a box still lack, as two phases of {tile: products to make}. A tile whose wires are
-    missing needs the rings of its neighbours: of those in the box, and of the others when this machine has
-    them (the detection takes a neighbour's edge only when it is there)."""
+def missing(tiles: list[str]) -> list[dict[str, tuple[str, ...]]]:
+    """What tiles still lack, as two phases of {tile: products to make}. A tile whose wires are missing needs the
+    rings of its neighbours: of those among the tiles, and of the others when this machine has them (the
+    detection takes a neighbour's edge only when it is there)."""
     products = _products()
-    own = names(box, margin)
-    lacks = {name: [label for label, (done, _, _) in products.items() if label != "ring" and not done(name)] for name in own}
-    rings = {near for name in own if "wires" in lacks[name] for near in neighbours(name)}
+    lacks = {name: [label for label, (done, _, _) in products.items() if label != "ring" and not done(name)] for name in tiles}
+    rings = {near for name in tiles if "wires" in lacks[name] for near in neighbours(name)}
     rings = {name for name in rings if not products["ring"][0](name) and (name in lacks or laz_path(name, fetch=False) is not None)}
     first = {name: tuple(label for label in lacks.get(name, []) if products[label][2] == 1) + (("ring",) if name in rings else ())
-             for name in sorted(set(own) | rings)}
-    second = {name: tuple(label for label in lacks[name] if products[label][2] == 2) for name in own}
+             for name in sorted(set(tiles) | rings)}
+    second = {name: tuple(label for label in lacks[name] if products[label][2] == 2) for name in tiles}
     return [{name: labels for name, labels in phase.items() if labels} for phase in (first, second)]
 
 
-def prepare(box: tuple[float, float, float, float], log=print, jobs: int | None = None, margin: float = RING) -> dict:
-    """Makes every per-tile lidar product a survey box needs that this machine lacks. Returns {tiles, made, s}."""
+def make(tiles: list[str], log=print, jobs: int | None = None, spare: int = 0) -> dict:
+    """Makes every lidar product the tiles lack on this machine. Returns {tiles, made, s, peakMb}: how many tiles
+    lacked something, how many products' worth of tiles were made, and the largest worker."""
     from concurrent.futures import ProcessPoolExecutor
     from multiprocessing import get_context
 
     started = time.perf_counter()
-    phases = missing(box, margin)
-    tiles = len(set(phases[0]) | set(phases[1]))
-    made = 0
-    if tiles:
+    phases = missing(tiles)
+    count = len(set(phases[0]) | set(phases[1]))
+    made, peak = 0, 0.0
+    if count:
         workers = max(1, min(jobs or int(os.environ.get("TURKU3D_JOBS") or 1), slots(), max(len(phase) for phase in phases)))
         log(f"  lidar: {len(phases[0])} tiles to reduce, {len(phases[1])} to search for wires and spans, in {workers} process(es) "
             f"of this machine's {slots()} slots")
-        # Fresh processes: they start without this one's memory and give theirs back when the stage ends.
-        with ProcessPoolExecutor(workers, mp_context=get_context("spawn")) as pool:
+        # Fresh processes that serve a few tiles each: they start without this one's memory and give theirs back.
+        with ProcessPoolExecutor(workers, mp_context=get_context("spawn"), max_tasks_per_child=4) as pool:
             for phase in phases:
-                for name, labels, seconds in pool.map(_work, list(phase.items())):
+                for name, labels, seconds, worker_peak in pool.map(_work, [(name, labels, spare) for name, labels in phase.items()]):
+                    peak = max(peak, worker_peak)
                     if labels:
                         made += 1
                         log(f"  lidar tile {name}: {', '.join(labels)} in {seconds:.1f} s")
-    return {"tiles": tiles, "made": made, "s": round(time.perf_counter() - started, 2)}
+    return {"tiles": count, "made": made, "s": round(time.perf_counter() - started, 2), "peakMb": round(peak)}
+
+
+def prepare(box: tuple[float, float, float, float], log=print, jobs: int | None = None, margin: float = RING) -> dict:
+    """Makes every per-tile lidar product a survey box needs that this machine lacks (`make`)."""
+    return make(names(box, margin), log, jobs)
+
+
+def city_tiles(e: float | None = None, n: float | None = None) -> list[str]:
+    """Every tile of the city's survey index, nearest first to a point (the index's middle by default)."""
+    import csv
+
+    with open(config.LAZ_TILES_CSV, newline="") as stream:
+        rows = [(float(r["xmin"]), float(r["ymax"])) for r in csv.DictReader(stream) if r["dataset"] == "pistepilvi"]
+    corners = np.array(rows)
+    centre = np.array([e, n]) if e is not None and n is not None else (corners.min(axis=0) + corners.max(axis=0)) / 2
+    middle = corners + np.array([TILE / 2, -TILE / 2])
+    order = np.argsort(np.hypot(*(middle - centre).T), kind="stable")
+    return [f"{int(corners[k, 0])}_{int(corners[k, 1])}" for k in order]

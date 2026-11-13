@@ -216,6 +216,13 @@ sources/<source>/…                     source data fetched on demand, by the s
 - `sources/` is a cache of public source data (`wfs/`, `laz/` and `dem/`, `osm/`, `ortho/`; panorama coverage
   stays in the shared panorama cache). `$TURKU3D_DATA/raw` stays read-only; readers look there first and fetch into `sources/` only what is
   missing. Reference imagery itself stays where `qa/README.md` puts it.
+- The lidar point cloud is read through `sources/lidar.py` alone (one file finder, one decode). Per 500 m tile the
+  cache holds what each reader reduced it to, under that reader's own recipe or version: `lidar-rasters/` (ground
+  and canopy rasters, `street`), `green/lidar-*/` (vegetation returns), `object-lidar/` (object returns),
+  `object-wires/` and `object-spans/` (found wires), `laz-rings/` (a tile's 60 m edge for its neighbours' wire
+  search), `green/census-*/` (measured planting per 62.5 m cell). `sources/.locks/` holds the machine-wide lidar
+  slots and per-tile locks. On osgallery-dev the whole survey's LAZ files are a read-only mirror
+  (`raw/laz-survey` links to `/bulk/turku3d/lidarpc/raw/pistepilvi`), so nothing is downloaded there.
 
 ## 5. Location manifest
 
@@ -251,7 +258,11 @@ its reference views) or `at-<E>-<N>-r<R>` for a free query.
   "stats": { "entities": 214, "triangles": 412000, "bytes": 9100000, "instances": 96, "byKind": { "building": 61 } },
   "sources": { "osm": { "features": 154 }, "ortho": { "layer": "ortho2022to", "px_m": 0.2, "valid": 1.0 },
                "panoramas": { "lookaround": 298, "google": 89 } },
-  "timings": { "sourcesMs": 800, "discoverMs": 920, "describeMs": 300, "compileMs": 5200, "totalMs": 6500 }
+  "descriptions": { "stage": "cold", "roots": ["…/world/descriptions"], "byTier": {},
+                    "used": [] },
+  "timings": { "sourcesMs": 800, "discoverMs": 920, "describeMs": 300, "compileMs": 5200, "totalMs": 6500,
+               "peakMb": 1400, "lidar": { "tiles": 0, "made": 0, "s": 0.0, "peakMb": 0 },
+               "stages": { "lidar": { "s": 0.0, "peakMb": 90 }, "discover:ground": { "s": 11.8, "peakMb": 620 } } }
 }
 ```
 
@@ -267,6 +278,16 @@ its reference views) or `at-<E>-<N>-r<R>` for a free query.
   raised (a source that could not be read at that place) is one row with the id `<kind>/*`: the location is built
   without that kind. An empty list is the normal case; a kind fixes its failures, the client never draws a half
   entity.
+- `descriptions` says which stored descriptions the build read (section 3.2): every one with its `id`, `tier`,
+  the `sha256` of the stored file and, for an entity of the location, its `role`; `byTier` counts them; `stage`
+  is `cold` when nothing above the automatic tier was read and `characterised` otherwise. A judged score is
+  labelled from this block, not from how the build was started. Everything a build reads of the stored
+  descriptions must go through `store.read_description` (a location-wide reading or an area profile too), or the
+  label lies.
+- `timings.stages` is where the build's time and memory went: seconds and the highest memory of the build's
+  whole process tree per stage (`lidar`, `discover:<kind>`, `sources:cover`, `describe`, `compile`, `collision`),
+  `timings.peakMb` the highest of all, `timings.lidar` what the lidar stage had to make (`tiles` lacking a
+  product, largest worker). `build` prints each stage as it ends.
 - Every entity row has `bounds` and a stable `id`; every instance list has the asset's `bounds` and, for objects
   the game addresses, one id per row. A city-wide hierarchy can cull and stream both without opening a mesh.
 - The manifest holds everything the client needs to draw the location: no second request per entity besides its GLB
@@ -362,12 +383,22 @@ class Output:
   | --- | --- | --- |
   | `sources.wfs.features(layer, box)` | any city WFS layer: LoD2 buildings, registers, surface polygons | 500 m blocks, fetched concurrently |
   | `sources.terrain.heights(e, n)` | lidar ground key points as a 1 m grid | 500 m LAZ tiles |
+  | `sources.prepare(box)`, then the tracks' lidar readers | the lidar point cloud reduced per 500 m tile (section 4.2) | made ahead in worker processes, a few at a time on the whole machine (below) |
   | `sources.osm.features(box)` | OpenStreetMap points, lines and areas with tags, in the survey frame | one city-wide table, cut once from the national extract (about three minutes) |
   | `sources.ortho.image(box, px_m)` | orthophoto pixels at 0.05 to 0.8 m | 1024-pixel chunks from the city's WMS |
   | `sources.panoramas.spots(box)` | Street View and Look Around panoramas (`turku3d.observe.panoramas`) | coverage tiles |
 
   A track may keep further readers in its own package; they follow the same rule and time themselves with
   `sources.timed(name)` so `build` prints them.
+- **Lidar.** A reader of the point cloud finds a tile with `sources.lidar.laz_path(name)` and decodes it with
+  `sources.lidar.read(path)`, never with its own download or `laspy.read`, and keeps its reduced product per
+  tile under a named recipe (an edit that leaves the product as it is must not reduce a city again). It gives
+  `tile_done(name)` and is listed in `sources.lidar._products`; `build` then makes every tile's products before
+  any `discover` runs (`sources.prepare`): one decode per tile for all reductions, in fresh worker processes,
+  at most `TURKU3D_LIDAR_SLOTS` tiles at once over all builds of the machine (default: one per 12 GB of memory
+  and per four cores, three at most; a dense tile's wire search holds about 5 GB), and never the same tile
+  twice at once. A reader that keeps tiles in memory for `discover` keeps only the build's box (`sources.clip`)
+  and gives it back in `Sources.release`, which `build` calls before it compiles.
 - A building is a LoD2 building, or a register footprint (`kanta:Rakennus`, building and outbuilding classes) that
   no LoD2 building covers, raised to a flat-roofed box by its storeys: `shell.source` says which
   (`turku-lod2`, `turku-kanta-footprint`). New buildings and most outbuildings come this way.
@@ -394,6 +425,7 @@ bash pipeline/env/run.sh python -m turku3d.world refresh --location humalistonka
 bash pipeline/env/run.sh python -m turku3d.world watch --location humalistonkatu    # rebuild on description change
 bash pipeline/env/run.sh python -m turku3d.world describe building/103456789A       # its effective description
 bash pipeline/env/run.sh python -m turku3d.world gc                                 # drop unreferenced meshes
+bash pipeline/env/run.sh python -m turku3d.world warm --at 23459668,6704254 --reach 3000   # lidar products ahead
 node scripts/dev/scene-capture.mjs --mode render --world humalistonkatu --area humalistonkatu \
   --views scripts/dev/views/pilot-locations.json --out "$TURKU3D_WORK/captures/humalistonkatu"
 ```
@@ -406,7 +438,13 @@ node scripts/dev/scene-capture.mjs --mode render --world humalistonkatu --area h
   `TURKU3D_JOBS` processes (the sandbox sets it; one process below eight entities per process). `compile` must
   therefore depend on its description alone: no module state filled by `discover`.
 - `entity`, `refresh` and `watch` rebuild from the saved facts (section 3.2) and rewrite the manifest only when
-  something a client draws changed.
+  something a client draws changed. `refresh` is the rebuild after new stored descriptions or a generator
+  change: no source is read, the entities whose build key is new compile in the same process pool as `build`,
+  an entity whose generator fails keeps its last output and is listed in `failures`, and the play collision and
+  the `descriptions` block are made again. `entity` (the live path) leaves the collision to the next `refresh`.
+- `warm` makes the lidar products of survey tiles ahead (section 6, Lidar), nearest first from `--at` out to
+  `--reach` metres or over the whole survey, in rounds, leaving one lidar slot to builds someone waits for. It
+  can be stopped and started again: a tile that has everything costs nothing.
 - The game draws a location at `/?world=<name>&cam=E,N,H,yaw,pitch,fov` (render mode): the same client and
   renderer, with the location loader (`game/src/world/location/`) in place of the prepared scene. Play in a
   location waits for collision. `scene-capture.mjs --world NAME` adds the parameter and records the manifest

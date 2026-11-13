@@ -247,6 +247,15 @@ def near_segments(points, segments, margin):
     high = np.max([np.maximum(a, b) + margin for a, b in segments], axis=0)
     points = points[(points[:, 0] >= low[0]) & (points[:, 0] <= high[0]) &
                     (points[:, 2] >= low[2]) & (points[:, 2] <= high[2])]
+    # Only returns in a grid cell that some segment box touches can be kept: drop the rest before the sort (a
+    # tile's millions of returns against a few hundred wire boxes), which changes neither the kept nor their order.
+    cell = max(float(margin), 2.0)
+    touched = np.zeros((int((high[0] - low[0]) // cell) + 1, int((high[2] - low[2]) // cell) + 1), bool)
+    for a, b in segments:
+        lo = ((np.minimum(a, b) - margin - low) // cell).astype(int)
+        hi = ((np.maximum(a, b) + margin - low) // cell).astype(int)
+        touched[max(lo[0], 0):hi[0] + 1, max(lo[2], 0):hi[2] + 1] = True
+    points = points[touched[((points[:, 0] - low[0]) // cell).astype(int), ((points[:, 2] - low[2]) // cell).astype(int)]]
     points = points[np.lexsort((points[:, 1], points[:, 2], points[:, 0]))]
     keep = np.zeros(len(points), bool)
     for a, b in segments:
@@ -497,7 +506,8 @@ def detect(xyz, classes, bounds, search=SEARCH):
     x0, z0, x1, z1 = bounds
     outer = (x0 - search, z0 - search, x1 + search, z1 + search)
     inside = (xyz[:, 0] >= outer[0]) & (xyz[:, 0] < outer[2]) & (xyz[:, 2] >= outer[1]) & (xyz[:, 2] < outer[3])
-    xyz, classes = xyz[inside], classes[inside]
+    if not inside.all():
+        xyz, classes = xyz[inside], classes[inside]
     ground = Ground(xyz[classes == GROUND], outer)
     # The wire returns: the stage the point-cloud product's wire layer uses (turku3d.wire_points), on a grid
     # anchored at the search area's corner so that every tile's crop agrees where they overlap.
@@ -603,7 +613,9 @@ def build_tile(name: str, fetch: bool = True) -> dict:
     if not len(rows):
         return {"version": VERSION, "wires": [], "lamps": []}
     xyz = np.column_stack([rows[:, 0] - east, rows[:, 2], north - rows[:, 1]])
-    wires, lamps = detect(xyz, rows[:, 3].astype(np.uint8), (0.0, 0.0, TILE, TILE))
+    classes = rows[:, 3].astype(np.uint8)
+    del rows  # half a gigabyte for a dense tile, and the detection needs several times that
+    wires, lamps = detect(xyz, classes, (0.0, 0.0, TILE, TILE))
     survey = lambda p: [round(float(p[0]) + east, 2), round(north - float(p[2]), 2), round(float(p[1]), 2)]  # noqa: E731
     return {
         "version": VERSION,
