@@ -294,8 +294,10 @@ function paving(p: GroundParams): GroundMaps {
       face = [shade * speck * rim * tint[0], shade * speck * rim * tint[1], shade * speck * rim * tint[2]];
     }
     const green = smooth(0.55, 0.75, moss[k]);
-    const fill: Rgb = [mix(0.055, 0.035, green) * mix(0.7, 1.3, dust[k]), mix(0.05, 0.05, green) * mix(0.7, 1.3, dust[k]),
-      mix(0.04, 0.02, green) * mix(0.7, 1.3, dust[k])];
+    // Joints of cast concrete are brushed full of sand, paler than the damp soil between sawn stone.
+    const sandy = natural ? 1 : 2.2;
+    const fill: Rgb = [mix(0.055 * sandy, 0.035, green) * mix(0.7, 1.3, dust[k]), mix(0.05 * sandy, 0.05, green) * mix(0.7, 1.3, dust[k]),
+      mix(0.04 * sandy, 0.02, green) * mix(0.7, 1.3, dust[k])];
     paint(c, k, [mix(fill[0], face[0], top), mix(fill[1], face[1], top), mix(fill[2], face[2], top)]);
     const tilt = (lay.id2[k] - 0.5) * 0.0012 * lay.u[k] + (lay.id3[k] - 0.5) * 0.0012 * lay.v[k];
     c.height[k] = top * (0.005 + (lay.id2[k] - 0.5) * 0.0016 + tilt) + grit[k] * 0.0004 * top + (1 - top) * dust[k] * 0.0015;

@@ -19,7 +19,7 @@ from ...api import Heightfield, Material, Part, Output
 from ...frame import CELL
 from .covers import NAMED
 
-KERB_WIDTH = 0.16        # top of a granite kerb stone
+KERB_WIDTH = 0.20        # top of a granite kerb stone
 KERB_ROOT = 0.10         # how far the stone goes below the carriageway
 KERB_CLEAR = 1.0         # relief closer than this to a kerb line mixes both levels in the scan
 KERB_REACH = 2.0         # beyond this distance from a kerb line both levels are the plain relief

@@ -37,7 +37,7 @@ A stored description (`descriptions/ground/c_<i>_<j>.json`) replaces what the re
 - **Skin.** One continuous, single-valued surface over the cell, split into parts by cover. Carriageways lie at the
   measured kerb reveal below what borders them; the drop is a ramp under the kerb stone. Crossings and lane lines
   are regions of the skin with the `road_paint` cover, not layers above it. UVs are engine x, z in metres.
-- **Kerbs.** Closed solids 0.16 m wide along the carriageway edge, from 0.10 m below the carriageway to the level of
+- **Kerbs.** Closed solids 0.20 m wide along the carriageway edge, from 0.10 m below the carriageway to the level of
   the footway.
 - **Height field.** `Output.heightfield`: the skin's heights at 0.5 m spacing, stored beside the mesh.
 - **Far level** (lod 1). The relief at 2.5 m spacing with the mean colour of the cover at each node, family

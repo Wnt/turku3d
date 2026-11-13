@@ -21,14 +21,14 @@ REGISTER = (
     # From the old generator's finish table (coarse/street_materials.py), which was set against street panoramas of
     # sampled register parts: "Betonikivi" is mostly red-brown block paving and "Betonilaatta" footways are small grey
     # pavers in running bond, not half-metre slabs; "Maatiili" is clay brick.
-    ('maatiili', {'family': 'paving', 'params': {'size_x': 0.1, 'size_y': 0.2, 'bond': 'running', 'tone': 0.7, 'joint_m': 0.004, 'stone': 'concrete', 'tint': '#ffc4b0'},
-                  'color': (0.275, 0.154, 0.121), 'roughness': 0.86}),
+    ('maatiili', {'family': 'paving', 'params': {'size_x': 0.1, 'size_y': 0.2, 'bond': 'running', 'tone': 0.5, 'joint_m': 0.004, 'stone': 'concrete', 'tint': '#ffbba8'},
+                  'color': (0.239, 0.124, 0.097), 'roughness': 0.86}),
     # Concrete slabs: the photos of the centre's footways show pale 40 cm slabs in half bond (the old table drew
     # small pavers here, which read as dark setts from a distance).
     ('betonilaatta', {'family': 'paving', 'params': {'size_x': 0.4, 'size_y': 0.4, 'bond': 'running', 'tone': 0.88, 'joint_m': 0.006, 'stone': 'concrete'},
-                      'color': (0.343, 0.335, 0.319), 'roughness': 0.86}),
-    ('betonikivi', {'family': 'paving', 'params': {'size_x': 0.1, 'size_y': 0.2, 'bond': 'running', 'tone': 0.72, 'joint_m': 0.004, 'stone': 'concrete', 'tint': '#ffccba'},
-                    'color': (0.279, 0.171, 0.138), 'roughness': 0.86}),
+                      'color': (0.346, 0.337, 0.321), 'roughness': 0.86}),
+    ('betonikivi', {'family': 'paving', 'params': {'size_x': 0.1, 'size_y': 0.2, 'bond': 'running', 'tone': 0.52, 'joint_m': 0.004, 'stone': 'concrete', 'tint': '#ffc2b0'},
+                    'color': (0.243, 0.136, 0.109), 'roughness': 0.86}),
     ('noppakivi', {'family': 'setts', 'params': {'size_x': 0.09, 'size_y': 0.09, 'tone': 0.5}, 'color': (0.171, 0.149, 0.135), 'roughness': 0.81}),
     ('nupukivi', {'family': 'setts', 'params': {'size_x': 0.14, 'size_y': 0.2, 'tone': 0.45}, 'color': (0.238, 0.229, 0.218), 'roughness': 0.82}),
     ('kenttäkivi', {'family': 'cobbles', 'params': {'size_m': 0.14}, 'color': (0.153, 0.134, 0.116), 'roughness': 0.8}),
@@ -75,6 +75,8 @@ NAMED = {
     'rock': {'family': 'bedrock', 'params': {}, 'color': (0.183, 0.174, 0.165), 'roughness': 0.85},
     'sand': {'family': 'sand', 'params': {}, 'color': (0.35, 0.292, 0.204), 'roughness': 0.96},
     # A cycle lane on the carriageway: Turku paints them red.
+    # Where cars stand along the kerb: asphalt the traffic does not polish, paler and dustier than the lanes.
+    'parking-lane': {'family': 'asphalt', 'params': {'tone': 0.95}, 'color': (0.218, 0.218, 0.218), 'roughness': 0.93},
     'cycle-lane': {'family': 'asphalt', 'params': {'tone': 0.7, 'tint': '#92807a'}, 'color': (0.198, 0.149, 0.134), 'roughness': 0.93},
     'gravel': {'family': 'gravel', 'params': {'grade': 'fine'}, 'color': (0.273, 0.248, 0.21), 'roughness': 0.95},
     'asphalt-yard': {'family': 'asphalt', 'params': {'tone': 0.8}, 'color': (0.19, 0.19, 0.19), 'roughness': 0.93},
@@ -82,7 +84,7 @@ NAMED = {
     'setts-yard': {'family': 'setts', 'params': {'size_x': 0.09, 'size_y': 0.09, 'tone': 0.5}, 'color': (0.171, 0.149, 0.135), 'roughness': 0.81},
     # Land nobody mapped and the orthophoto shows neither green nor gravel: a yard's asphalt (the old generator's choice).
     'unmapped': {'family': 'asphalt', 'params': {'tone': 0.8}, 'color': (0.19, 0.19, 0.19), 'roughness': 0.93},
-    'kerb': {'family': 'kerbstone', 'params': {}, 'color': (0.296, 0.261, 0.242), 'roughness': 0.81},
+    'kerb': {'family': 'kerbstone', 'params': {}, 'color': (0.381, 0.336, 0.312), 'roughness': 0.81},
     'paint': {'family': 'road_paint', 'params': {'colour': '#eeeeea', 'wear': 0.35}, 'color': (0.729, 0.729, 0.681), 'roughness': 0.63},
 }
 

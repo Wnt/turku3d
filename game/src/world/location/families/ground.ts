@@ -8,7 +8,7 @@
 // larger scales (worn and damp patches, fading), so no two stretches of a street match; worn asphalt, grass and
 // gravel are scattered with the old game's stochastic tiling, and asphalt carries repairs and sealed cracks.
 import * as THREE from 'three/webgpu';
-import { cameraPosition, dot, float, floor, fract, mx_noise_float, normalMap, positionWorld, sin, smoothstep, texture, uv, vec2, vec3 } from 'three/tsl';
+import { attribute, cameraPosition, dot, float, floor, fract, mx_noise_float, normalMap, positionWorld, sin, smoothstep, texture, uv, vec2, vec3 } from 'three/tsl';
 import type { Node } from 'three/webgpu';
 import { registerFamily } from '../materials';
 import { GROUND_FAMILIES, synthesise, type GroundParams } from './groundSynth';
@@ -26,6 +26,8 @@ const LIBRARY: Record<string, { metres: number; scattered: boolean }> = {
   asphalt_worn: { metres: 2, scattered: true }, grass: { metres: 2, scattered: true }, gravel: { metres: 2, scattered: true },
   granite_curb: { metres: 2, scattered: false }, cobblestone: { metres: 2, scattered: false },
 };
+/** Length of a kerb stone along the kerb. */
+const KERB_STONE_M = 1.0;
 /** Mean linear albedo of the library's worn asphalt: what an asphalt's tone is set against. */
 const ASPHALT_MEAN = 0.207;
 
@@ -50,7 +52,8 @@ function photographic(family: string, params: GroundParams): Photographic | null
     const level = params.grade === 'coarse' ? 1 : number(params.packed, 0) > 0.5 ? 0.78 : 0.9;
     return { key: 'gravel', tint: new THREE.Color(level * 1.04, level, level * 0.9), relief: 0.6 };
   }
-  if (family === 'kerbstone') return { key: 'granite_curb', tint: new THREE.Color(1, 1, 1), relief: 0.5 };
+  // Kerb granite is sawn pale stone, lighter than the library's map (the photos show it paler than the footway).
+  if (family === 'kerbstone') return { key: 'granite_curb', tint: new THREE.Color(1.3, 1.3, 1.3), relief: 0.5 };
   if (family === 'setts' && number(params.size_y, 0.09) >= 0.18) return { key: 'cobblestone', tint: new THREE.Color(1, 1, 1), relief: 0.8 };
   return null;
 }
@@ -74,6 +77,16 @@ function scatter(at: Node<'vec2'>) {
 function scattered3(map: THREE.Texture, grid: ReturnType<typeof scatter>) {
   const sample = (i: number) => texture(map, grid.at[i]).grad(grid.dx, grid.dy).rgb;
   return sample(0).mul(grid.weight.x).add(sample(1).mul(grid.weight.y)).add(sample(2).mul(grid.weight.z));
+}
+
+/** Kerb stones a metre long along the kerb (the ground kind's `_ALONG` station, metres): a dark joint between
+ *  neighbours and a tone of its own for each stone. */
+function kerbStones() {
+  const station = attribute('_along', 'float').div(KERB_STONE_M);
+  const fromJoint = fract(station.add(0.5)).sub(0.5).abs().mul(KERB_STONE_M);
+  const joint = float(1).sub(smoothstep(0.006, 0.022, fromJoint));   // the gap and the dirt that gathers beside it
+  const own = fract(sin(floor(station).mul(12.9898)).mul(43758.5453)).sub(0.5).mul(0.2);
+  return { tone: float(1).add(own).mul(float(1).sub(joint.mul(0.6))) };
 }
 
 /** What years of traffic and repair leave on asphalt, placed in world space so cells agree: repairs of newer, darker
@@ -135,8 +148,10 @@ export function groundMaterial(family: string, params: GroundParams = {}): THREE
       const read = (layer: 'albedo' | 'normal' | 'orm') => (grid ? scattered3(image(photo.key, layer), grid) : texture(image(photo.key, layer), at).rgb);
       const orm = read('orm');
       const wear = family === 'asphalt' ? asphaltWear(place) : null;
-      const tone = float(1).add(patches.mul(look.patch));
-      material.colorNode = read('albedo').mul(vec3(photo.tint.r, photo.tint.g, photo.tint.b)).mul(wear ? tone.mul(wear.tone) : tone);
+      const stones = family === 'kerbstone' ? kerbStones() : null;
+      const varied = float(1).add(patches.mul(look.patch));
+      const tone = wear ? varied.mul(wear.tone) : stones ? varied.mul(stones.tone) : varied;
+      material.colorNode = read('albedo').mul(vec3(photo.tint.r, photo.tint.g, photo.tint.b)).mul(tone);
       material.normalNode = normalMap(read('normal'), vec2(photo.relief));
       const rough = orm.g.add(patches.mul(-0.05));
       material.roughnessNode = (wear ? rough.add(wear.sealed.mul(-0.12)) : rough).clamp(0.3, 1);
