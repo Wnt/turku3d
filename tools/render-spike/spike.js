@@ -397,7 +397,7 @@ async function field(device, features) {
     @group(0) @binding(2) var c1: texture_3d<f32>;
     @group(0) @binding(3) var c2: texture_3d<f32>;
     @group(0) @binding(4) var c3: texture_3d<f32>;
-    @group(0) @binding(5) var target: texture_storage_2d<rgba16float, write>;
+    @group(0) @binding(5) var traced: texture_storage_2d<rgba16float, write>;
     @group(0) @binding(6) var<uniform> u: U;
     fn field(p: vec3f) -> f32 {
       let r = p - vec3f(${centre.join('.0, ')}.0);
@@ -449,7 +449,7 @@ async function field(device, features) {
         }
         sky = open / max(f32(rays), 1.0);
       }
-      textureStore(target, g.xy, vec4f(sky, first.x, steps, first.y));
+      textureStore(traced, g.xy, vec4f(sky, first.x, steps, first.y));
     }` });
   const pipeline = await device.createComputePipelineAsync({ layout: 'auto', compute: { module: traceModule } });
   const sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });

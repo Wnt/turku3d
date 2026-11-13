@@ -241,7 +241,16 @@ First findings (2026-11-12, Humalistonkatu) are on the campaign board and in `~/
 
 ## 11. Renderer path and feasibility
 
-A separate note (deliverable 3 of `w2-render`) follows here: a recommendation between stock three.js with our own
-passes, a patched or forked three.js and our own WebGPU renderer; how cluster culling, a visibility buffer and
-distance-field tracing map onto WebGPU in Chrome on Apple silicon, with the features and limits measured on the M1
-Max; sizes for a city of Turku's extent; and the decisions that are expensive to reverse.
+[renderer-path.md](renderer-path.md) holds the recommendation (our own GPU-driven world passes in WGSL on the same
+device and frame as an unforked three.js, which keeps dynamic objects, sky, water and the post chain), the
+measurements on the M1 Max behind it, how cluster culling, a visibility buffer and distance-field tracing map onto
+WebGPU in Chrome on Apple silicon, sizes for a city of Turku's extent, how one source scales to every fidelity
+(rule S3), and the decisions that are expensive to reverse. Three of them bear on the rules above:
+
+- The M1 family has no path to a compute rasteriser in WebGPU, so triangles are drawn by the hardware rasteriser and
+  their number on screen is set by the cluster hierarchy alone. Rules G3 and G5 (shared borders, nothing merged or
+  thinned by hand) are what lets the hierarchy do that.
+- WebGPU has no bindless textures: materials are evaluated per pixel from flat rows, so a family is procedural or
+  samples a few shared array textures. No entity brings its own image (rules M1 and M4).
+- Every visible instance costs at least one cluster. Repeats stay instances (rule I1), and the far field comes from
+  merged proxies of parent cells, a derived product of the partition, not from the assets.

@@ -1,6 +1,6 @@
 # Renderer path: recommendation and feasibility
 
-Owner: `w2-render`. Written 2026-11-13 for the decision on how Turku3D gets from today's renderer to virtualised
+Owner: `w2-render`. Written 2026-11-13 (the measured parts marked PENDING are being filled in the same day) for the decision on how Turku3D gets from today's renderer to virtualised
 geometry (as in UE Nanite) and software global illumination (as in software Lumen). The only target is Chrome on an
 Apple-silicon Mac; the reference machine is the M1 Max (10 cores, 64 GB). Companion to
 [render-readiness.md](render-readiness.md), which holds the rules for assets. Nothing here is built yet: this is a
@@ -18,7 +18,16 @@ own. This is the third of the three paths (our own renderer, three.js where it e
 at a time beside the running game, never by a rewrite: the first slice already looks like the first path (stock
 three.js plus our passes). A fork is not recommended.
 
-MEASUREMENTS_LEAD
+**What carries it.** PENDING_LEAD The run on this M1 Max (section 11) is queued for a browser slot; until its
+numbers are in, the case rests on costs already recorded in the code and upstream:
+
+- In headless play on the M1 Max, three.js spent 57 % of the main thread refreshing draws (`staticRefresh.ts`), and
+  the ultra tier ran 115 to 160 ms frames at 19.7 M triangles (`preparationBudget.ts`): today's path cannot spend
+  stronger hardware on more geometry.
+- Upstream: 20,000 plain cubes run at about 15 FPS in `WebGPURenderer` on an M1 Pro, 60 in `WebGLRenderer` (three.js
+  issue 30560, open since r173).
+- 1,823 lines in 16 files, and about thirty patched r186 internals, exist only to make thousands of per-object
+  world draws bearable (section 2).
 
 ## 1. The three paths
 
@@ -98,7 +107,7 @@ tiers below `medium` and the device special cases can go.
 
 Measured with `tools/render-spike/measure.mjs` in headless Chrome for Testing under a host lease on the M1 Max.
 
-ADAPTER_SECTION
+PENDING_ADAPTER (features and limits of the adapter: the run is queued).
 
 **Absent, and the design must not need them:** mesh shaders; hardware ray tracing (proposals opened 2026-10, not
 shipped); bindless textures (a resource-table proposal is in progress); 64-bit atomics. The new
@@ -108,7 +117,7 @@ Metal; one indirect draw of instanced clusters makes it unnecessary.
 
 **Sharing the device and targets with three.js r186**, without touching its source:
 
-SHARED_SECTION
+PENDING_SHARED (the run is queued).
 
 ## 4. Virtualised geometry on WebGPU
 
@@ -124,7 +133,7 @@ SHARED_SECTION
 | Shadows | The same cluster draw, depth only, per cascade, with its own cull | not measured |
 | Streaming | Cluster pages by content address, fetched by distance and error; the instance table is resident for the neighbourhood, the far field is a few merged proxies per parent cell (section 7) | design only |
 
-RASTER_SECTION
+PENDING_RASTER (cull, indirect draw, visibility buffer and resolve timings: the run is queued).
 
 **What open implementations show.**
 
@@ -154,7 +163,7 @@ RASTER_SECTION
 | Radiance cache | World probes on a sparse grid for far and rough lighting, updated a few per frame | design only |
 | Sky and sun | Sky visibility from the same traces; sun from shadow maps as today | - |
 
-FIELD_SECTION
+PENDING_FIELD (distance-field tracing timings: the run is queued).
 
 **What open implementations show.** No open project runs a complete Lumen-like pipeline in WebGPU, and none of the
 partial ones publishes a frame cost: probe GI traced through a BVH for three.js WebGPU (`speedball-gi`), radiance
@@ -187,7 +196,7 @@ instances of shared assets. That holds only while rule I1 holds: flattening the 
 multiplies the building share by about sixteen.
 
 Resident on the GPU on the M1 Max, as a planning budget: geometry pages 0.5 GB, textures 1 GB, surface cache
-0.3 GB, distance fields 0.1 GB, targets at 1440p 0.3 GB. LIMITS_NOTE
+0.3 GB, distance fields 0.1 GB, targets at 1440p 0.3 GB. PENDING_LIMITS
 
 ## 7. Decisions in today's formats and partition that could put 40 FPS out of reach
 
@@ -225,12 +234,12 @@ hardware. The mechanism exists today (`settingGovernor.ts`, `adaptiveResolution.
 
 | Parameter | What it scales | M1 Max (expected) | Stronger hardware |
 | --- | --- | --- | --- |
-| Error threshold in pixels | cluster LOD cut: triangles on screen | TRIANGLE_TIER | towards 1 px |
+| Error threshold in pixels | cluster LOD cut: triangles on screen | PENDING_TRIANGLES | towards 1 px |
 | Render scale with temporal upsampling | every per-pixel cost | 0.7 to 1.0 of 1440p | native, then 4K |
 | Texture pixels per metre | procedural detail octaves, array-texture mip bias, resident texture memory | 256 px/m near | 512 px/m reference and above |
 | Foliage card prefix | leaf cards kept per tree (rule T2) | a share by distance | all |
 | Shadow reach and resolution | cascades, cluster shadow draws | 2 to 3 cascades | more, further |
-| Lighting tier | 0: sky and sun with ambient occlusion (today). 1: screen-space GI. 2: half-resolution probes traced in the global field with a surface cache. 3: more rays, mesh fields near, reflections | GI_TIER | 3 |
+| Lighting tier | 0: sky and sun with ambient occlusion (today). 1: screen-space GI. 2: half-resolution probes traced in the global field with a surface cache. 3: more rays, mesh fields near, reflections | PENDING_GI | 3 |
 | Instance draw distance | by projected size, not by kind | from the governor | further |
 
 No description, kind or GLB names a tier; the tiers are rows of numbers in the client.
