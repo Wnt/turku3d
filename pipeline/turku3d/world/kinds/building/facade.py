@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 from shapely import affinity
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString, Point, Polygon
 from shapely.geometry import box as rectangle
 from shapely.ops import unary_union
 
@@ -644,8 +644,51 @@ def build(
     ]
     _bands(soup, facade, wall, plan, solid, doc, palette, wall_record, trim)
     _verticals(soup, facade, wall, plan, solid, palette, wall_record, trim, plinth_top)
+    _reliefs(soup, facade, wall, plan, kept, palette, wall_record, trim)
     _attached(soup, facade, wall, plan, doc, palette, wall_record, trim, templates)
     return plan
+
+
+def _reliefs(soup, facade, wall, plan, kept, palette, wall_record, trim):
+    """Flat shapes standing out of the wall (`reliefs`): copings, gable panels, pier panels, voussoirs. A part
+    belongs to the shell wall that holds its anchor. A panel in a material (a pier or a gable face in the wall's
+    brick) leaves the openings it lies over open, with their surrounds; a painted part is trim."""
+    parts = wall.get("reliefs", [])
+    if not parts:
+        return
+    to_u = u_mapping(facade, wall)
+    holder = facade.outline.buffer(0.05)
+    openings_ = [
+        p.shape.buffer(p.spec.get("surround", {}).get("width_m", 0.0) + 0.02, join_style=2)
+        for p in kept
+        if p.shape is not None
+    ]
+    cut = unary_union(openings_) if openings_ else None
+    local = mesh.Soup()
+    for part in parts:
+
+        def ring(points):
+            return [(to_u(u), plan.datum + v) for u, v in points]
+
+        shape = Polygon(ring(part["polygon_m"]), [ring(h) for h in part.get("holes_m", [])]).buffer(0)
+        if shape.is_empty:
+            continue
+        anchor = (
+            Point(to_u(part["anchor_m"][0]), plan.datum + part["anchor_m"][1])
+            if "anchor_m" in part
+            else shape.representative_point()
+        )
+        if not holder.contains(anchor):
+            continue
+        if "material" in part:
+            key = palette.key(part["material"])
+            if cut is not None:
+                shape = shape.difference(cut)
+        else:
+            key = palette.paint(part.get("colour", trim), wall_record)
+        back = part.get("offset_m", 0.025)
+        mesh.prism(local, "trim", key, shape, back, back + part["depth_m"])
+    soup.place(local, facade)
 
 
 def _relief(part: dict) -> dict:
@@ -675,9 +718,16 @@ def _bands(soup, facade, wall, plan, kept, doc, palette, wall_record, trim):
         b = to_u(band["u_to_m"]) if "u_to_m" in band else facade.width
         profile_kind = band.get("profile", "flat")
         local = mesh.Soup()
-        for u0, u1 in free_spans(
-            max(0.0, a), min(facade.width, b), v, v + height, kept, margin=0.0
-        ):
+        # A band runs where the wall holds its lower edge: not in the air beside a gable or under a wall that
+        # starts above a roof.
+        held = facade.outline.intersection(LineString([(max(0.0, a), v + 0.02), (min(facade.width, b), v + 0.02)]))
+        spans = [
+            span
+            for part in getattr(held, "geoms", [held])
+            if part.geom_type == "LineString" and part.length > 0.05
+            for span in free_spans(part.bounds[0], part.bounds[2], v, v + height, kept, margin=0.0)
+        ]
+        for u0, u1 in spans:
             mesh.extrude_profile(
                 local, "trim", key, u0, u1, band_profile(profile_kind, v, height, projection)
             )
@@ -809,6 +859,23 @@ def _verticals(soup, facade, wall, plan, kept, palette, wall_record, trim, plint
                     0.0,
                     projection,
                 )
+            courses = part.get("courses")
+            if courses:
+                # Banded piers: pale courses across the pilaster, a little proud of it.
+                course_key = (
+                    palette.key(courses["material"])
+                    if "material" in courses
+                    else palette.paint(courses.get("colour", trim), wall_record)
+                )
+                pitch = max(0.2, courses.get("pitch_m", 0.65))
+                h = courses.get("height_m", 0.14)
+                half = courses.get("width_m", part_width * 1.2) / 2
+                proud = projection + courses.get("projection_m", 0.02)
+                level = low + courses.get("first_m", 0.3)
+                while level + h <= high + 1e-6:
+                    if _vertical_spans(u - half, u + half, level, level + h, kept) == [(level, level + h)]:
+                        mesh.box(local, "trim", course_key, u - half, level, u + half, level + h, 0.0, proud)
+                    level += pitch
             capital = part.get("capital", "plain" if kind == "pilaster" else "none")
             if capital != "none":
                 mesh.box(

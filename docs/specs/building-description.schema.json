@@ -1163,6 +1163,34 @@
         },
         "src": {
           "$ref": "#/$defs/src"
+        },
+        "courses": {
+          "description": "Pale courses across a pilaster or pier (banded brick piers): one every pitch_m from first_m over its foot, height_m high and width_m wide, standing out by projection_m more than the pilaster.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pitch_m": {
+              "$ref": "#/$defs/len"
+            },
+            "first_m": {
+              "type": "number"
+            },
+            "height_m": {
+              "$ref": "#/$defs/len"
+            },
+            "width_m": {
+              "$ref": "#/$defs/len"
+            },
+            "projection_m": {
+              "$ref": "#/$defs/len"
+            },
+            "colour": {
+              "$ref": "#/$defs/colour"
+            },
+            "material": {
+              "$ref": "#/$defs/material"
+            }
+          }
         }
       }
     },
@@ -1634,6 +1662,12 @@
         },
         "src": {
           "$ref": "#/$defs/src"
+        },
+        "reliefs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reliefPart"
+          }
         }
       }
     },
@@ -2227,6 +2261,72 @@
               "maximum": 1
             }
           }
+        }
+      }
+    },
+    "reliefPart": {
+      "description": "A flat shape standing out of the wall: a coping, a gable panel, a pier panel, an arch's voussoirs. Extruded from offset_m to offset_m + depth_m in front of the wall face (offset may be negative: a panel set into the wall).",
+      "type": "object",
+      "required": [
+        "polygon_m",
+        "depth_m"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "polygon_m": {
+          "description": "Outline in wall (u, v) metres, v from the wall base.",
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "minItems": 3
+        },
+        "holes_m": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "minItems": 3
+          }
+        },
+        "depth_m": {
+          "$ref": "#/$defs/len"
+        },
+        "offset_m": {
+          "type": "number"
+        },
+        "material": {
+          "$ref": "#/$defs/material"
+        },
+        "colour": {
+          "$ref": "#/$defs/colour"
+        },
+        "conf": {
+          "$ref": "#/$defs/conf"
+        },
+        "src": {
+          "$ref": "#/$defs/src"
+        },
+        "anchor_m": {
+          "description": "A point [u, v] the part belongs to: it is built only where the shell wall covers this point (a part of a front that spans several shell walls goes on the one that holds it). Default: a point inside the part.",
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2
         }
       }
     }

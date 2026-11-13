@@ -5,7 +5,7 @@ sources; `materials` and `opening_types` merge by name; `wall_defaults` merges f
 top-level field of the stored description replaces the automatic one.
 """
 
-from . import archetypes, priors
+from . import archetypes, landmark, priors
 from .description import SCHEMA_ID
 
 
@@ -47,11 +47,26 @@ def measured(doc: dict) -> dict:
 
 
 def effective(key: str, shell: dict, register: dict, stored: dict | None) -> dict:
+    """The automatic fit, the proven game's landmark description of the building (landmark.py) over it, the stored
+    description over both."""
     doc = automatic(key, shell, register, (stored or {}).get("measured"))
+    proven = landmark.layer(key, doc, stored)
+    if proven:
+        doc.pop("roof", None)
+        lay(doc, proven)
     if not stored:
-        return doc
+        return measured(doc) if proven else doc
     doc.pop("roof", None)  # measured again below, on the style the stored description gives
-    for field, value in stored.items():
+    lay(doc, stored)
+    if proven and proven.get("walls") and stored.get("walls"):
+        # A reading describes some walls; the landmark's walls stand on the others.
+        doc["walls"] = list(stored["walls"]) + landmark.unclaimed(proven["walls"], stored["walls"], doc["shell"])
+    return measured(guessed_colours(doc, stored))
+
+
+def lay(doc: dict, over: dict) -> dict:
+    """`over` laid on `doc` by the merge rule of the module docstring."""
+    for field, value in over.items():
         if field in ("shell", "register", "schema", "id"):
             continue
         if field in ("materials", "opening_types"):
@@ -62,7 +77,7 @@ def effective(key: str, shell: dict, register: dict, stored: dict | None) -> dic
             doc[field] = doc["provenance"] + value
         else:
             doc[field] = value
-    return measured(guessed_colours(doc, stored))
+    return doc
 
 
 GUESSED = 0.2  # a colour confidence at or under this is a pick from a palette, not a reading of the building

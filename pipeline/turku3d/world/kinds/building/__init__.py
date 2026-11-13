@@ -14,6 +14,7 @@ from ...api import Area, Material, Output, Part, Stub, envelope
 from .. import building_shell
 from . import compile as compile_module
 from . import describe as describe_module
+from . import landmark
 
 
 class Building:
@@ -29,7 +30,10 @@ class Building:
             key, stub.facts["shell"], stub.facts.get("register", {}), stored
         )
         head = envelope(self.name, 1, stub, stored, "w2-buildings")
-        doc["tier"], doc["provenance"] = head["tier"], head["provenance"]
+        # A landmark description of the proven game (landmark.py) raises an unread building to its own tier.
+        proven = [p for p in doc.get("provenance", []) if p.get("by") == landmark.BY]
+        tier = head["tier"] if stored or not proven else proven[0]["tier"]
+        doc["tier"], doc["provenance"] = tier, head["provenance"] + proven
         return doc
 
     def compile(self, description: dict) -> Output:
