@@ -105,10 +105,13 @@ def _paint_layers(vertices, wall, style):
             min(y1, y0 + band["bottom_m"] + band["height_m"]),
         )
         if part:
+            # A band may carry its own pigment and projection (an old wooden house's plinth).
+            paint = {"wall": band["colour"], "base": band["colour"]} if band.get("colour") else {}
+            relief = {"relief_m": band["relief_m"]} if band.get("relief_m") else {}
             yield (
                 part[0],
                 part[1],
-                {**blank, "module": 42 + MATERIALS.index(material)},
+                {**blank, "module": 42 + MATERIALS.index(material), **paint, **relief},
                 1,
             )
     # Occluded regions have no measured negative: retain their existing/rule treatment.

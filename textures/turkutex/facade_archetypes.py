@@ -200,6 +200,8 @@ ARCHETYPES = {
         cornice=(0.12, 0.25),
         surrounds=(0.08, 0.13),
     ),
+    # Pre-1940 houses of this family take the measured TIMBER_OLD layout instead of the
+    # sampled grid (pipeline/turku3d/facade_timber.py); 1940-1979 timber keeps these ranges.
     "timber_modern": family(
         ("wood",),
         (2.2, 3.6),
@@ -368,6 +370,50 @@ ORDER = dict(
     surrounds_m=0.12,
 )
 ORDER_SOURCE = "reference-measured classical order"
+# The old wooden house of Turku (pre-1940 timber; Portsa, Martti, Itäharju, Kähäri): a stone or
+# brick plinth 0.6-1.0 m high, one storey of about 3.5 m (two where the register counts two and the
+# shell has room), and the wall above the window heads a boarded knee wall up to the eaves.
+# Windows are small framed sashes: about 1.05 x 1.7 m, sill 0.95 m above the floor, 2.4-2.8 m
+# apart, six panes (2 x 3) until the 1910s and T-windows (two sashes under a top light) after,
+# in a 0.09 m white casing. Measured with W2's wooden-house priors on street photographs of
+# Portsa (Korkeavuorenkatu, Rauhankatu, Puutarhakatu) and the 1920s houses of Itäharju, Kähäri
+# and Raunistula; plinths are rock-faced granite or red brick. Metres.
+TIMBER_OLD = dict(
+    plinth_m=(0.6, 0.85),
+    plinth_lift_max_m=0.5,
+    plinth_relief_m=0.05,
+    plinths=(("stone", "#8a857d"), ("stone", "#7e7a73"), ("stone", "#948f86"), ("brick", "#7f4637")),
+    plinth_weights=(3, 2, 2, 3),
+    storey_m=(2.7, 3.6),
+    storey_min_m=2.2,
+    knee_m=1.2,
+    knee_low_m=0.5,
+    attic_knee_m=1.8,
+    attic_window_m=0.6,
+    attic_sill_m=0.45,
+    sill_m=0.95,
+    window_m=(1.0, 1.1),
+    window_h_m=1.7,
+    head_gap_m=0.35,
+    pitch_m=(2.4, 2.8),
+    casing="frame",
+    panes_early=[2, 3],
+    panes_late=[2, 1],
+    panes_until=1920,
+    belt_m=0.12,
+    door_m=(1.0, 2.2),
+    min_wall_m=1.8,
+)
+TIMBER_OLD_SOURCE = "reference-measured old wooden house"
+OLD_TIMBER_BEFORE = 1940
+
+
+def old_timber(attrs):
+    """A wooden house dated before 1940: the measured TIMBER_OLD layout applies.
+
+    Undated timber keeps the sampled family (no date, no evidence of the old stock)."""
+    year = parsed_year(attrs.get("construction_year") or attrs.get("year") or attrs.get("start_date"))
+    return attrs.get("material_class") == "wood" and year is not None and year < OLD_TIMBER_BEFORE
 CLASSICAL_MATERIALS = {"brick", "plaster", "render", "stone"}
 
 
