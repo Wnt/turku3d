@@ -246,8 +246,16 @@ async function main() {
     const settle = async () => {
       const t0 = performance.now();
       if (mode === 'render') {
-        await page.waitForFunction(() => window.__qaReady === true || !!window.__qaError, null, { timeout: 120000, polling: 100 });
-        const qaError = await page.evaluate(() => window.__qaError ?? null);
+        // TURKU3D_QA_REARM=N: the client gives up after 120 s of frame time; a region still that is still loading
+        // after a camera jump is re-armed at the same pose up to N times (what is loaded stays loaded).
+        let rearm = Number(process.env.TURKU3D_QA_REARM ?? 0), qaError = null;
+        for (;;) {
+          await page.waitForFunction(() => window.__qaReady === true || !!window.__qaError, null, { timeout: Number(process.env.TURKU3D_QA_SETTLE_S ?? 120) * 1000, polling: 100 });
+          qaError = await page.evaluate(() => window.__qaError ?? null);
+          if (!(qaError && /^timeout/.test(qaError) && rearm-- > 0)) break;
+          console.error(`re-arming the QA settle (${qaError.slice(0, 160)})`);
+          await page.evaluate(() => window.__qaMove(window.__qaPose));
+        }
         if (qaError) throw new Error(`QA render mode: ${qaError}`);
       } else if (manifest.readiness === 'quiet-frames') {
         // N quiet frames, all rendered after the change (a new camera pose streams and uploads only once drawn).
