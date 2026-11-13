@@ -9,7 +9,7 @@ from shapely import affinity
 from shapely.geometry import Point, Polygon
 
 from . import mesh, openings, priors
-from .facade import eaves_height
+from .facade import eaves_height, u_mapping
 from .materials import Palette
 
 UP = np.array([0.0, 0.0, 1.0])
@@ -334,7 +334,9 @@ def _dormer(
         return
     kind = dormer.get("type", "gable")
     w, h = dormer.get("w_m", 1.4), dormer.get("h_m", 1.4)
-    u = anchor.get("u_m", facade.width / 2)
+    # The anchor's u is measured on the described wall's own frame, like the wall's openings.
+    wall = next((w for w in doc.get("walls", []) if w.get("id") == anchor.get("wall")), {})
+    u = u_mapping(facade, wall)(anchor["u_m"]) if "u_m" in anchor else facade.width / 2
     setback = 0.0 if kind == "wall_dormer" else anchor.get("setback_m", 1.0)
     front = facade.point(u, 0.0, -setback)[:2]
     inward = -np.asarray(facade.normal[:2], float)
