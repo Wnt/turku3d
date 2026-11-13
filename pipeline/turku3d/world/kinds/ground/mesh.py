@@ -28,6 +28,7 @@ GRID = 2.5               # relief resolution of the skin
 FAR_STEP = 2.5           # node spacing of the far level of detail
 ZEBRA_STRIPE, ZEBRA_PITCH = 0.5, 1.0
 DASH_WIDTH = 0.12
+FLUSH = 0.005          # a kerb stone whose top is this near the skin under it is flush: no solid
 
 
 def polygons(shape) -> list:
@@ -315,6 +316,7 @@ def compile_cell(description: dict) -> Output:
     vertex_normals = np.where(low_vertex[:, None], low_normal(px, pz), high_normal(px, pz))
     vertex_normals /= np.linalg.norm(vertex_normals, axis=1, keepdims=True)
 
+    stone_top = np.maximum(high_at(px, pz), low_at(px, pz))
     groups: dict[str, tuple[dict, str, list]] = {}
     kerb_triangles, kerb_cover = [], None
     for index, (_, cover, role) in enumerate(pieces):
@@ -323,7 +325,9 @@ def compile_cell(description: dict) -> Output:
             continue
         name = cover['family']
         if role == 'kerb':
-            kerb_triangles.append(triangles[mine])
+            # A stone stands where its top is above the skin under it; a flush stone is the skin itself.
+            raised = (stone_top[triangles[mine]] - heights[triangles[mine]]).max(axis=1) > FLUSH
+            kerb_triangles.append(triangles[mine][raised])
             kerb_cover, name = cover, 'kerb-bed'
         elif role in ('low', 'paint'):
             name = f"{cover['family']}-carriageway"
@@ -337,7 +341,7 @@ def compile_cell(description: dict) -> Output:
         positions = np.column_stack([xz[:, 0], heights[used] - base, xz[:, 1]])
         parts.append(Part(name, positions, facing_up(xz, inverse.reshape(-1, 3)), material_of(cover),
                           normals=vertex_normals[used], uvs=xz + origin_xz))
-    if kerb_triangles:
+    if kerb_triangles and sum(len(chunk) for chunk in kerb_triangles):
         positions, faces, normals, uvs = kerb_solid(points, np.concatenate(kerb_triangles), low_at, high_at, origin_xz)
         positions[:, 1] -= base
         parts.append(Part('kerbs', positions, faces, material_of(kerb_cover), normals=normals, uvs=uvs))
