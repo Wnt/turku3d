@@ -437,7 +437,9 @@ node scripts/dev/scene-capture.mjs --mode render --world humalistonkatu --area h
   leased browser (`--capture-host auto`: the Mac when a slot is free and nobody queues, else the Air;
   `mac,air`: one browser on each at once) and, with `--drop`, removed from this store again when the whole set
   is captured (manifests, then `gc`). `--build-only` and `--skip-build` split the two phases, so a set can be
-  built on several hosts and captured later from what is built. `DIR` is one capture a judge reads: `current/<view>.png`, `manifest.json` (every view with its location
+  built on several hosts and captured later from what is built; `--refresh` describes and compiles again the
+  locations the build host's store already has (`world refresh`, no discover: after a generator change or new
+  stored descriptions). `DIR` is one capture a judge reads: `current/<view>.png`, `manifest.json` (every view with its location
   and capture host; `set.locations[]` with query, build and capture timings and failures), `compare.jpg`
   (photo | baselines | new world), per-location captures under `locations/` and logs under `logs/`. A point
   that fails to build or load is reported and the rest of the set continues.

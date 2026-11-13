@@ -4,7 +4,7 @@
 //
 //   node scripts/dev/world-set.mjs --views FILE --out DIR [--baseline DIR]... [--build-host local|air|osg]
 //     [--jobs N] [--data REL]... [--capture-host auto|mac|air|mac,air] [--background 400] [--only AREA,AREA]
-//     [--build-only | --skip-build] [--drop] [--label TEXT] [--ready-timeout 600]
+//     [--refresh] [--build-only | --skip-build] [--drop] [--label TEXT] [--ready-timeout 600]
 //
 // Every registry `area` of the set's views is one location: its query is the circle that covers the area's cameras
 // and what they look at (as `world build --area` does for a pilot area). First every location is built with
@@ -13,7 +13,8 @@
 // Then each is captured with `scene-capture.mjs --world AREA --area AREA` in a leased browser (`auto`: the Mac
 // when a slot is free, else the Air; `mac,air`: one browser on each at once, the manifest says which shot what). --build-only stops after the builds, so the points of one set can be built on
 // several hosts at once into the same DIR; --skip-build then captures what is built and reads the build logs
-// already in DIR. --drop removes the set's manifests and meshes from this store when everything is captured.
+// already in DIR. --refresh takes the locations as the build host's store already has them and only describes and
+// compiles them again (`world refresh`: new generator code and stored descriptions, no discover). --drop removes the set's manifests and meshes from this store when everything is captured.
 // DIR gets current/<view>.png, manifest.json (every view, and per location its query, build and capture hosts,
 // timings and failures), compare.jpg/html (photo | baselines | new world), and the per-location captures and
 // logs under locations/ and logs/. A location that fails to build or load is reported; the rest continues.
@@ -121,7 +122,8 @@ async function main() {
       await new Promise(r => setTimeout(r, worker * 4000));
       for (let row = queue.shift(); row; row = queue.shift()) {
         const { query, area } = row;
-        const build = ['python', '-m', 'turku3d.world', 'build', '--at', `${query.e},${query.n}`, '--radius', String(query.radius), '--background', String(background), '--name', area];
+        const build = argv.includes('--refresh') ? ['python', '-m', 'turku3d.world', 'refresh', '--location', area]
+          : ['python', '-m', 'turku3d.world', 'build', '--at', `${query.e},${query.n}`, '--radius', String(query.radius), '--background', String(background), '--name', area];
         const once = () => buildHost === 'local' ? run('bash', ['pipeline/env/run.sh', ...build], buildLog(area), { fresh: true })
           : run('scripts/dev/on-host', [buildHost, ...data, '--', ...build], buildLog(area), { fresh: true });
         let done = await once();
