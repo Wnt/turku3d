@@ -117,6 +117,10 @@ def test_assembled_description_is_valid_and_framed():
     assert doc["roof"]["chimneys"][0]["anchor"]["u_m"] == 10.0  # roof parts follow their wall
     assert "measured_on" not in only and "w00 +1.00 m x1.000 v-0.40 m" in doc["provenance"][0]["note"]
     assert doc["wall_defaults"]["bays"] == {"pitch_m": 3.6}  # a default grid fits walls of any length
+    # What the generator could not build goes back to the reader on the ruler it measured on.
+    text = reader.feedback(record, reading, {"w00": [{"what": "w", "u_m": 19.8, "v_m": 4.0, "why": "too wide"}]},
+                           ground=lambda e, n: wall.base + 0.5)
+    assert "measured on w00-1.jpg" in text and "u -1.0 to 19.0 m" in text and "w at u 18.8 m, v 4.4 m" in text
     assert "google:abc" in only["src"] and "src" not in only["storeys"][0]
 
 
