@@ -140,7 +140,7 @@ def test_a_deck_ends_where_the_bank_under_it_has_climbed():
 def test_a_deck_is_a_second_sheet_over_the_water():
     """Inside a deck's outline the cell has two sheets: the deck at the line between its abutments' levels (the
     carriageway; a footway a kerb higher) with a closed slab under it, and the river bed below. The height raster
-    carries the deck. Railings stand on the sides over the water, none across the street at the deck's ends."""
+    carries the deck. The parapets are the bridge kind's (kinds/tests/test_bridge.py)."""
     from turku3d.world.kinds.ground import decks
 
     description = street_cell()
@@ -179,10 +179,7 @@ def test_a_deck_is_a_second_sheet_over_the_water():
     field = output.heightfield
     assert abs(field.heights[int(32 / STEP), int(30 / STEP)] - 4.5) < 0.01                              # walked and driven on
     assert field.heights[int(32 / STEP), int(10 / STEP)] < 0.0                                          # the river beside it
-    panels = output.instances[0]
-    assert panels.collision and panels.behaviour == 'fixed'
-    assert set(np.round(panels.transforms[:, 0]).astype(int)) <= {26, 37}                              # the two sides
-    assert panels.transforms[:, 2].min() > 19 and panels.transforms[:, 2].max() < 45                   # only over the water
+    assert not output.instances                                                                         # parapets: the bridge kind
 
 
 def test_a_box_across_two_clips_keeps_each_closed_way_as_line_and_area_and_paves_a_building_passage(monkeypatch):
