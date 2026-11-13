@@ -106,3 +106,15 @@ def test_the_paint_colour_of_a_pixel_by_its_visits_white():
     painted = colour_parts.paint(list(grey_under_cloud), list(white_seen), white_l=93.0)
     assert painted[0] > grey_under_cloud[0] + 8 and abs(painted[1]) < 1 and abs(painted[2]) < 1
     assert np.allclose(colour_parts.paint(list(grey_under_cloud), None), grey_under_cloud)
+
+
+def test_a_measured_wall_with_its_panorama_validates():
+    from turku3d.observe import colour_batch
+    from turku3d.world.kinds.building import description
+
+    result = {"parts": {"wall": {"colour": "#cacfd3", "spread": 3.1, "share": 0.6, "conf": 0.72, "visible": 0.4,
+                                 "agreement": 2.5, "n": 2, "from": {"provider": "google", "id": "abc", "date": "2026-07",
+                                                                    "overcast": 0.98}}}}
+    block = colour_batch.wall_block(result)
+    doc = colour_batch.description("1033533534", {"wall": block}, ["google:abc"])
+    assert description.errors(doc) == [] and doc["measured"]["wall"]["from"]["overcast"] == 0.98
