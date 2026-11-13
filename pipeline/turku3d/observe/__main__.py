@@ -357,6 +357,14 @@ def main(argv=None) -> int:
     ap.add_argument("--radius", type=float, default=0.0)
     ap.add_argument("--check", action="store_true", help="colour: the sampler against the read colours")
     ap.add_argument("--apply", type=Path, help="colour: store the lines of a run made elsewhere with --no-store")
+    ap.add_argument("--sheet", type=Path, help="colour: write a contact sheet of the named buildings' packets "
+                                               "(house, sampled crops, swatches) and measure nothing new")
+    ap.add_argument("--title", default="", help="colour --sheet: the sheet's heading")
+    ap.add_argument("--layers", type=int, default=0, metavar="N",
+                    help="views: every time layer of the panorama spots is a candidate; a wall gets its best view of "
+                         "each visit, up to N (for ranking by weather and for scatter between visits)")
+    ap.add_argument("--parts", metavar="TAG", help="colour --sheet: parts from the label maps of colour_segment.py "
+                                                   "written with this tag (wall zones, trim, frames, plinth, roof, door)")
     ap.add_argument("--location", help="light: the name the views are stored under (location/NAME)")
     ap.add_argument("--view", nargs="*", help="reference view ids: every building visible in them")
     ap.add_argument("--views-file", type=Path, default=REPO / "qa/views/views.jsonl",
@@ -488,6 +496,13 @@ def main(argv=None) -> int:
             local.panos = Panoramas(root / "panoramas")
         return local.panos
 
+    if a.command == "colour" and a.sheet:
+        from . import colour_sheet
+
+        packets = [root / "buildings" / b.id for b in buildings]
+        print(json.dumps(colour_sheet.parts_sheet(packets, a.sheet, a.title, a.parts) if a.parts
+                         else colour_sheet.sheet(packets, a.sheet, a.title)), flush=True)
+        return 0
     if a.command == "colour":  # wall colours from strips, no reader
         from . import colour
 
@@ -533,7 +548,8 @@ def main(argv=None) -> int:
                 return record, 0.0
         panos = panoramas()
         try:
-            record = within(PREPARE_TIMEOUT_S, lambda: prepare(scene, b, panos, packet))
+            more = {"per_wall": a.layers, "layers": True, "limit": 5 * a.layers} if a.layers else {}
+            record = within(PREPARE_TIMEOUT_S, lambda: prepare(scene, b, panos, packet, **more))
         except TimeoutError:  # the stalled thread may hold this reader's locks: the next building gets a new one
             del local.panos
             print(f"observe: {b.id}: view preparation stalled for {PREPARE_TIMEOUT_S} s, building left out",

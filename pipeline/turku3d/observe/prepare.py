@@ -53,14 +53,15 @@ def other_views(scene: Scene, building: Building, panos: Panoramas, out: Path, r
 
 def prepare(scene: Scene, building: Building, panos: Panoramas, out: Path, *, per_wall: int = views.VIEWS_PER_WALL,
             only: set | None = None, avoid: dict | None = None, numbering: dict | None = None,
-            context_from: int = 0) -> dict:
+            context_from: int = 0, layers: bool = False, limit: int = views.CROPS_PER_BUILDING) -> dict:
     """Write the crops of one building under `out` and return the record the reader works from.
 
     `only`, `avoid`: a second preparation for some walls, away from the views that did not show them
     (views.building_views); its crops and contexts are numbered on from `numbering` and `context_from`."""
     started = time.time()
     before = dict(panos.timings)
-    found = views.building_views(scene, building, panos, per_wall=per_wall, only=only, avoid=avoid)
+    found = views.building_views(scene, building, panos, per_wall=per_wall, only=only, avoid=avoid, layers=layers,
+                                 limit=limit)
     selected = time.time()
     records, unseen = [], list(found["unseen"])
     for wall_id, wall_views in found["views"].items():

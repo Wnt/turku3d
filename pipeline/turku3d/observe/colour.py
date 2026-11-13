@@ -91,10 +91,9 @@ def dominant(rgb: np.ndarray) -> dict | None:
             "spread": float(np.linalg.norm(pixels[near] - centre, axis=1).mean())}
 
 
-def strip_of_crop(path: Path, crop: dict, wall: dict) -> np.ndarray | None:
-    """The plain-wall part of a stored crop: its seen stretch, above the ground storey, under the eaves."""
-    image = np.asarray(Image.open(path).convert("RGB"))
-    picture = image[: image.shape[0] - RULER_PX, RULER_PX:]
+def strip_box(crop: dict, wall: dict) -> tuple[slice, slice] | None:
+    """Rows and columns of the plain-wall part of a crop's picture: its seen stretch, above the ground storey,
+    under the eaves."""
     ppm = crop["px_per_m"]
     height = wall["eaves_h"] - wall["base_h"]
     z_low, z_high = min(2.8, 0.35 * height), height - 0.5
@@ -103,7 +102,21 @@ def strip_of_crop(path: Path, crop: dict, wall: dict) -> np.ndarray | None:
     rows = slice(max(0, round((crop["z_high_m"] - z_high) * ppm)), max(0, round((crop["z_high_m"] - z_low) * ppm)))
     columns = slice(max(0, round((crop["x0_m"] + 0.3 - crop["x_left_m"]) * ppm)),
                     max(0, round((crop["x1_m"] - 0.3 - crop["x_left_m"]) * ppm)))
-    strip = picture[rows, columns][::STEP, ::STEP]
+    return rows, columns
+
+
+def picture_of(path: Path) -> np.ndarray:
+    """A stored crop without its rulers."""
+    image = np.asarray(Image.open(path).convert("RGB"))
+    return image[: image.shape[0] - RULER_PX, RULER_PX:]
+
+
+def strip_of_crop(path: Path, crop: dict, wall: dict) -> np.ndarray | None:
+    """The plain-wall part of a stored crop (strip_box), every STEP-th pixel."""
+    box = strip_box(crop, wall)
+    if box is None:
+        return None
+    strip = picture_of(path)[box[0], box[1]][::STEP, ::STEP]
     return strip if strip.size >= 3 * MIN_PIXELS else None
 
 
@@ -149,8 +162,12 @@ def of_packet(packet: Path) -> dict | None:
         if sample:
             sample.update(wall=crop["wall"], area_m2=(crop["x1_m"] - crop["x0_m"]) * (wall["eaves_h"] - wall["base_h"]),
                           provider=crop["panorama"]["provider"], date=crop["panorama"]["date"])
+            sample.update(file=path.name, distance_m=crop["distance_m"], oblique_deg=crop["oblique_deg"])
             samples.append(sample)
-    return combined(samples)
+    result = combined(samples)
+    if result:
+        result["samples"] = samples
+    return result
 
 
 def measured(sample: dict) -> dict:

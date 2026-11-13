@@ -149,6 +149,31 @@ class Panoramas:
                 h, why = m.elevation, "provider elevation"
         return Pano(m, np.array([m.E, m.N, float(h)]), float(heading), why)
 
+    def layers(self, spot: dict, base_h: float | None = None) -> list[Pano]:
+        """Every time layer at a spot, each with its own pose: a Street View spot has one per visit of the camera
+        car (other years, other weather); a Look Around panorama is its own only layer."""
+        if spot["provider"] != "google":
+            pano = self.resolve(spot, base_h)
+            return [pano] if pano else []
+        try:
+            first = self.cache.google_meta(spot["id"])
+        except Exception as error:  # noqa: BLE001
+            print(f"observe: metadata of {spot['id']} failed: {error}", file=sys.stderr)
+            first = None
+        if first is None:
+            return []
+        out = []
+        for pid in dict.fromkeys([first.id] + [h["id"] for h in first.extra.get("historical", [])]):
+            try:
+                meta = first if pid == first.id else self.cache.google_meta(pid)
+            except Exception as error:  # noqa: BLE001 - one layer that cannot be resolved is skipped
+                print(f"observe: metadata of {pid} failed: {error}", file=sys.stderr)
+                continue
+            pano = self.resolve({"provider": "google", "id": pid, "meta": meta}, base_h) if meta else None
+            if pano is not None:
+                out.append(pano)
+        return out
+
     def image(self, pano: Pano) -> Path:
         started = time.time()
         with self._lock(pano):

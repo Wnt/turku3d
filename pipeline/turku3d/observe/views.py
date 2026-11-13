@@ -200,17 +200,32 @@ def same_path(provider: str, date, distance: float, blocked: list) -> bool:
                and abs(distance - b["distance_m"]) <= SAME_PATH_M for b in blocked)
 
 
+def by_date(candidates: list[WallView], count: int) -> list[WallView]:
+    """The best view of each visit (provider and month), best visits first: independent photographs of one wall
+    in different light, for choosing by weather and for measuring how far colours scatter between them."""
+    best: dict = {}
+    for v in candidates:
+        key = (v.pano.source, v.pano.date[:7])
+        score = v.quality / recency(v.pano.date) * v.seen_fraction  # age is no fault here
+        if key not in best or score > best[key][0]:
+            best[key] = (score, v)
+    return [v for _, v in sorted(best.values(), key=lambda b: -b[0])[:count]]
+
+
 def building_views(scene: Scene, building: Building, panos: Panoramas, *, per_wall: int = VIEWS_PER_WALL,
-                   resolve_limit: int = 14, only: set | None = None, avoid: dict | None = None) -> dict:
+                   resolve_limit: int = 14, only: set | None = None, avoid: dict | None = None,
+                   layers: bool = False, limit: int = CROPS_PER_BUILDING) -> dict:
     """{'views': {wall id: [WallView]}, 'unseen': [{wall, reason}], 'candidates': {wall id: n}} for one building.
 
     `only` limits the walls; `avoid` gives per wall id the views that did not show it, as [{provider, year,
-    distance_m}]: no panorama on their paths is taken for that wall again (same_path)."""
+    distance_m}]: no panorama on their paths is taken for that wall again (same_path). `layers`: every time layer
+    of the spots is a candidate and a wall gets its best view of each visit (by_date), up to `per_wall`."""
     walls = [w for w in building.walls if only is None or w.id in only]
     far = max((reach(w) for w in walls), default=40.0)
     b = building.footprint.bounds
     spots = panos.spots((b[0], b[1], b[2], b[3]), margin=far)
     resolved: dict = {}
+    layered: dict = {}
     views, unseen, counts, every = {}, [], {}, []
     for wall in walls:
         if wall.ring != 0:
@@ -244,25 +259,32 @@ def building_views(scene: Scene, building: Building, panos: Panoramas, *, per_wa
         take = rough[:resolve_limit]
         for provider in sorted({key[0] for _, key, _ in rough}):
             take += [r for r in rough[resolve_limit:] if r[1][0] == provider][:PER_PROVIDER]
-        found = []
+        found, taken = [], set()
         for _, key, spot in take:
-            if key not in resolved:
-                resolved[key] = panos.resolve(spot, wall.base)
-            pano = resolved[key]
-            if pano is None:
-                continue
-            v = measure(scene, building, wall, pano)
-            if v is not None and not same_path(pano.source, pano.date, v.distance, blocked):
-                found.append(v)
+            if layers:
+                if key not in layered:
+                    layered[key] = panos.layers(spot, wall.base)
+                here = layered[key]
+            else:
+                if key not in resolved:
+                    resolved[key] = panos.resolve(spot, wall.base)
+                here = [resolved[key]]
+            for pano in here:
+                if pano is None or (pano.source, pano.id) in taken:
+                    continue
+                taken.add((pano.source, pano.id))
+                v = measure(scene, building, wall, pano)
+                if v is not None and not same_path(pano.source, pano.date, v.distance, blocked):
+                    found.append(v)
         counts[wall.id] = len(found)
         every += found
-        picked = choose(found, per_wall)
+        picked = by_date(found, per_wall) if layers else choose(found, per_wall)
         if picked:
             views[wall.id] = picked
         else:
             unseen.append({"wall": wall.id, "reason": "no panorama has a free line of sight" if not rough
                            else "panoramas nearby, none resolved to a usable view"})
-    kept = budget(views)
+    kept = budget(views, limit)
     for wid in views:
         if wid not in kept:
             unseen.append({"wall": wid, "reason": "seen, but left out of the reading: larger walls used the budget"})
