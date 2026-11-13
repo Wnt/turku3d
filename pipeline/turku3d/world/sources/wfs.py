@@ -8,13 +8,20 @@ when an area there holds the layer for the whole block, and otherwise from the s
 from __future__ import annotations
 
 import json
+import os
 import tempfile
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
 
+# Loaded here, by the thread that imports this module, and never first inside a fetch thread: Arrow's allocator
+# belongs to the thread that loads the library, and once that thread has ended the next parquet read ends the
+# process with a segmentation fault (found on Linux with pyarrow 25: a lidar worker that fetched a block died so).
+import geopandas as gpd
 import numpy as np
+import pyarrow.parquet  # noqa: F401
 import shapely
 
 from ... import config
@@ -103,7 +110,7 @@ class Wfs:
                 pages.append(page)
             frame, count = gml.pages_to_frame(sorted(pages), layer)
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
+        tmp = path.with_name(f"{path.stem}.{os.getpid()}.{threading.get_ident()}.tmp")  # several builds fetch at once
         frame.drop(columns=["geometry_local"]).to_parquet(tmp)
         tmp.replace(path)
         self.fetched.append(f"{layer} {path.stem} ({count} features)")
@@ -111,8 +118,6 @@ class Wfs:
 
     def frame(self, path: Path):
         if path not in self.frames:
-            import geopandas as gpd
-
             self.frames[path] = gpd.read_parquet(path)
         return self.frames[path]
 

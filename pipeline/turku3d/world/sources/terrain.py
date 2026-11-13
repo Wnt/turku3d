@@ -7,6 +7,7 @@ Raw tiles are read from $TURKU3D_DATA/raw/laz/maanpinta and fetched into the cac
 
 from __future__ import annotations
 
+import os
 import urllib.error
 from pathlib import Path
 
@@ -49,7 +50,7 @@ class Terrain:
                 raise
             missing.write_text("404\n")
             return None
-        tmp = cached.with_suffix(".tmp")
+        tmp = cached.with_name(f"{cached.stem}.{os.getpid()}.tmp")  # several builds fetch at once
         tmp.write_bytes(body)
         tmp.replace(cached)
         self.sources.log(f"  fetched lidar ground tile {name}: {len(body) // 1024} KiB")
@@ -100,7 +101,7 @@ class Terrain:
             heights[holes] = NearestNDInterpolator(points[:, :2], points[:, 2])(gx[holes], gy[holes])
         grid = heights.astype(np.float32)
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp.npy")
+        tmp = path.with_name(f"{path.stem}.{os.getpid()}.tmp.npy")
         np.save(tmp, grid)
         tmp.replace(path)
         self.grids[tile] = grid

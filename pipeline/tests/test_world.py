@@ -187,3 +187,13 @@ def test_osm_table_has_one_row_per_point_line_and_area(tmp_path):
     # 0.0004 degrees of longitude at this latitude is 22 m, in the survey frame.
     building = found["way", 10]
     assert building.e1 - building.e0 == pytest.approx(22.0, abs=0.5) and 23_450_000 < building.e0 < 23_470_000
+
+
+def test_the_source_readers_load_arrow_with_the_module_not_in_a_fetch_thread():
+    """Arrow's allocator dies with the thread that loaded the library: a block fetched in a pool thread of a process
+    that had not loaded it yet ended the next parquet read with a segmentation fault (a lidar worker, 2026-11-13)."""
+    import subprocess
+    import sys
+
+    code = "import sys, turku3d.world.sources; sys.exit(0 if {'pyarrow.parquet', 'geopandas'} <= set(sys.modules) else 1)"
+    assert subprocess.run([sys.executable, "-c", code], timeout=120).returncode == 0

@@ -361,6 +361,9 @@ def missing(tiles: list[str]) -> list[dict[str, tuple[str, ...]]]:
 
 
 def _send(sender, job) -> None:
+    import faulthandler
+
+    faulthandler.enable()  # a crash in native code leaves the Python stack in the build's log
     try:
         try:  # when the machine runs out of memory, this process goes first: its tile is made again, a build is not
             Path("/proc/self/oom_score_adj").write_text("500")
