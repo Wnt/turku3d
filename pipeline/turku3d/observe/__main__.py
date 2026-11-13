@@ -360,6 +360,7 @@ def main(argv=None) -> int:
     ap.add_argument("--sheet", type=Path, help="colour: write a contact sheet of the named buildings' packets "
                                                "(house, sampled crops, swatches) and measure nothing new")
     ap.add_argument("--title", default="", help="colour --sheet: the sheet's heading")
+    ap.add_argument("--whites", type=Path, help="colour --sheet: visit white points (colour --apply-batch writes them)")
     ap.add_argument("--light", action="store_true",
                     help="colour: measure the light (overcast 0..1) of every panorama the packets use")
     ap.add_argument("--scatter", action="store_true",
@@ -447,6 +448,7 @@ def main(argv=None) -> int:
             lines = colour_batch.measured_lines(root, mode=a.paint, white_l=a.white_l or colour_parts.WHITE_L)
             out = a.lines or root / "batch/measured.jsonl"
             out.write_text("".join(json.dumps(line, ensure_ascii=False) + "\n" for line in lines))
+            (root / "batch/whites.json").write_text(json.dumps(colour_parts.visit_white(colour_batch.results(root))))
             report = {"lines": len(lines), "with_wall": sum(bool(line["measured"]) for line in lines), "file": str(out)}
             if STORE:
                 report.update(colour_batch.store(lines))
@@ -602,7 +604,8 @@ def main(argv=None) -> int:
         packets = [root / "buildings" / b.id for b in buildings]
         light = root / "panorama-light.json"
         overcast = {k: v["overcast"] for k, v in json.loads(light.read_text()).items()} if light.exists() else None
-        print(json.dumps(colour_sheet.parts_sheet(packets, a.sheet, a.title, a.parts, overcast) if a.parts
+        whites = json.loads(a.whites.read_text()) if a.whites else None
+        print(json.dumps(colour_sheet.parts_sheet(packets, a.sheet, a.title, a.parts, overcast, whites) if a.parts
                          else colour_sheet.sheet(packets, a.sheet, a.title)), flush=True)
         return 0
     if a.command == "colour":  # wall colours from strips, no reader

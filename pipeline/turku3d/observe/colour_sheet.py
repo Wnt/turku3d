@@ -234,14 +234,17 @@ def parts_row(packet: Path, result: dict) -> tuple[Image.Image, dict]:
     return sheet, result
 
 
-def parts_sheet(packets: list[Path], out: Path, title: str = "", tag: str = "m2f", overcast: dict | None = None) -> dict:
-    """The sheet and, beside it, `<out>.jsonl`: one line a building with its candidates and combined parts."""
+def parts_sheet(packets: list[Path], out: Path, title: str = "", tag: str = "m2f", overcast: dict | None = None,
+                whites: dict | None = None) -> dict:
+    """The sheet and, beside it, `<out>.jsonl`: one line a building with its candidates and combined parts.
+    `whites`: the visits' white points ({provider:YYYY-MM: [L, a, b]}, as a batch measured them over many
+    buildings); without them they come from the sheet's own buildings."""
     from . import colour_parts
 
     found = [(p, r) for p, r in ((p, colour_parts.of_packet(p, tag, overcast, keep_maps=True)) for p in packets) if r is not None]
     if not found:
         return {"rows": 0}
-    whites = colour_parts.calibrate([r for _, r in found])
+    whites = colour_parts.calibrate([r for _, r in found], whites)
     done = [parts_row(p, r) for p, r in found]
     head = 40
     page = Image.new("RGB", (done[0][0].width, head + PART_ROW_H * len(done)), PAPER)
