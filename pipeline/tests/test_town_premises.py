@@ -145,3 +145,15 @@ def test_walls_on_a_front_open_as_shopfronts_below_reviewed_walls():
     assert reviewed["base"]["variant"]["value"] == "windows"  # what was read on the wall stays
     assert side["base"]["variant"]["value"] == "windows"  # not on the front
     assert blank["base"]["variant"]["value"] == "windows"  # no bays: stays closed
+
+
+def test_spot_rebuild_class_is_the_surveyed_tile_list():
+    from turku3d.migrations import facade_readings, old_timber, registry, town_premises
+
+    chain = list(registry.CHAIN)
+    assert chain.index(town_premises.MIGRATION) > chain.index(facade_readings.MIGRATION)
+    assert chain.index(town_premises.MIGRATION) > chain.index(old_timber.MIGRATION)
+    assert town_premises.affected(dict(tile="t0_-1_1", building_keys=["x"]))  # Linnankatu 27
+    assert not town_premises.affected(dict(tile="t0_40_40"))
+    assert not town_premises.affected({})
+    assert len(town_premises.TILES) == 35
