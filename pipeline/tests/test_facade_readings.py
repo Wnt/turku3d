@@ -82,6 +82,15 @@ def test_light_reading_keeps_material_and_colour_and_a_regular_grid():
     assert "walls" not in row
 
 
+def test_sparse_bays_keep_the_read_window_size_at_the_drawn_pitch():
+    # Two bays over 12 m read as a 6 m rhythm; proven draws at most a 4.8 m bay, so the 1.2 m
+    # window is a quarter of that bay, not a fifth of the source's.
+    doc = reading()
+    doc["walls"][0]["bays"] = [{"u_m": 3.0}, {"u_m": 9.0}]
+    d = fr.convert(doc)[0]["description"]
+    assert d["window_columns"] == 2 and d["window_width"] == 0.25
+
+
 def test_unsure_or_unread_walls_are_not_converted():
     doc = reading()
     doc["materials"]["wall"]["conf"] = {"*": 0.2}

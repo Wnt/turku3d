@@ -290,7 +290,11 @@ def convert(doc: dict) -> tuple[dict | None, str]:
         width, columns = width * 60 / columns, 60
     floors = sum(s.get("kind") in STOREYS for s in storeys) + sum(
         s.get("kind") == "attic" and bool(storey_openings(s, types)) for s in storeys)
-    pitch = width / max(columns, 1)
+    # Proven draws the rhythm at a bounded pitch on every wall: size the read window against the
+    # bay it is drawn in, or a sparse reading (wide bays) would get slits.
+    from turku3d.facade_programs import DRAWN_PITCH_M
+
+    pitch = min(DRAWN_PITCH_M[1], max(DRAWN_PITCH_M[0], width / max(columns, 1)))
     upper = next((s for s in storeys if s.get("kind") == "upper"), None) or next(
         (s for s in storeys if s.get("kind") == "ground"), None)
     window_width = min(0.9, max(0.1, window["w_m"] / pitch)) if window.get("w_m") else 0.45

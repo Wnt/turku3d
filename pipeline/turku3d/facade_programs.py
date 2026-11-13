@@ -222,6 +222,10 @@ def described_balconies(vertices, row):
     return result
 
 
+# The window bay pitch a description is drawn at on every wall, whatever its source width says.
+DRAWN_PITCH_M = (1.5, 4.8)
+
+
 def describe(program, description, source_width, *, blank_walls=frozenset(), balconies=None):
     """Keep existing AI/kit results, adapting only the bay count to each real wall."""
     from turkutex.facade_program import value
@@ -232,7 +236,7 @@ def describe(program, description, source_width, *, blank_walls=frozenset(), bal
     pitch = source_width / max(1, d["window_columns"])
     # Descriptions are a building-wide rhythm, not a licence to stretch a single
     # source bay over an unrelated long wall or squeeze it into a roof sliver.
-    pitch = min(4.8, max(1.5, pitch))
+    pitch = min(DRAWN_PITCH_M[1], max(DRAWN_PITCH_M[0], pitch))
     features = d["features"]
     for index, w in enumerate(program["walls"]):
         width, height = w["width_m"], w.get("layout_height_m", w["height_m"])

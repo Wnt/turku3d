@@ -15,7 +15,7 @@
   "wall_visible": true,
   "window_columns": 1,
   "window_height": 0.2,
-  "window_width": 0.1
+  "window_width": 0.125
  },
  "engine": "stored",
  "provenance": {
