@@ -1,8 +1,10 @@
 // The loader of the world pipeline's location manifest (docs/design/world-pipeline.md, sections 5 and 8).
 //
-// Every entity is its own model: it is styled, prepared, drawn and released alone, so a changed entity is swapped in
-// the running client while the camera, the lighting and every other entity stay. Stills only for now: a location
-// has no collision, so it draws in the QA camera mode (?world=NAME&cam=...), not in play.
+// Entities are drawn in chunks: the entities of one renderer layer whose origins fall in the same 250 m square are
+// styled, prepared and drawn as one model, as the game does with a tile, so the cost of a location follows its
+// content and not its entity count (2,000 entities as 2,000 models did not finish loading in ten minutes). A changed
+// entity redraws its chunk in the running client while the camera, the lighting and every other chunk stay. Stills
+// only for now: a location has no collision, so it draws in the QA camera mode (?world=NAME&cam=...), not in play.
 import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { disposeDraw } from '../../render/sharedMaterials';
@@ -24,8 +26,18 @@ const STORE = 'world/';
 const LAYERS: Record<string, string> = { ground: 'ground', building: 'buildings' };
 const GROUND_BINS = 5;
 const LOADS = 8;
+/** The side of the square whose entities are prepared as one model, in metres. */
+const CHUNK = 250;
 
 interface Drawn { row: LocationEntity; root: THREE.Group; heights: { x0: number; z0: number; nx: number; nz: number; y: Float32Array } | null }
+interface Chunk { id: string; root: THREE.Group; members: Drawn[] }
+const layerOf = (row: LocationEntity) => LAYERS[row.kind] ?? 'structures';
+const chunkOf = (row: LocationEntity) => `${layerOf(row)}:${Math.floor(row.origin[0] / CHUNK)}_${Math.floor(row.origin[2] / CHUNK)}`;
+function byChunk(rows: readonly LocationEntity[]) {
+  const chunks = new Map<string, LocationEntity[]>();
+  for (const row of rows) chunks.set(chunkOf(row), [...chunks.get(chunkOf(row)) ?? [], row]);
+  return chunks;
+}
 export interface RefreshReport { revision: number; changed: string[]; added: string[]; removed: string[]; ms: number }
 
 class NoScenery {
@@ -55,6 +67,7 @@ export class LocationWorld implements WorldSurface {
   /** What capture tools read as the drawn scene: the location and its manifest revision. */
   get data() { return { id: `world:${this.manifest.name}`, release: `r${this.manifest.revision}` }; }
   private shown = new Map<string, Drawn>();
+  private chunks = new Map<string, Chunk>();
   private assets = new Map<string, Promise<THREE.Group>>();
   private materials = new Map<string, THREE.Material>();
   private loader = new GLTFLoader();
@@ -110,7 +123,7 @@ export class LocationWorld implements WorldSurface {
 
   /** Loads one entity's meshes and instances into a detached group at its origin. */
   private async load(row: LocationEntity): Promise<Drawn> {
-    const root = new THREE.Group(), layer = LAYERS[row.kind] ?? 'structures';
+    const root = new THREE.Group(), layer = layerOf(row);
     root.name = `entity:${row.id}`; root.position.fromArray(row.origin);
     root.userData = { entityId: row.id, kind: row.kind, role: row.role, hash: row.hash, layer };
     if (row.url) root.add((await this.loader.loadAsync(this.storeUrl(row.url))).scene);
@@ -143,22 +156,39 @@ export class LocationWorld implements WorldSurface {
     return { row, root, heights: row.kind === 'ground' ? groundHeights(root, row) : null };
   }
 
-  /** Styles, prepares and draws loaded entities, as the tile streamer does with a tile's model. */
-  private async show(drawn: Drawn) {
-    const host = this.host, { root, row } = drawn;
+  /** Loads the rows of one chunk, a few at a time; a row that fails is named in `failures` and left out. */
+  private async loadChunk(rows: readonly LocationEntity[], failures: string[]) {
+    const queue = [...rows], members: Drawn[] = [];
+    await Promise.all(Array.from({ length: Math.min(LOADS, queue.length) }, async () => {
+      for (let row = queue.shift(); row; row = queue.shift()) {
+        try { members.push(await this.load(row)); }
+        catch (error) { failures.push(`${row.id}: ${error instanceof Error ? error.message : error}`); }
+      }
+    }));
+    return members;
+  }
+
+  /** Styles, prepares and draws the entities of one chunk as one model, as the tile streamer does with a tile. */
+  private async show(id: string, members: Drawn[]) {
+    const host = this.host, root = new THREE.Group();
+    root.name = `chunk:${id}`; root.userData = { layer: id.split(':')[0] };
+    for (const drawn of members) root.add(drawn.root);
+    root.updateMatrixWorld(true);
     await host.style?.(root);
     await host.prepareGraphics?.(root);
     this.group.add(root);
-    host.trackModel?.(root, row.id);
-    this.shown.set(row.id, drawn);
+    host.trackModel?.(root, root.name);
+    this.chunks.set(id, { id, root, members });
+    for (const drawn of members) this.shown.set(drawn.row.id, drawn);
   }
 
-  private hide(drawn: Drawn) {
-    const host = this.host, { root, row } = drawn;
-    host.untrackModel?.(root, row.id);
+  private hide(chunk: Chunk) {
+    const host = this.host, { root } = chunk;
+    host.untrackModel?.(root, root.name);
     host.unstyle?.(root);
     root.removeFromParent();
-    this.shown.delete(row.id);
+    this.chunks.delete(chunk.id);
+    for (const drawn of chunk.members) this.shown.delete(drawn.row.id);
     const release = () => root.traverse(node => {
       const mesh = node as THREE.Mesh;
       if (!mesh.isMesh) return;
@@ -169,20 +199,20 @@ export class LocationWorld implements WorldSurface {
   }
 
   private async install(rows: readonly LocationEntity[]) {
-    const queue = [...rows], failures: string[] = [];
+    const queue = [...byChunk(rows)], failures: string[] = [];
     await Promise.all(Array.from({ length: Math.min(LOADS, queue.length) }, async () => {
-      for (let row = queue.shift(); row; row = queue.shift()) {
-        try { await this.show(await this.load(row)); }
-        catch (error) { failures.push(`${row.id}: ${error instanceof Error ? error.message : error}`); }
+      for (let next = queue.shift(); next; next = queue.shift()) {
+        try { await this.show(next[0], await this.loadChunk(next[1], failures)); }
+        catch (error) { failures.push(`chunk ${next[0]}: ${error instanceof Error ? error.message : error}`); }
       }
     }));
     if (failures.length) { this.errors = failures; throw new Error(`Location ${this.manifest.name}: ${failures.length} entities failed: ${failures.slice(0, 3).join('; ')}`); }
   }
 
   /**
-   * Re-reads the manifest and redraws exactly the entities whose content hash changed: new files load first, then
-   * the old entity leaves and the new one is drawn; added entities appear and missing ones go. Everything else,
-   * the camera and the lighting stay. Resolves once the changed entities are drawn.
+   * Re-reads the manifest and redraws exactly the chunks holding an entity whose content hash changed, that was
+   * added or that is gone: the chunk's files load first, then the old chunk leaves and the new one is drawn.
+   * Everything else, the camera and the lighting stay. Resolves once the changed chunks are drawn.
    */
   refresh(): Promise<RefreshReport> {
     const run = this.updating.then(() => this.replace());
@@ -198,15 +228,22 @@ export class LocationWorld implements WorldSurface {
     const wanted = new Map(next.entities.map(row => [row.id, row]));
     const changed: string[] = [], added: string[] = [];
     const removed = [...this.shown.keys()].filter(id => !wanted.has(id));
-    const loads = next.entities.filter(row => this.shown.get(row.id)?.row.hash !== row.hash || this.shown.get(row.id)?.row.role !== row.role);
-    const loaded = await Promise.all(loads.map(row => this.load(row)));
-    for (const fresh of loaded) {
-      const old = this.shown.get(fresh.row.id);
-      (old ? changed : added).push(fresh.row.id);
-      if (old) this.hide(old);
-      await this.show(fresh);
+    const stale = new Set(removed.map(id => chunkOf(this.shown.get(id)!.row)));
+    for (const row of next.entities) {
+      const old = this.shown.get(row.id)?.row;
+      if (old?.hash === row.hash && old.role === row.role) continue;
+      (old ? changed : added).push(row.id);
+      stale.add(chunkOf(row));
+      if (old) stale.add(chunkOf(old));
     }
-    for (const id of removed) this.hide(this.shown.get(id)!);
+    const rows = byChunk(next.entities), failures: string[] = [];
+    for (const id of stale) {
+      const members = await this.loadChunk(rows.get(id) ?? [], failures);
+      const old = this.chunks.get(id);
+      if (old) this.hide(old);
+      if (members.length) await this.show(id, members);
+    }
+    if (failures.length) throw new Error(`Location ${next.name}: ${failures.length} entities failed: ${failures.slice(0, 3).join('; ')}`);
     this.manifest = next;
     this.host.manifest.code = this.data.release;
     for (const entry of this.entries.values()) entry.visualHash = this.data.release;
@@ -284,7 +321,7 @@ export class LocationWorld implements WorldSurface {
   leaveCity() {
     if (this.disposed) return;
     this.disposed = true;
-    for (const drawn of [...this.shown.values()]) this.hide(drawn);
+    for (const chunk of [...this.chunks.values()]) this.hide(chunk);
     this.group.removeFromParent();
     this.entries.clear();
   }
