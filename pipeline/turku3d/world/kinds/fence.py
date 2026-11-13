@@ -63,6 +63,8 @@ GREY_WOOD = "#b4b8b4"
 WHITE_WOOD = "#dcdcd4"
 UNDER_SHADE = 0.86  # the paint of the under boards of a board-on-board fence against the upper boards
 MESH_GREY = "#8f9492"
+PANEL_MASS = {"board": 18.0, "picket": 10.0, "iron": 22.0, "mesh": 6.0, "railing": 9.0}  # kg per metre of height of one panel
+POST_MASS = 6.0  # kg per metre of a fence post
 
 
 def _buildings(sources, box) -> tuple[shapely.STRtree | None, list, np.ndarray]:
@@ -377,7 +379,7 @@ class Fence:
             facts["break"] = "panel"
             behaviour = "fixed" if family == "stone-wall" else "breakable"
             facts["interaction"] = interaction(behaviour, "box", [PANEL[family], height, 0.4 if family == "stone-wall" else 0.1],
-                                               None if behaviour == "fixed" else 18.0 * height, per="panel")
+                                               None if behaviour == "fixed" else PANEL_MASS.get(family, 18.0) * height, per="panel")
             stubs.append(Stub(f"fence/{row['id']}", tuple(float(v) for v in box), [row["source"]], facts))
             if family in ("board", "picket", "iron"):
                 built.append((shapely.LineString(np.array(facts["line"])[:, :2]), facts))
@@ -467,10 +469,12 @@ class Fence:
         posts.append([last[0], last[1], last[2], posts[-1][3], 1.0, 1.0, 1.0])
         asset = {"board": lambda: board_panel(height, colour), "picket": lambda: picket_panel(height, colour),
                  "iron": lambda: iron_panel(height, colour), "mesh": lambda: mesh_panel(height, colour), "stone-wall": lambda: wall_panel(height, colour), "railing": lambda: railing_panel(height, colour)}.get(family, lambda: board_panel(height, colour))()
+        # A panel and a post are each a body of their own (the run breaks per panel): the mass is one nominal panel's.
         items = [Instances(asset.parts(), np.round(np.array(panels), 4), ids=[f"{entity}#p{k}" for k in range(len(panels))],
-                           behaviour=block.get("behaviour"), collision=block.get("collision"))]
+                           behaviour=block.get("behaviour"), collision=block.get("collision"), mass=block.get("mass"))]
         if family != "stone-wall":
             items.append(Instances(post(family, height, colour).parts(), np.round(np.array(posts), 4),
                                    ids=[f"{entity}#q{k}" for k in range(len(posts))], behaviour=block.get("behaviour"),
-                                   collision={"shape": "box", "size": [0.1, height, 0.1]}))
+                                   collision={"shape": "box", "size": [0.1, height, 0.1]},
+                                   mass=round(POST_MASS * height, 1) if block.get("mass") is not None else None))
         return Output(tuple(origin), [], items)

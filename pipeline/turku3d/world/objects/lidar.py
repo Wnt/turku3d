@@ -24,6 +24,7 @@ from ... import config
 VERSION = "4"
 TILE = 500.0
 CELL = 1.0
+HEAD_REACH, HEAD_TALLEST, HEAD_RETURNS, HEAD_FLAT = 0.6, 13.5, 5, 0.4  # a lamp head over a shaft the scan lost
 SIDE = int(TILE / CELL)
 GROUND, BUILDING, NOISE = 2, 6, 7
 MIN_HAG, MAX_HAG = 0.25, 40.0
@@ -218,20 +219,32 @@ class ObjectLidar:
             return None
         result = {"offset": [round(float(axis[0]), 2), round(float(axis[1]), 2)], "top": round(float(top), 2),
                   "returns": int((shaft[:, 2] <= top).sum())}
-        # The arm: returns within a metre below or above the top, 0.4 to 3.5 m from the axis, along one bearing.
-        crown = points[(d > 0.4) & (d <= 3.5) & (points[:, 2] > top - 1.6) & (points[:, 2] < top + 1.2) & (points[:, 3] != 5)]
-        if len(crown) >= 3:
+
+        def arm_at(top: float) -> dict | None:
+            """The arm: returns within a metre below or above the top, 0.4 to 3.5 m from the axis, along one bearing."""
+            crown = points[(d > 0.4) & (d <= 3.5) & (points[:, 2] > top - 1.6) & (points[:, 2] < top + 1.2) & (points[:, 3] != 5)]
+            if len(crown) < 3:
+                return None
             bearing = np.degrees(np.arctan2(crown[:, 0] - axis[0], crown[:, 1] - axis[1])) % 360
             bins = np.bincount((bearing // 15).astype(int) % 24, minlength=24)
             smooth = bins + np.roll(bins, 1) + np.roll(bins, -1)
             k = int(np.argmax(smooth))
-            if smooth[k] >= 3 and smooth[k] >= 0.5 * len(crown):
-                pick = np.abs((bearing - (k * 15 + 7.5) + 180) % 360 - 180) <= 22.5
-                reach = np.hypot(crown[pick, 0] - axis[0], crown[pick, 1] - axis[1])
-                weight = reach
-                mean = np.degrees(np.arctan2(np.sum(weight * np.sin(np.radians(bearing[pick]))), np.sum(weight * np.cos(np.radians(bearing[pick]))))) % 360
-                result["arm"] = {"bearing": round(float(mean), 1), "reach": round(float(np.percentile(reach, 95)), 2),
-                                 "height": round(float(np.median(crown[pick, 2])), 2), "returns": int(pick.sum())}
+            if smooth[k] < 3 or smooth[k] < 0.5 * len(crown):
+                return None
+            pick = np.abs((bearing - (k * 15 + 7.5) + 180) % 360 - 180) <= 22.5
+            reach = np.hypot(crown[pick, 0] - axis[0], crown[pick, 1] - axis[1])
+            mean = np.degrees(np.arctan2(np.sum(reach * np.sin(np.radians(bearing[pick]))), np.sum(reach * np.cos(np.radians(bearing[pick]))))) % 360
+            return {"bearing": round(float(mean), 1), "reach": round(float(np.percentile(reach, 95)), 2),
+                    "height": round(float(np.median(crown[pick, 2])), 2), "returns": int(pick.sum())}
+
+        arm = arm_at(top)
+        if arm:
+            result["arm"] = arm
+        # A thin pole can return nothing for metres while its head returns well: a flat cluster of returns over the
+        # axis, above an empty gap, is the head of the same pole (a crown over a low post is metres deep instead).
+        over = points[(d <= HEAD_REACH) & (points[:, 2] > top + 1.5) & (points[:, 2] < HEAD_TALLEST), 2]
+        if len(over) >= HEAD_RETURNS and float(np.percentile(over, 95) - np.percentile(over, 5)) <= HEAD_FLAT:
+            result["head"] = {"top": round(float(over.max()), 2), "returns": int(len(over))}
         return result
 
     def profile(self, line: np.ndarray, step: float = 1.0, reach: float = 0.35, top: float = 3.5) -> np.ndarray:

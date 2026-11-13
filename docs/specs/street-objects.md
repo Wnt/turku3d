@@ -20,7 +20,8 @@ with shared readers and geometry in `pipeline/turku3d/world/objects/`.
   (y = 0 at the ground). `interaction` carries `behaviour` (`fixed`, `knock-over`, `breakable`), `shape`, `size`
   (metres, asset-local) and `mass`; the kind copies them to `Instances.behaviour / collision / mass` with one stable id
   per row (`<entity>#post`, `<entity>#plate0`, `<entity>#p3`). The rows of one sign post move as one body; the
-  panels and posts of a fence break one by one (`break: "panel"`).
+  panels and posts of a fence break one by one (`break: "panel"`) and each carries its own mass (a panel 6 to 22 kg
+  per metre of height by family, a post 6 kg per metre).
 - **Shared assets:** geometry is quantised (post height to 0.1 m, lamp height and arm reach to 0.25 m, fence height
   to 0.1 m) so identical objects hash to one store asset.
 - **Closed solids** at true thickness everywhere (`objects/tests/test_objects.py` checks every asset is closed and
@@ -65,6 +66,16 @@ to the head on a straight pole, a shorter one as the bent top of a curved pole. 
 the three nearest fully measured lamps within 120 m. A pole whose head the scan did not see, standing on a street
 stretch a lighting span crosses within 30 m, is a `span-pole` (plain pole, `guessed: ["family"]`): streets lit by
 hung lamps have no arm lamps.
+
+Own street first and the head over a lost shaft (rules since 2026-11-13 11:50Z, found in the full-world still of
+dev_01 beside its photo: an 8 m lamp was drawn as a 3.3 m lantern and its neighbour 2.4 m too tall):
+- The neighbours that set a hidden top, an unmeasured height or a guessed arm are the fully measured lamps of the
+  lamp's own street (`lamp._same_street`: centrelines within 20 degrees and the feet within 6 m across), and only
+  when it has none the nearest of any street: one street is lit by one type, the crossing street's is often taller.
+- `measured.lidar.head`: a flat cluster (5 returns or more within 0.4 m of height, within 0.6 m of the axis) above
+  a gap of 1.5 m or more over the measured shaft is the head of a pole too thin to return in between (the scan
+  classes it as vegetation, so class is not used). A shaft under 6.5 m with such a head at 6.5 to 13 m beside a
+  street is a `street-arm` of the head's height, `guessed: ["arm"]`. A crown is metres deep and is not taken.
 
 ## `turku-description/wire/1`
 

@@ -31,6 +31,7 @@ HEAD = 0.6  # m: length of a street-light head
 STRAIGHT = 2.0  # m: an arm reaching this far is a straight arm, a shorter one the bent top of a curved pole
 TALLEST = 13.0  # m: what the lidar shows taller at a register point is a tree or a facade, not the street lamp
 NEIGHBOURS = 120.0  # m within which the three nearest fully measured lamps set a hidden top
+PARALLEL, ALONG = 0.94, 6.0  # cosine of 20 degrees and m across: two lamps stand along one street
 SPAN_REACH = 1.6  # m from a pole to the end of a span wire it carries
 SPAN_LIT = (30.0, 4.0)  # m along and across its street within which a lighting span lights a pole's stretch
 
@@ -39,6 +40,11 @@ def _family(measured: dict | None, street: dict | None) -> dict:
     """Family, height and arm of a pole from its lidar measurement, else from the street beside it."""
     if measured and measured["top"] >= 2.6:
         top, arm = measured["top"], measured.get("arm")
+        head = measured.get("head")
+        if head and top < STREET_MIN <= head["top"] <= TALLEST and street and street["distance"] <= 14:
+            # The scan lost the thin shaft and saw the head again metres higher: a street lamp of that height.
+            return {"family": "street-arm", "height": head["top"], "arm": {"bearing": street["bearing"], "reach": 1.5},
+                    "basis": "lidar: pole foot and head; arm towards the street is a guess", "guessed": ["arm"]}
         if top >= STREET_MIN:
             if arm and arm["returns"] >= 5 and arm["reach"] >= 0.8 and abs(arm["height"] - top) < 1.5:
                 return {"family": "street-arm", "height": round(top, 2), "arm": {"bearing": arm["bearing"], "reach": round(min(arm["reach"], 3.25), 2)},
@@ -52,6 +58,14 @@ def _family(measured: dict | None, street: dict | None) -> dict:
         return {"family": "street-arm", "height": 9.0, "arm": {"bearing": street["bearing"], "reach": 1.5},
                 "basis": "register position only; family from the street beside it", "guessed": ["family", "height", "arm"]}
     return {"family": "park", "height": 4.5, "basis": "register position only", "guessed": ["family", "height"]}
+
+
+def _same_street(a: dict, b: dict) -> bool:
+    """Two feet on carriageway centrelines lie along one street: the lines run the same way there and one foot is on
+    the other's line produced."""
+    (ax, ay), (bx, by) = a["tangent"], b["tangent"]
+    dx, dy = b["foot"][0] - a["foot"][0], b["foot"][1] - a["foot"][1]
+    return abs(ax * bx + ay * by) >= PARALLEL and abs(dx * ay - dy * ax) <= ALONG
 
 
 def street_head(mesh: Mesh, at: np.ndarray, forward: np.ndarray) -> None:
@@ -114,31 +128,36 @@ class Lamp:
             found.append((post, e, n, measured, street, facts))
         # A pole standing in a crown shows the scan only its lower part: beside a carriageway whose other lamps are
         # measured taller, it is as tall as they are.
-        tall = np.array([(e, n, facts["height"], facts["arm"]["reach"]) for _, e, n, measured, _, facts in found
-                         if measured and facts["family"] == "street-arm" and not facts.get("guessed")] or np.zeros((0, 4)))
+        tall = [(e, n, facts["height"], facts["arm"]["reach"], streets.car(e, n, 14.0)) for _, e, n, measured, _, facts in found
+                if measured and facts["family"] == "street-arm" and not facts.get("guessed")]
+
+        def neighbours(e: float, n: float) -> np.ndarray:
+            """Height and arm reach of the three nearest fully measured lamps: those of the lamp's own street when
+            it has any (one street is lit by one type of lamp; the next street's may be metres taller), else of any."""
+            way = streets.car(e, n, 14.0)
+            rows = [(math.hypot(te - e, tn - n), height, reach, way is not None and other is not None and _same_street(way, other))
+                    for te, tn, height, reach, other in tall]
+            rows = [row for row in rows if row[0] <= NEIGHBOURS]
+            own = [row for row in rows if row[3]]
+            return np.array([row[1:3] for row in sorted(own or rows)[:3]] or np.zeros((0, 2))), bool(own)
+
         stubs = []
         for post, e, n, measured, street, facts in found:
             hidden = facts["family"] in ("park", "street-top") or "arm" in facts.get("guessed", [])  # no head seen by the scan
-            if hidden and street and street["distance"] <= 9.0 and len(tall):
-                away = np.hypot(tall[:, 0] - e, tall[:, 1] - n)
-                nearest = np.argsort(away)[:3]
-                nearest = nearest[away[nearest] <= NEIGHBOURS]
-                near = tall[nearest, 2]
+            near, own = neighbours(e, n) if street and street["distance"] <= 9.0 else (np.zeros((0, 2)), False)
+            if hidden and len(near):
                 top = measured["top"] if measured else 0.0
                 around = lidar.around(e, n, 1.5)
                 crown = int(((around[:, 3] == 5) & (around[:, 2] > top + 0.5)).sum()) if len(around) else 0
                 # A measured low post without a crown over it may be a real lantern; a tall pole without its head is not.
                 headless = facts["family"] != "park"
-                if len(near) and float(np.median(near)) - facts["height"] >= 1.0 and (measured is None or headless or crown >= 20):
-                    facts = {"family": "street-arm", "height": round(float(np.median(near)), 2), "arm": {"bearing": street["bearing"], "reach": round(float(np.median(tall[nearest, 3])), 2)},
-                             "basis": "register position; height and arm of the street's other lamps (its top is hidden)", "guessed": ["height", "arm"]}
-            if facts["family"] == "street-arm" and "arm" in facts.get("guessed", []) and len(tall):
+                typical = float(np.median(near[:, 0]))
+                if (measured is None and own) or (typical - facts["height"] >= 1.0 and (measured is None or headless or crown >= 20)):
+                    facts = {"family": "street-arm", "height": round(typical, 2), "arm": {"bearing": street["bearing"], "reach": round(float(np.median(near[:, 1])), 2)},
+                             "basis": "register position; height and arm of " + ("its street's" if own else "the nearest") + " other lamps (its top is hidden)", "guessed": ["height", "arm"]}
+            if facts["family"] == "street-arm" and "arm" in facts.get("guessed", []) and len(near):
                 # A guessed arm is as long as the measured arms of the lamps next along the street.
-                away = np.hypot(tall[:, 0] - e, tall[:, 1] - n)
-                nearest = np.argsort(away)[:3]
-                nearest = nearest[away[nearest] <= NEIGHBOURS]
-                if len(nearest):
-                    facts["arm"] = {**facts["arm"], "reach": round(float(np.median(tall[nearest, 3])), 2)}
+                facts["arm"] = {**facts["arm"], "reach": round(float(np.median(near[:, 1])), 2)}
             ground = registers.ground_height(sources, e, n)
             if not math.isfinite(ground):
                 continue

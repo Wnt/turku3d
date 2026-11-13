@@ -283,3 +283,35 @@ def test_plates_facing_two_ways_stack_in_one_column_and_twins_share_a_height():
     assert crossing > triangle + 0.5 and triangle >= signpost.CLEAR - 0.01  # the crossing sign above the triangle
     twins = heights([{"code": "E1"}, {"code": "E1", "turn": 180}])
     assert twins["signpost/t#plate0"] == twins["signpost/t#plate1"]
+
+
+def test_a_flat_head_over_a_lost_shaft_is_the_pole_and_a_crown_is_not():
+    from turku3d.world.objects.lidar import ObjectLidar
+
+    def scan(over):
+        shaft = [[0.0, 0.0, h, 1] for h in np.arange(0.2, 3.4, 0.25)]
+        lidar = ObjectLidar.__new__(ObjectLidar)
+        lidar.around = lambda e, n, radius: np.array(shaft + over, dtype=float)
+        return lidar.pole_top(0.0, 0.0)
+
+    head = scan([[0.1 * k, 0.05, 8.1 + 0.02 * k, 5] for k in range(6)])
+    assert head["top"] == pytest.approx(3.2) and head["head"]["top"] == pytest.approx(8.2)
+    assert "head" not in scan([[0.1, 0.1, h, 5] for h in np.arange(7.0, 12.0, 0.5)])  # a crown is metres deep
+    street = {"bearing": 90.0, "distance": 4.0}
+    facts = lamp._family(head, street)
+    assert facts["family"] == "street-arm" and facts["height"] == pytest.approx(8.2) and facts["guessed"] == ["arm"]
+
+
+def test_lamps_along_one_street_are_told_from_those_of_the_crossing_street():
+    here = {"foot": (0.0, 0.0), "tangent": (0.0, 1.0)}
+    assert lamp._same_street(here, {"foot": (1.0, 60.0), "tangent": (0.05, -0.999)})
+    assert not lamp._same_street(here, {"foot": (30.0, 20.0), "tangent": (1.0, 0.0)})
+    assert not lamp._same_street(here, {"foot": (40.0, 60.0), "tangent": (0.0, 1.0)})  # a parallel street
+
+
+def test_fence_panels_and_posts_carry_a_mass_for_falling():
+    description = {"id": "fence/x", "family": "mesh", "height": 1.0, "colour": "#8f9492", "at": [23459500.0, 6704500.0, 10.0],
+                   "line": [[23459500.0, 6704500.0, 10.0], [23459504.0, 6704500.0, 10.0]],
+                   "interaction": {"behaviour": "breakable", "collision": {"shape": "box", "size": [2.0, 1.0, 0.1]}, "mass": 6.0}}
+    panels, posts = fence.Fence().compile(description).instances
+    assert panels.mass == 6.0 and posts.mass == 6.0 and len(posts.ids) == len(panels.ids) + 1
