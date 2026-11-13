@@ -156,7 +156,7 @@ def of_packet(packet: Path) -> dict | None:
 def measured(sample: dict) -> dict:
     """The `measured.wall` block of a stored description (docs/specs/building-description.md)."""
     return {"colour": to_hex(calibrated(sample["lab"])), "spread": sample["spread"], "share": sample["share"],
-            "conf": sample["conf"]}
+            "conf": {"*": sample["conf"]}}
 
 
 def check(root: Path, store_colour) -> dict:
@@ -223,12 +223,16 @@ def description(key: str, block: dict, panoramas: list) -> dict:
 
 def apply(lines: list[dict]) -> dict:
     """Stores measured blocks for the buildings that have no stored description (a described material always wins,
-    and the store never lowers a tier)."""
+    and the store never lowers a tier). A block the description schema refuses is not stored."""
     from turku3d.world import store
+    from turku3d.world.kinds.building import description as building_description
 
-    stored = skipped = 0
+    stored = skipped = refused = 0
     for line in lines:
         if not line.get("measured"):
+            continue
+        if building_description.errors(description(line["building"], line["measured"], line.get("panoramas", []))):
+            refused += 1
             continue
         held = store.read_description(f"building/{line['building']}")
         if held is not None and (held.get("tier") != "auto" or set(held) - {"schema", "id", "tier", "provenance", "measured"}):
@@ -236,7 +240,7 @@ def apply(lines: list[dict]) -> dict:
             continue
         store.write_description(description(line["building"], line["measured"], line.get("panoramas", [])), BY, "wall colour sample")
         stored += 1
-    return {"stored": stored, "described_already": skipped}
+    return {"stored": stored, "described_already": skipped, "refused": refused}
 
 
 def measure(scene, building, panos, root: Path) -> dict:
