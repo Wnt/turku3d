@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -219,6 +220,8 @@ def main(argv=None) -> int:
     ap.add_argument("--effort", default=reader.EFFORT)
     ap.add_argument("--out", type=Path, default=None, help="root (default $TURKU3D_WORK/observe)")
     ap.add_argument("--jobs", type=int, default=4, help="readings in parallel")
+    ap.add_argument("--prepare-jobs", type=int, default=int(os.environ.get("TURKU3D_JOBS", "3")),
+                    help="buildings whose views are prepared in parallel")
     ap.add_argument("--force", action="store_true", help="read again even when a description exists")
     ap.add_argument("--no-review", action="store_true", help="stop at tier observed")
     ap.add_argument("--budget", type=float, default=None,
@@ -259,18 +262,30 @@ def main(argv=None) -> int:
         buildings, why = [scene.buildings[k] for k in a.building if k in scene.buildings], {}
     else:
         scene, buildings, why = select(a)
-    panos = Panoramas(root / "panoramas")
-    lines, jobs = {}, []
-    for b in buildings:
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    local = threading.local()
+
+    def prepared(b):  # views and crops of one building, with this thread's own panorama reader
+        if not hasattr(local, "panos"):
+            local.panos = Panoramas(root / "panoramas")
         started = time.time()
         packet = root / "buildings" / b.id
-        record = prepare(scene, b, panos, packet)
+        record = prepare(scene, b, local.panos, packet)
         record["selected_by"] = why.get(b.id, {})
         (packet / "views.json").write_text(json.dumps(record, indent=1, ensure_ascii=False))
+        return record, time.time() - started
+
+    lines, jobs = {}, []
+    with ThreadPoolExecutor(max_workers=max(1, a.prepare_jobs)) as pool:
+        records = list(pool.map(prepared, buildings))
+    for b, (record, seconds) in zip(buildings, records, strict=True):
+        packet = root / "buildings" / b.id
         line = {"building": b.id, "address": b.register.get("address"), "walls": len(b.walls),
                 "seen": sum(w["seen"] for w in record["walls"]), "crops": len(record["crops"]),
                 "unseen": [f"{u['wall'].split(':')[-1]} ({u['reason']})" for u in record["unseen"]],
-                "street": record["street"], "views_s": round(time.time() - started, 1)}
+                "street": record["street"], "views_s": round(seconds, 1)}
         lines[b.id] = line
         target = root / "descriptions/building" / f"{b.id}.json"
         if a.command != "describe":

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import math
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -53,6 +54,15 @@ class Pano:
 
 
 class Panoramas:
+    # Buildings are prepared in several threads, each with its own Panoramas; a panorama two of them want is
+    # downloaded and measured once.
+    _locks: dict = {}
+    _guard = threading.Lock()
+
+    def _lock(self, pano: "Pano"):
+        with Panoramas._guard:
+            return Panoramas._locks.setdefault((pano.source, pano.id), threading.RLock())
+
     def __init__(self, cache_dir: Path | None = None):
         from turkutex.streetview.panos import PanoCache
 
@@ -141,10 +151,11 @@ class Panoramas:
 
     def image(self, pano: Pano) -> Path:
         started = time.time()
-        if pano.source == "lookaround":
-            path = self.cache.lookaround_equirect(pano.meta, zoom=LOOKAROUND_ZOOM)
-        else:
-            path = self.cache.google_image(pano.id, zoom=GOOGLE_ZOOM)
+        with self._lock(pano):
+            if pano.source == "lookaround":
+                path = self.cache.lookaround_equirect(pano.meta, zoom=LOOKAROUND_ZOOM)
+            else:
+                path = self.cache.google_image(pano.id, zoom=GOOGLE_ZOOM)
         self.timings["fetch_s"] += time.time() - started
         return Path(path)
 
@@ -166,11 +177,12 @@ class Panoramas:
         from qalib import upright
 
         path = self.own / f"{pano.source}-{pano.id}.upright.json"
-        if path.exists():
-            return json.loads(path.read_text())
-        started = time.time()
-        meta_up = upright.metadata_up(pano.source, pano.heading, pano.meta.pitch_rad, pano.meta.roll_rad)
-        result = upright.estimate_up(self.pixels(pano), pano.heading, meta_up)
-        path.write_text(json.dumps(result))
-        self.timings["upright_s"] += time.time() - started
-        return result
+        with self._lock(pano):
+            if path.exists():
+                return json.loads(path.read_text())
+            started = time.time()
+            meta_up = upright.metadata_up(pano.source, pano.heading, pano.meta.pitch_rad, pano.meta.roll_rad)
+            result = upright.estimate_up(self.pixels(pano), pano.heading, meta_up)
+            path.write_text(json.dumps(result))
+            self.timings["upright_s"] += time.time() - started
+            return result
