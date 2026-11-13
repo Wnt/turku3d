@@ -414,8 +414,8 @@ def main(argv=None) -> int:
         from . import colour_parts
 
         light = json.loads((root / "panorama-light.json").read_text())
-        report = [colour_parts.scatter(root, a.parts or colour_parts.TAG, {k: v["overcast"] for k, v in light.items()}, part)
-                  for part in ("wall", "plinth", "roof")]
+        results = colour_parts.measured_packets(root, a.parts or colour_parts.TAG, {k: v["overcast"] for k, v in light.items()})
+        report = [colour_parts.scatter(results, part) for part in ("wall", "plinth", "roof")]
         (root / "scatter.json").write_text(json.dumps(report, indent=1))
         for line in report:
             print(json.dumps(line), flush=True)

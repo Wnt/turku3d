@@ -73,3 +73,16 @@ def test_model_classes_fold_into_ours():
     assert [name(k) for k in (0, 1, 4, 8, 14, 20, 32, 2, 6, 9, 17, 3, 5)] == [
         "building", "building", "vegetation", "window", "door", "vehicle", "fence", "sky", "ground", "ground",
         "vegetation", "vegetation", "fence"]
+
+
+def test_a_strip_under_cloud_outranks_a_whole_wall_in_sun():
+    crop = {"quality": 0.8}
+    strip_overcast = colour_parts.score(crop, {"visible": 0.06}, 0.98)
+    whole_sunny = colour_parts.score(crop, {"visible": 0.9}, 0.0)
+    assert strip_overcast > 2 * whole_sunny
+    rows = [{"score": strip_overcast, "visible": 0.06, "panorama": {"provider": "google", "id": "a", "date": "2026-07"},
+             "parts": {"wall": {"lab": [75.0, -1.0, -2.0], "px": 3000, "spread": 3.0, "share": 0.9}}},
+            {"score": whole_sunny, "visible": 0.9, "panorama": {"provider": "lookaround", "id": "b", "date": "2023-06"},
+             "parts": {"wall": {"lab": [60.0, -2.0, -17.0], "px": 90000, "spread": 3.0, "share": 0.9}}}]
+    wall = colour_parts.combine(rows)["wall"]
+    assert wall["lab"] == [75.0, -1.0, -2.0] and wall["n"] == 1 and wall["from"]["id"] == "a"  # the sunny view does not vote

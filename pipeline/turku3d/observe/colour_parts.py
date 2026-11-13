@@ -26,7 +26,10 @@ HOUSE = (L["building"], L["window"], L["door"], L["attached"], L["roof"])
 IN_FRONT = ("vegetation", "vehicle", "person", "fence", "pole")
 CLUSTER_DE = 9.0
 MIN_PART_PX = 250
-MIN_VISIBLE = 0.2  # a crop showing less of its wall than this measures nothing
+MIN_VISIBLE = 0.04  # a crop showing less of its wall than this share, or than MIN_WALL_M2, measures nothing
+MIN_WALL_M2 = 1.5  # a strip of boards over a hedge is enough for a colour
+ENOUGH_FREE = 0.3  # beyond this share of free wall a crop gains nothing for colour
+NEAR_BEST = 0.45  # crops scoring under this share of the best one do not vote (a sunny view beside an overcast one)
 PLINTH_MAX_M = 1.6
 SHADE_AB = 6.0  # a second colour nearer than this in a*, b* and not lighter is the same paint in shade
 TAG = "m2f"
@@ -131,12 +134,15 @@ def of_crop(picture: np.ndarray, labels: np.ndarray, crop: dict, wall: dict) -> 
     out["in_front"] = {name: round(float((labels[on_wall] == L[name]).mean()), 2) for name in IN_FRONT
                        if (labels[on_wall] == L[name]).mean() >= 0.01}
     out["map"][on_wall & ~house] = 255
-    if out["visible"] < MIN_VISIBLE:
+    out["free_m2"] = round(float((house & on_wall).sum() / ppm ** 2), 1)
+    if out["visible"] < MIN_VISIBLE or out["free_m2"] < MIN_WALL_M2:
         return out
     plain = labels == L["building"]
     openings = (labels == L["window"]) | (labels == L["door"])
     ring = _grow(openings, max(2, round(0.14 * ppm))) & ~_grow(openings, 1) & plain & on_wall
-    cladding = plain & on_wall & ~_grow(openings, max(3, round(0.2 * ppm)))
+    # Pixels at the edge of what stands in front are mixtures of leaf and wall: left out.
+    beside = _grow(np.isin(labels, [L[name] for name in IN_FRONT]), max(2, round(0.1 * ppm)))
+    cladding = plain & on_wall & ~_grow(openings, max(3, round(0.2 * ppm))) & ~beside
 
     def record(name: str, mask: np.ndarray, near: np.ndarray, centre: np.ndarray, **more):
         index = np.flatnonzero(mask.ravel())[near]
@@ -213,9 +219,11 @@ def of_crop(picture: np.ndarray, labels: np.ndarray, crop: dict, wall: dict) -> 
 
 
 def score(crop: dict, parts: dict, overcast: float | None) -> float:
-    """How good a crop is for colour: overcast light first, then free wall, then the view's own quality (frontal,
-    near, sharp, recent). Overcast unknown counts as half."""
-    return round((0.35 + 0.65 * (0.5 if overcast is None else overcast)) * parts["visible"] * crop["quality"], 3)
+    """How good a crop is for colour: overcast light first (a sunny view counts a sixth of an overcast one), then
+    free wall up to ENOUGH_FREE (a strip over a hedge under cloud beats a whole wall in sun), then the view's own
+    quality (frontal, near, sharp, recent). Overcast unknown counts as half."""
+    free = min(1.0, parts["visible"] / ENOUGH_FREE) ** 0.5
+    return round((0.15 + 0.85 * (0.5 if overcast is None else overcast)) * free * crop["quality"], 3)
 
 
 def combine(rows: list[dict], best: int = 3) -> dict:
@@ -223,7 +231,8 @@ def combine(rows: list[dict], best: int = 3) -> dict:
     that hold the part; `agreement` is the weighted mean distance of those crops from it."""
     out = {}
     for name in PARTS:
-        held = sorted((r for r in rows if name in r["parts"] and r["visible"] >= MIN_VISIBLE), key=lambda r: -r["score"])[:best]
+        held = sorted((r for r in rows if name in r["parts"]), key=lambda r: -r["score"])[:best]
+        held = [r for r in held if r["score"] >= NEAR_BEST * held[0]["score"]]
         if not held:
             continue
         labs = np.array([r["parts"][name]["lab"] for r in held])
@@ -272,7 +281,8 @@ def of_packet(packet: Path, tag: str = TAG, overcast: dict | None = None, keep_m
         cloud = (overcast or {}).get(f"{pano['provider']}:{pano['id']}")
         row = {"file": path.name, "wall": crop["wall"], "panorama": pano, "distance_m": crop["distance_m"],
                "oblique_deg": crop["oblique_deg"], "quality": crop["quality"], "overcast": cloud,
-               "visible": measured["visible"], "in_front": measured["in_front"], "gable": measured["gable"],
+               "visible": measured["visible"], "free_m2": measured.get("free_m2", 0.0),
+               "in_front": measured["in_front"], "gable": measured["gable"],
                "parts": measured["parts"], "score": score(crop, measured, cloud)}
         if keep_maps:
             row["map"] = measured["map"]
@@ -282,19 +292,24 @@ def of_packet(packet: Path, tag: str = TAG, overcast: dict | None = None, keep_m
             "year": record.get("register", {}).get("year"), "candidates": rows, "parts": combine(rows)}
 
 
-def scatter(root: Path, tag: str = TAG, overcast: dict | None = None, part: str = "wall", free: float = 0.5,
-            cloudy: float = 0.5, sunny: float = 0.2) -> dict:
+def measured_packets(root: Path, tag: str = TAG, overcast: dict | None = None) -> list[dict]:
+    """Every packet under root/buildings measured once (of_packet)."""
+    found = (of_packet(p, tag, overcast) for p in sorted((root / "buildings").iterdir()) if p.is_dir())
+    return [r for r in found if r is not None]
+
+
+def scatter(results: list[dict], part: str = "wall", free: float = 0.5, cloudy: float = 0.5,
+            sunny: float = 0.2) -> dict:
     """How far a part's colour scatters between independent panoramas of one wall, under cloud and in sun.
 
-    Every pair of different panoramas that both show a wall at least `free` is one distance (CIELAB, pixel
-    colours): both overcast (>= `cloudy`), both sunny (<= `sunny`), or one of each. Also per axis what sun does
-    to a colour: sunny minus the wall's overcast median."""
+    `results`: measured_packets. Every pair of different panoramas that both show a wall at least `free` is one
+    distance (CIELAB, pixel colours): both overcast (>= `cloudy`), both sunny (<= `sunny`), or one of each. Also
+    per axis what sun does to a colour: sunny minus the wall's overcast median."""
     pairs = {"overcast": [], "sunny": [], "mixed": []}
     shift, walls = [], 0
-    for packet in sorted(p for p in (root / "buildings").iterdir() if p.is_dir()):
-        result = of_packet(packet, tag, overcast)
+    for result in results:
         by_wall: dict = {}
-        for row in (result or {}).get("candidates", []):
+        for row in result["candidates"]:
             if part in row["parts"] and row["visible"] >= free and row["overcast"] is not None:
                 by_wall.setdefault(row["wall"], []).append(row)
         for rows in by_wall.values():
