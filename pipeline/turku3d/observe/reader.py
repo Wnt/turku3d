@@ -82,6 +82,11 @@ report, with its full width; from `ground_floor_m` the storey heights add up to 
 13. Roof: count the dormers and chimneys you see above each wall and place each on that wall's ruler. Name a \
 dormer's type by its own little roof: `gable` when it ends in a triangle, `shed` when it has one slope, `hip`, \
 `flat`, `arched`, `eyebrow`, or `wall_dormer` when the wall face itself rises through the eaves.
+14. Balconies: decide the type from a context view, not from a rectified crop. `recessed` when the balcony floor \
+lies behind the wall plane (the wall runs on flush beside and above it and you look into a niche; give the \
+niche's `depth_m`); `cantilever` when a slab stands out of the wall (you see its underside, its end or its shadow \
+on the wall; `depth_m` is how far it stands out); `french` for a railing directly before a door. Give the \
+railing's colour as the panel looks in overcast light, like every other colour.
 """
 
 
