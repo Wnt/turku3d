@@ -9,9 +9,10 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from . import archetypes, mesh, priors, roofs
+from . import archetypes, mesh, passages, priors, roofs
 from . import facade as facades_module
 from . import shell as shell_module
+from .description import expand_storeys
 from .materials import Palette, fallback
 
 ORIGIN_E, ORIGIN_N = 23459500.0, 6704500.0
@@ -67,6 +68,8 @@ def _localise(doc: dict, origin: np.ndarray) -> dict:
             frame["p1"] = (np.asarray(frame["p1"], float) - origin[:2]).tolist()
             if "base_h" in frame:
                 frame["base_h"] -= origin[2]
+    if doc["shell"].get("passages"):
+        doc["shell"]["passages"] = passages.localise(doc["shell"]["passages"], origin)
     premises = doc.get("register", {}).get("premises")
     if premises:
         doc["register"]["premises"] = (np.asarray(premises, float) - origin[:2]).tolist()
@@ -142,6 +145,14 @@ def _corner_walls(shell, described: dict) -> dict:
     return {index: source for index, (source, _run) in reached.items() if index not in described}
 
 
+def _ground_storey_top(wall: dict) -> float | None:
+    """The first floor's level over the wall base where a wall has more than one storey."""
+    storeys = expand_storeys(wall.get("storeys", []))
+    if len(storeys) < 2:
+        return None
+    return wall.get("ground_floor_m", wall.get("plinth", {}).get("height_m", 0.0)) + storeys[0].get("height_m", 3.0)
+
+
 def compile(description: dict) -> Output:  # noqa: A001 - the contract's name
     origin = building_origin(description["shell"])
     doc = _localise(description, origin)
@@ -183,6 +194,10 @@ def compile(description: dict) -> Output:  # noqa: A001 - the contract's name
                 described[other.index] = wall
                 shared.update((other.index, facade_by_wall[wall["id"]].index))
     corners = _corner_walls(shell, described)
+    # Passages and arcades through the ground storey (passages.py): where each facade opens.
+    default = priors.resolve_wall(doc, None)
+    opened = passages.read(doc, shell, _ground_storey_top(default))
+    cuts = passages.cuts(shell, opened)
     templates = {}
     neighbours = doc["shell"].get("neighbours", [])
     wall_family = "plaster"
@@ -225,8 +240,10 @@ def compile(description: dict) -> Output:  # noqa: A001 - the contract's name
             wall_family = palette.record(wall.get("material"))["family"]
         blocked = facades_module.blocked_region(facade, neighbours) if neighbours else None
         facades_module.build(
-            soup, facade, wall, doc, palette, report, blocked, templates, facade.index in shared
+            soup, facade, wall, doc, palette, report, blocked, templates, facade.index in shared,
+            cuts.get(facade.index),
         )
+    passages.interior(soup, shell, opened, cuts, palette, palette.key(default.get("material")))
     roofs.build(
         soup,
         shell,

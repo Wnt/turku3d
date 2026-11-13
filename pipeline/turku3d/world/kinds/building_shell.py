@@ -201,6 +201,9 @@ def discover(area: Area, sources) -> list[Stub]:
             "use": "outbuilding" if attrs.get("kplkoodi") == OUTBUILDING else None, "material": attrs.get("julkisivumateriaali"),
             "height": None})
     tree = shapely.STRtree([b["outline"] for b in found])
+    from .building import passages as passages_module  # the building package imports this module
+
+    ways, parts = passages_module.ways_and_parts(sources, box)
     centre, stubs = shapely.Point(area.e, area.n), []
     for index, building in enumerate(found):
         outline = building["outline"]
@@ -258,6 +261,11 @@ def discover(area: Area, sources) -> list[Stub]:
                 "premises": inside(premises, outline),
             }.items() if value not in (None, "", [])},
         }
+        # Ways the open map runs through or along the ground storey (building passages, arcades): only where there
+        # are any, so that no other building's description changes.
+        opened = passages_module.facts(outline, ways, parts) if ways else []
+        if opened:
+            facts["shell"]["passages"] = opened
         stubs.append(Stub(building["id"], tuple(round(v, 3) for v in outline.bounds), building["refs"], facts))
     return stubs
 

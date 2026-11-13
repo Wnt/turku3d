@@ -14,7 +14,7 @@ from shapely.geometry import LineString, Polygon
 from shapely.geometry import box as rectangle
 from shapely.ops import unary_union
 
-from . import mesh, openings, priors
+from . import mesh, openings, passages, priors
 from .description import expand_storeys
 from .materials import Palette, shade
 
@@ -48,6 +48,7 @@ class Recess:
     shape: object
     depth: float
     key: str = ""
+    cut: object = None  # an arcade (passages.Cut): open below, piers on the facade line, cheeks from the passage
 
 
 @dataclass
@@ -451,9 +452,11 @@ def build(
     blocked=None,
     templates=None,
     shared=False,
+    cuts=None,
 ):
     """Add one facade's geometry to the soup. `shared`: the wall's frame runs over several shell walls, so what
-    lies beyond this one's ends belongs to another of them."""
+    lies beyond this one's ends belongs to another of them. `cuts`: where a passage opens the ground storey
+    (passages.cuts): a through mouth is cut out of the wall, an arcade is a recess of it with piers."""
     templates = {} if templates is None else templates
     trim = priors.trim_colour(doc)
     plan = layout(facade, wall, doc, report)
@@ -461,14 +464,34 @@ def build(
     outline = facade.outline
     wall_record = palette.record(wall.get("material"))
     wall_key = palette.key(wall.get("material"))
+    cuts = cuts or []
+    mouths = [rectangle(c.a, -2.0, c.b, c.ceiling) for c in cuts if c.depth is None]
+    if mouths:
+        outline = outline.difference(unary_union(mouths))
+    arcades = [
+        Recess(shape, c.depth, cut=c)
+        for c in cuts
+        if c.depth is not None
+        and not (shape := rectangle(c.a, -2.0, c.b, c.ceiling).intersection(outline)).is_empty
+        and shape.geom_type == "Polygon"
+    ]
 
     # Openings that fit: inside the wall, clear of a neighbour's party wall and of each other.
     inside = outline.buffer(-0.12)
-    recesses = _recesses(facade, wall, plan, inside, blocked)
+    recesses = arcades + [
+        r for r in _recesses(facade, wall, plan, inside, blocked)
+        if not any(r.shape.intersects(a.shape) for a in arcades)
+    ]
     kept, holes, misfits = [], [], []
     for p in plan.placed:
         if shared and (p.u0 + p.width / 2 < 0.0 or p.u0 + p.width / 2 > width):
             continue
+        for a in arcades:
+            # An opening that stands in an arcade moves to its back wall and stays under its soffit.
+            top = a.cut.ceiling - 0.12
+            over = p.u0 < a.cut.b and p.u0 + p.width > a.cut.a
+            if over and p.v0 < top - 1.0 and p.v0 + p.height > top:
+                p.height = top - p.v0
         shape = affinity.translate(openings.outline(p.spec, p.width, p.height), p.u0, p.v0)
         # What stands on the ground reaches the wall's lower edge, so only its upper part is tested; an opening
         # read a little past a wall end is moved in rather than lost.
@@ -502,6 +525,7 @@ def build(
         report.append(f"facade {facade.index}: left out {', '.join(misfits[:3])}{more}")
     gaps = [r.shape for r in recesses]
     cut = unary_union(holes + gaps) if holes or gaps else None
+    gaps = gaps + [m.intersection(facade.outline) for m in mouths if m.intersects(facade.outline)]
 
     # Material regions, later ones over earlier ones.
     plinth = wall.get("plinth", {})
@@ -560,14 +584,27 @@ def build(
             mesh.face(local, "plinth" if is_plinth else "walls", key, shape)
         soup.place(local, facade)
 
-    # Balcony recesses: the back wall in the material of the wall round it, with cheeks, floor and ceiling.
+    # Balcony recesses: the back wall in the material of the wall round it, with cheeks, floor and ceiling. An
+    # arcade has its back wall here; its soffit and cheeks come from the passage (passages.interior), the ground
+    # under it from the ground kind, and its piers stand on the facade line in the plinth's material.
+    pier_key = (
+        palette.key(plinth.get("material"), fallback={"family": "concrete", "colour": "#77736d"})
+        if plinth_top > 0.02
+        else wall_key
+    )
     for r in recesses:
         within = [p.shape for p in kept if p.recess is r]
         local = mesh.Soup()
         back = r.shape.difference(unary_union(within)) if within else r.shape
         mesh.face(local, "walls", r.key, back, -r.depth)
-        ring = np.asarray(mesh.orient(r.shape, 1.0).exterior.coords)[:-1]
-        mesh.ring_walls(local, "walls", r.key, ring, -r.depth, 0.0, outward=False)
+        if r.cut is None:
+            ring = np.asarray(mesh.orient(r.shape, 1.0).exterior.coords)[:-1]
+            mesh.ring_walls(local, "walls", r.key, ring, -r.depth, 0.0, outward=False)
+        else:
+            half = passages.PIER_W / 2
+            for u in r.cut.piers:
+                low = ground_v(facade, datum, u) - 0.4
+                mesh.box(local, "walls", pier_key, u - half, low, u + half, r.cut.ceiling, -passages.PIER_W, 0.0, back=True)
         soup.place(local, facade)
 
     # Opening assemblies, one template per type, size and surrounding wall material.
