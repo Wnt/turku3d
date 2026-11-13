@@ -277,6 +277,32 @@ def render(packet: Path, root: Path) -> Path:
     return packet / "render-1.jpg"
 
 
+PREPARE_TIMEOUT_S = 900  # the views of one building; panorama downloads have no timeout of their own
+
+
+def within(seconds: float, work):
+    """work() in a thread of its own; TimeoutError when it does not come back in time. The thread is a daemon, so
+    a download that never returns cannot hold the run (seen on the Air: one building stalled a set for 16 min)."""
+    import threading
+
+    box: dict = {}
+
+    def run():
+        try:
+            box["value"] = work()
+        except BaseException as error:  # noqa: BLE001 - raised again in the caller
+            box["error"] = error
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(seconds)
+    if thread.is_alive():
+        raise TimeoutError(f"no result within {seconds} s")
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
+
+
 def visible_in_view(view: dict, scene: lod2.Scene, grid=(96, 72), reach: float = 250.0,
                     least: float = VISIBLE_SHARE) -> dict:
     """{building key: share of the view's pixels} from rays against the LoD2 scene."""
@@ -456,7 +482,14 @@ def main(argv=None) -> int:
             if all((packet / Path(c["file"]).name).exists() for c in record["crops"] + record["contexts"]):
                 record["selected_by"] = why.get(b.id, record.get("selected_by", {}))
                 return record, 0.0
-        record = prepare(scene, b, panoramas(), packet)
+        panos = panoramas()
+        try:
+            record = within(PREPARE_TIMEOUT_S, lambda: prepare(scene, b, panos, packet))
+        except TimeoutError:  # the stalled thread may hold this reader's locks: the next building gets a new one
+            del local.panos
+            print(f"observe: {b.id}: view preparation stalled for {PREPARE_TIMEOUT_S} s, building left out",
+                  file=sys.stderr, flush=True)
+            return None, time.time() - started
         record["selected_by"] = why.get(b.id, {})
         packet.mkdir(parents=True, exist_ok=True)  # a building no panorama sees has no crops, but keeps its record
         (packet / "views.json").write_text(json.dumps(record, indent=1, ensure_ascii=False))
@@ -466,6 +499,11 @@ def main(argv=None) -> int:
     with ThreadPoolExecutor(max_workers=max(1, a.prepare_jobs)) as pool:
         records = list(pool.map(prepared, buildings))
     for b, (record, seconds) in zip(buildings, records, strict=True):
+        if record is None:
+            lines[b.id] = {"building": b.id, "address": b.register.get("address"),
+                           "error": "view preparation stalled (a download that never came back)"}
+            print(json.dumps(lines[b.id], ensure_ascii=False), flush=True)
+            continue
         packet = root / "buildings" / b.id
         line = {"building": b.id, "address": b.register.get("address"), "walls": len(b.walls),
                 "seen": sum(w["seen"] for w in record["walls"]), "crops": len(record["crops"]),

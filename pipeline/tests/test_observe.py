@@ -208,3 +208,17 @@ def test_walls_no_crop_showed_get_views_from_other_paths():
     first = {"description": {"walls": [{"id": "w01"}]}, "views": []}
     assert [w["id"] for w in reader.corrected(first, {"walls": [{"id": "w00"}], "views": []})["description"]["walls"]] \
         == ["w01", "w00"]
+
+
+def test_a_stalled_preparation_does_not_hold_the_run():
+    import time
+
+    import pytest
+
+    from turku3d.observe.__main__ import within
+
+    assert within(1.0, lambda: 3) == 3
+    with pytest.raises(TimeoutError):
+        within(0.05, lambda: time.sleep(1.0))
+    with pytest.raises(KeyError):
+        within(1.0, lambda: {}["missing"])
