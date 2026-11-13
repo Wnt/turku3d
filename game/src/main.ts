@@ -25,7 +25,7 @@ import { installFetchRetry } from './core/retryFetch';
 import { LoadingScreen } from './ui/loadingScreen';
 import * as THREE from 'three/webgpu';
 import { parseParams } from './core/params';
-import { enToEngine, headingToYaw } from './core/origin';
+import { enToEngine, engineToEN, headingToYaw } from './core/origin';
 import { adapterInfo, createRenderer, defaultBackend } from './render/renderer';
 import { DayClock, type ClockMode } from './render/dayClock';
 import { Environment, tileShadows } from './render/environment';
@@ -747,6 +747,12 @@ async function preparedVisuals(manifest: CoarseHost['manifest'], collision: Pick
     const location = await LocationWorld.start(host, params.world);
     window.__dev!.world = watchLocation(location);
     coarse = location as unknown as PreparedWorld;
+    // Looking around a location (?world=NAME without a pose): start above the street, looking at its focus.
+    if (params.preview && params.qa && !new URLSearchParams(window.location.search).has('cam')) {
+      const [x, y, z] = location.manifest.focus, at = engineToEN(x, y, z);
+      Object.assign(params.qa, { E: at.E, N: at.N - 45, H: at.H + 14, yawDeg: 0, pitchDeg: -14, fovDeg: 60, rollDeg: 0 });
+      applyQaCamera();
+    }
   } else coarse = await PreparedWorld.start(host);
   adoptCoarse(coarse);
   if (!idPass) {
@@ -878,7 +884,7 @@ async function runQa() {
     perf.reset();
   };
   if (params.preview) void import('./qa/preview').then(m => m.startPreview(q, pose => window.__qaMove!(pose),
-    () => coarse.loadedTiles())).catch(fail);
+    () => coarse.loadedTiles(), params.world ? () => coarse.status : undefined)).catch(fail);
   window.__dev = {
     geometryState: () => import('./qa/geometryDebug').then(m => m.geometryState(scene)),
     coplanarDebug: report => import('./qa/geometryDebug').then(m => m.coplanarDebug(scene, report)),

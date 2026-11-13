@@ -28,9 +28,11 @@ export function statusText(s: ServiceStatus | null, loaded: string[], late = 0):
     `drawn (${loaded.length}): ${list(loaded)}`].join('\n');
 }
 
-export function startPreview(q: PreviewPose, move: Move, loaded: () => string[]) {
+/** `place`: the status line of a location of the world pipeline (?world=NAME); it has no tile service to poll,
+ *  and a street-level start, so the camera moves at a walking pace until the wheel changes it. */
+export function startPreview(q: PreviewPose, move: Move, loaded: () => string[], place?: () => string) {
   const keys = new Set<string>();
-  let speed = 40; // m/s
+  let speed = place ? 12 : 40; // m/s
   addEventListener('keydown', e => { keys.add(e.code); });
   addEventListener('keyup', e => { keys.delete(e.code); });
   addEventListener('blur', () => keys.clear());
@@ -61,8 +63,7 @@ export function startPreview(q: PreviewPose, move: Move, loaded: () => string[])
       answered = performance.now(); late = 0;
     } catch { late = answered ? (performance.now() - answered) / 1000 : 0; } finally { polling = false; }
   };
-  void poll();
-  setInterval(() => void poll(), 3000);
+  if (!place) { void poll(); setInterval(() => void poll(), 3000); }
   let last = performance.now();
   const tick = (now: number) => {
     const dt = Math.min(0.1, (now - last) / 1000); last = now;
@@ -77,7 +78,8 @@ export function startPreview(q: PreviewPose, move: Move, loaded: () => string[])
     }
     const en = engineToEN(0, 0, 0);
     overlay.textContent = `PREVIEW  E ${q.E.toFixed(0)} N ${q.N.toFixed(0)} H ${q.H.toFixed(0)}  speed ${speed.toFixed(0)} m/s`
-      + `  (O ${en.E} ${en.N})\n${statusText(status, loaded(), late)}`;
+      + (place ? `\n${place()}\nWASD move · drag to look · Q/E down/up · Shift fast · wheel speed`
+        : `  (O ${en.E} ${en.N})\n${statusText(status, loaded(), late)}`);
     requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
