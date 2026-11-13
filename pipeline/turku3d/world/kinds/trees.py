@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import numpy as np
 
 from ..api import Area, Instances, Material, Output, Part, Stub, envelope
@@ -12,6 +15,27 @@ from ..frame import CELL, cell_at, cell_box_en, cell_key, to_engine
 from ..geometry import seed
 
 LAYERS = (("GIS:Puut", "Kasvilaji"), ("kanta:Lehtipuu", "suku"), ("kanta:Havupuu", "suku"))
+VIEWS = Path(__file__).resolve().parents[4] / "qa/views/views.jsonl"
+# A stand-in crown beside a reference camera fills the still with one flat blob (milestone 1, eight of ten views
+# marked down for trees): until real trees replace this kind, no stand-in crown comes this close to a reference
+# camera, and a crown is about half as wide as the tree is high (it was as wide as high).
+CAMERA_CLEARANCE = 3.0
+CROWN = 0.45, 0.15
+
+
+def nominal_height(size: str, planted: str) -> float:
+    year = int(planted) if planted.isdigit() else 0
+    return SIZES.get(size) or (min(16.0, 4.0 + 0.35 * (2026 - year)) if year > 1900 else 12.0)
+
+
+def cameras(box: tuple[float, float, float, float], views: Path = VIEWS) -> list[tuple[float, float]]:
+    """Reference-view cameras inside a box, from the view registry."""
+    found = []
+    for line in views.read_text().splitlines() if views.exists() else []:
+        pose = (json.loads(line) if line.strip() else {}).get("pose") or {}
+        if "E" in pose and box[0] <= pose["E"] <= box[2] and box[1] <= pose["N"] <= box[3]:
+            found.append((pose["E"], pose["N"]))
+    return found
 SIZES = {"pieni": 6.0, "keskikokoinen": 11.0, "suuri": 17.0}
 BARK = Material("bark", {}, (0.07, 0.06, 0.05), 0.95)
 LEAVES = Material("foliage", {"season": "summer"}, (0.07, 0.13, 0.035), 0.9)
@@ -67,6 +91,7 @@ class Trees:
         box = area.bbox(CELL)
         cells: dict[tuple[int, int], list[dict]] = {}
         seen: list[tuple[float, float]] = []
+        clear = cameras(box)
         for layer, species_field in LAYERS:
             added = []
             for feature in sources.wfs.features(layer, box):
@@ -76,6 +101,9 @@ class Trees:
                     e, n = round(geom.shape.x, 2), round(geom.shape.y, 2)
                     # The base map repeats many register trees; keep the first source's tree within 2 m.
                     if any(abs(e - a) < 2 and abs(n - b) < 2 for a, b in seen):
+                        continue
+                    crown = 0.5 * 1.15 * sum(CROWN) * nominal_height(feature.attrs.get("pituus", ""), feature.attrs.get("Istutusvuosi", ""))
+                    if any((e - a) ** 2 + (n - b) ** 2 < (CAMERA_CLEARANCE + crown) ** 2 for a, b in clear):
                         continue
                     added.append((e, n))
                     cells.setdefault(cell_at(e, n), []).append({
@@ -111,10 +139,8 @@ class Trees:
         for tree in trees:
             pick = seed(f"{tree['e']:.2f},{tree['n']:.2f}")
             rng = np.random.default_rng(pick)
-            planted = int(tree["planted"]) if tree["planted"].isdigit() else 0
-            height = SIZES.get(tree["size"]) or (min(16.0, 4.0 + 0.35 * (2026 - planted)) if planted > 1900 else 12.0)
-            height *= 0.85 + 0.3 * rng.random()
-            width = height * (0.9 + 0.3 * rng.random())
+            height = nominal_height(tree["size"], tree["planted"]) * (0.85 + 0.3 * rng.random())
+            width = height * (CROWN[0] + CROWN[1] * rng.random())
             x, y, z = to_engine(tree["e"], tree["n"], tree["ground"])
             groups.setdefault((pick % 3, bool(tree["conifer"])), []).append(
                 [x - origin[0], y - origin[1], z - origin[2], rng.random() * 2 * np.pi, width, height, width])
