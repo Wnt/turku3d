@@ -1,0 +1,124 @@
+{
+  "schema": "turku-capture-views/1",
+  "scene": null,
+  "note": "The six W2 pilot locations that are brought to the bar of overall 60 and identity 6.5 (Jokiranta, Kauppatori, Puolalanpuisto, Kupittaa, Nummi, Rettig): eighteen views of scripts/dev/views/pilot-locations.json, with the same cameras, photos and settings, judged as a set of their own (history ~/turku3d/loops/judge/pilot-six.jsonl). Its first row is the frozen city's scores for these views, taken from the 24-view baseline run. A location's score is the mean of these three views and its two along-street views (pilot-streets-six.json).",
+  "references": "qa/views/views.jsonl",
+  "quality": "medium",
+  "time": "2026-06-15T14:00:00+03:00",
+  "weather": "clear",
+  "viewport": [
+    960,
+    720
+  ],
+  "renderScale": 1,
+  "views": [
+    {
+      "id": "jokiranta-la-05",
+      "reference": "la_05",
+      "group": "jokiranta",
+      "aim": "building"
+    },
+    {
+      "id": "jokiranta-sv-05",
+      "reference": "sv_05",
+      "group": "jokiranta",
+      "aim": "building"
+    },
+    {
+      "id": "jokiranta-sv-10",
+      "reference": "sv_10",
+      "group": "jokiranta",
+      "aim": "building"
+    },
+    {
+      "id": "kauppatori-01",
+      "reference": "kauppatori_01",
+      "group": "kauppatori",
+      "aim": "building"
+    },
+    {
+      "id": "kauppatori-02",
+      "reference": "kauppatori_02",
+      "group": "kauppatori",
+      "aim": "building"
+    },
+    {
+      "id": "kauppatori-03",
+      "reference": "kauppatori_03",
+      "group": "kauppatori",
+      "aim": "building"
+    },
+    {
+      "id": "puolalanpuisto-01",
+      "reference": "puolalanpuisto_01",
+      "group": "puolalanpuisto",
+      "aim": "building"
+    },
+    {
+      "id": "puolalanpuisto-02",
+      "reference": "puolalanpuisto_02",
+      "group": "puolalanpuisto",
+      "aim": "building"
+    },
+    {
+      "id": "puolalanpuisto-03",
+      "reference": "puolalanpuisto_03",
+      "group": "puolalanpuisto",
+      "aim": "building"
+    },
+    {
+      "id": "kupittaa-01",
+      "reference": "kupittaa_01",
+      "group": "kupittaa",
+      "aim": "building"
+    },
+    {
+      "id": "kupittaa-02",
+      "reference": "kupittaa_02",
+      "group": "kupittaa",
+      "aim": "building"
+    },
+    {
+      "id": "kupittaa-03",
+      "reference": "kupittaa_03",
+      "group": "kupittaa",
+      "aim": "building"
+    },
+    {
+      "id": "nummi-01",
+      "reference": "nummi_01",
+      "group": "nummi",
+      "aim": "building"
+    },
+    {
+      "id": "nummi-02",
+      "reference": "nummi_02",
+      "group": "nummi",
+      "aim": "building"
+    },
+    {
+      "id": "nummi-03",
+      "reference": "nummi_03",
+      "group": "nummi",
+      "aim": "building"
+    },
+    {
+      "id": "rettig-01",
+      "reference": "rettig_01",
+      "group": "rettig",
+      "aim": "building"
+    },
+    {
+      "id": "rettig-02",
+      "reference": "rettig_02",
+      "group": "rettig",
+      "aim": "building"
+    },
+    {
+      "id": "rettig-03",
+      "reference": "rettig_03",
+      "group": "rettig",
+      "aim": "building"
+    }
+  ]
+}

@@ -1,0 +1,88 @@
+{
+  "schema": "turku-capture-views/1",
+  "scene": null,
+  "note": "Along-street views of the six W2 pilot locations that are brought to the bar: twelve views of scripts/dev/views/pilot-streets.json, with the same cameras, photos and settings, judged as a set of their own (history ~/turku3d/loops/judge/pilot-streets-six.jsonl). Its first row is the frozen city's scores for these views, taken from the 16-view baseline run.",
+  "references": "qa/views/views.jsonl",
+  "quality": "medium",
+  "time": "2026-06-15T14:00:00+03:00",
+  "weather": "clear",
+  "viewport": [
+    960,
+    720
+  ],
+  "renderScale": 1,
+  "views": [
+    {
+      "id": "jokiranta-street-01",
+      "reference": "jokiranta_street_01",
+      "group": "jokiranta",
+      "aim": "street"
+    },
+    {
+      "id": "jokiranta-street-02",
+      "reference": "jokiranta_street_02",
+      "group": "jokiranta",
+      "aim": "street"
+    },
+    {
+      "id": "kauppatori-street-01",
+      "reference": "kauppatori_street_01",
+      "group": "kauppatori",
+      "aim": "street"
+    },
+    {
+      "id": "kauppatori-street-02",
+      "reference": "kauppatori_street_02",
+      "group": "kauppatori",
+      "aim": "street"
+    },
+    {
+      "id": "puolalanpuisto-street-01",
+      "reference": "puolalanpuisto_street_01",
+      "group": "puolalanpuisto",
+      "aim": "street"
+    },
+    {
+      "id": "puolalanpuisto-street-02",
+      "reference": "puolalanpuisto_street_02",
+      "group": "puolalanpuisto",
+      "aim": "street"
+    },
+    {
+      "id": "rettig-street-01",
+      "reference": "rettig_street_01",
+      "group": "rettig",
+      "aim": "street"
+    },
+    {
+      "id": "rettig-street-02",
+      "reference": "rettig_street_02",
+      "group": "rettig",
+      "aim": "street"
+    },
+    {
+      "id": "kupittaa-street-01",
+      "reference": "kupittaa_street_01",
+      "group": "kupittaa",
+      "aim": "street"
+    },
+    {
+      "id": "kupittaa-street-02",
+      "reference": "kupittaa_street_02",
+      "group": "kupittaa",
+      "aim": "street"
+    },
+    {
+      "id": "nummi-street-01",
+      "reference": "nummi_street_01",
+      "group": "nummi",
+      "aim": "street"
+    },
+    {
+      "id": "nummi-street-02",
+      "reference": "nummi_street_02",
+      "group": "nummi",
+      "aim": "street"
+    }
+  ]
+}

@@ -14,6 +14,8 @@ the municipality, weighted by length) from a recorded seed, and taken in that or
   (street_refs.street_view), looking the way in which the target lies ahead;
 - with --published URL, that city has published the visual tiles under the target and under both cameras (the frozen
   city serves a fixed set of tiles and builds none on demand).
+With --focus TYPE=N the type rule is replaced: the first count-N points are taken as they come (plain random along
+the streets), and the last N only from area type TYPE (the type that scores lowest). Each point records its `draw`.
 A point whose render in the frozen city turns out unusable is listed with --reject INDEX=REASON (kept in the set's
 draw.json), and the same command then replaces it with the next candidates of the same sequence.
 
@@ -149,6 +151,7 @@ def main():
     ap.add_argument("--min-date", default="2024")
     ap.add_argument("--published", help="base URL of a city that must have published the tiles under the target and the camera")
     ap.add_argument("--max-candidates", type=int, default=20000)
+    ap.add_argument("--focus", help="TYPE=N: N of the points come only from area type TYPE, the others without any type rule")
     a = ap.parse_args()
     out = a.out.expanduser().resolve()
     cache_dir = out / "cache"
@@ -178,6 +181,10 @@ def main():
     rng = random.Random(a.seed)
     panos, refreshed = PanoCache(), set()
     cap = a.count // 2
+    focus_type, _, focus_n = (a.focus or "").partition("=")
+    if a.focus and (focus_type not in TYPES or not 0 < int(focus_n) <= a.count):
+        sys.exit("--focus takes TYPE=N with a known area type")
+    free = a.count - int(focus_n or 0)  # points taken as they come before the focus type's share
     points, counts, tally = [], dict.fromkeys(TYPES, 0), {}
 
     def no(why):
@@ -229,10 +236,15 @@ def main():
             continue
         kind = c["type"]
         missing = [t for t in TYPES if counts[t] == 0]
-        if counts[kind] >= cap:
+        draw = "random" if not a.focus or len(points) < free else focus_type
+        if a.focus:
+            if draw != "random" and kind != focus_type:
+                no(f"focus share takes only {focus_type}")
+                continue
+        elif counts[kind] >= cap:
             no(f"type cap: {kind}")
             continue
-        if kind not in missing and a.count - len(points) <= len(missing):
+        elif kind not in missing and a.count - len(points) <= len(missing):
             no("slot kept for a type not yet in the set")
             continue
         vid = f"{a.set}_{len(points) + 1:02}"
@@ -260,8 +272,8 @@ def main():
             no("tile not published")
             continue
         counts[kind] += 1
-        points.append(dict(id=vid, index=index, E=E, N=N, street=street, type=kind, target=c["target"], floor=c["floor"]))
-        print(f"{vid}: candidate {index}, {kind}, {c['said']}; {c['street_said']} ({time.time() - t0:.0f} s)", flush=True)
+        points.append(dict(id=vid, index=index, E=E, N=N, street=street, type=kind, draw=draw, target=c["target"], floor=c["floor"]))
+        print(f"{vid}: candidate {index}, {kind}{' (focus share)' if draw != 'random' else ''}, {c['said']}; {c['street_said']} ({time.time() - t0:.0f} s)", flush=True)
     else:
         print(f"only {len(points)} of {a.count} points after {a.max_candidates} candidates", flush=True)
 
@@ -285,12 +297,12 @@ def main():
         "schema": "turku-capture-views/1", "scene": None,
         "note": f"Random street set {a.set}: two views per drawn point, its nearest building (-b) and along its street (-s), from the cameras of their reference photos (qa/views/random_streets.py). Settings as scripts/dev/views/pilot-locations.json.",
         "references": str(reg), "history": "judge.jsonl", "quality": "medium", "time": "2026-06-15T14:00:00+03:00", "weather": "clear", "viewport": [960, 720], "renderScale": 1,
-        "views": [v for p in points for v in ({"id": p["id"].replace("_", "-") + "-b", "reference": p["id"], "group": p["type"], "aim": "building"},
-                                                {"id": p["id"].replace("_", "-") + "-s", "reference": p["id"] + "_street", "group": p["type"], "aim": "street"})]}, indent=1) + "\n")
+        "views": [v for p in points for v in ({"id": p["id"].replace("_", "-") + "-b", "reference": p["id"], "group": p["type"], "aim": "building", "draw": p["draw"]},
+                                                {"id": p["id"].replace("_", "-") + "-s", "reference": p["id"] + "_street", "group": p["type"], "aim": "street", "draw": p["draw"]})]}, indent=1) + "\n")
     draw_file.write_text(json.dumps(dict(
         schema="turku-random-streets/1", set=a.set, seed=a.seed, count=a.count, min_date=a.min_date, osm=snapshot,
         rules=dict(streets=sorted(STREETS), pilot_clear_m=PILOT_CLEAR_M, spread_m=SPREAD_M, building_m=BUILDING_M, min_footprint_m2=MIN_FOOTPRINT_M2,
-                   area_m=AREA_M, type_cap=cap, avoid=[str(f) for f in a.avoid], published=a.published),
+                   area_m=AREA_M, type_cap=None if a.focus else cap, focus=a.focus, avoid=[str(f) for f in a.avoid], published=a.published),
         street_km=round(float(sum(s.length for s, _ in streets if city.contains(s.interpolate(0.5, normalized=True)))) / 1000, 1), skipped=tally, types=counts, points=points, rejected=rejected), indent=1) + "\n")
     known_file.write_text(json.dumps(known) + "\n")
     tiles_file.write_text(json.dumps(tiles) + "\n")
