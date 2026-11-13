@@ -4,13 +4,14 @@
 //
 //   node scripts/dev/world-set.mjs --views FILE --out DIR [--baseline DIR]... [--build-host local|air|osg]
 //     [--capture-host auto|mac|air] [--background 400] [--only AREA,AREA] [--skip-build] [--drop] [--label TEXT]
-//     [--ready-timeout 600]
+//     [--ready-timeout 600] [--data REL]...
 //
 // Every registry `area` of the set's views is one location: its query is the circle that covers the area's cameras
 // and what they look at (as `world build --area` does for a pilot area), built with `world build --at E,N --radius R
 // --name AREA` on the build host (`scripts/dev/on-host`: the store merges back) and captured with
 // `scene-capture.mjs --world AREA --area AREA` in a leased browser (`auto`: the Mac when a slot is free, else the
-// Air). --drop removes a point's manifest and its meshes from this store once it is captured, so only one point
+// Air). --data REL names what the build host needs from $TURKU3D_DATA besides the stored descriptions (on-host
+// copies it once). --drop removes a point's manifest and its meshes from this store once it is captured, so only one point
 // lies on this machine at a time. DIR gets current/<view>.png, manifest.json (every view, and per location its
 // query, build and capture hosts, timings and failures), compare.jpg/html (photo | baselines | new world), and the
 // per-location captures and logs under locations/ and logs/.
@@ -103,7 +104,7 @@ async function main() {
       if (!argv.includes('--skip-build')) {
         const log = path.join(out, `logs/build-${area}.log`);
         const done = buildHost === 'local' ? await run('bash', ['pipeline/env/run.sh', ...build], log)
-          : await run('scripts/dev/on-host', [buildHost, '--data', 'world/descriptions', '--', ...build], log);
+          : await run('scripts/dev/on-host', [buildHost, ...['world/descriptions', ...many('--data')].flatMap(rel => ['--data', rel]), '--', ...build], log);
         const total = /total\s+([\d.]+) s: (\d+) entities, (\d+) triangles/.exec(fs.readFileSync(log, 'utf8'));
         row.build = { host: buildHost, seconds: done.seconds, exit: done.code, buildSeconds: total ? Number(total[1]) : null, entities: total ? Number(total[2]) : null, triangles: total ? Number(total[3]) : null };
         if (done.code) { row.failure = `build exited ${done.code} (logs/build-${area}.log)`; write(); continue; }
