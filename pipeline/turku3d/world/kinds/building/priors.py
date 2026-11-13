@@ -293,6 +293,30 @@ def group(doc: dict) -> dict:
     ]
 
 
+# The foot of a wooden building that is not a house of the old quarters: cast concrete, low.
+CAST_PLINTH = {
+    "height_m": 0.45,
+    "projection_m": 0.0,
+    "material": {"family": "concrete", "colour": "#8f8d88", "finish": "cast"},
+}
+
+
+def old_quarter(doc: dict) -> bool:
+    """A wooden house of the old wooden quarters (dated before 1940, or undated): rubble plinth, one tall storey
+    under a knee wall. Wooden houses built since stand on a low cast plinth with ordinary storeys."""
+    year = doc.get("register", {}).get("year")
+    return style_type(doc) in ("wooden_house", "wooden_villa") and (year is None or year < 1940)
+
+
+def default_plinth(doc: dict) -> dict:
+    kind = style_type(doc)
+    if kind == "outbuilding":
+        return {**CAST_PLINTH, "height_m": 0.2}
+    if kind in WOODEN and not old_quarter(doc):
+        return CAST_PLINTH
+    return group(doc)["plinth"]
+
+
 def merged(base: dict, over: dict) -> dict:
     """`over` laid on `base`, object fields merged one level at a time; lists and scalars replace."""
     out = copy.deepcopy(base)
@@ -330,7 +354,7 @@ def default_wall(doc: dict) -> dict:
     storeys = max(1, int(doc.get("register", {}).get("storeys", 1)))
     wall = {
         "material": g["wall"],
-        "plinth": g["plinth"],
+        "plinth": copy.deepcopy(default_plinth(doc)),
         "bays": {"pitch_m": g["pitch"]},
         "storeys": [
             {"kind": "ground", "height_m": g["ground_h"], "sill_m": g["sill"], "window": "@default"}
@@ -383,9 +407,9 @@ def automatic_openings(doc: dict) -> dict:
                 "colour": g["trim"],
             },
         }
-    elif style_type(doc) == "wooden_house":
+    elif old_quarter(doc):
         out["@default"] = {"kind": "window", "h_m": 1.9}
-    steps = min(5, round(g["plinth"]["height_m"] / 0.17))
+    steps = min(5, round(default_plinth(doc)["height_m"] / 0.17))
     out["@door"] = {
         "kind": "door",
         "w_m": 1.2,
@@ -418,7 +442,7 @@ def fitted_wall(doc: dict, wall: dict, height: float, entrance_width: float = 0.
         out["storeys"] = []
         return out
     sill = g["sill"]
-    if style_type(doc) in WOODEN and 4.9 <= height < 7.4:
+    if (old_quarter(doc) or style_type(doc) == "outbuilding") and 4.9 <= height < 7.4:
         attic = 1.2
         main = min(4.2, available - attic)
         rest = available - attic - main
