@@ -20,7 +20,7 @@ import shapely
 
 from ..api import Area, Instances, Output, Stub
 from ..frame import to_engine
-from ..objects import registers, wires
+from ..objects import registers, spans, wires
 from ..objects.common import BLACK_STEEL, DARK_PLASTIC, LENS, describe, interaction, yaw_of_run, unique
 from ..objects.mesh import Mesh
 
@@ -31,6 +31,7 @@ SEGMENTS = 48
 CARRIED = 1.5  # m (plan) from a span within which a lamp hangs on it
 EXTEND = 8.0  # m past a surveyed end that a span still reaches over a wide street
 SEPARATION = 4.0  # m (plan) from any lamp within which a crossing is lit already
+SAME = 2.5  # m from a wire of the wire stage within which a street span is that wire
 HANG = 7.0  # m: a lighting span hangs at least this far over the street
 DROP = 0.3  # m from the wire to the top of the luminaire
 
@@ -96,6 +97,12 @@ class Wire:
     def discover(self, area: Area, sources) -> list[Stub]:
         box = area.bbox(10.0)
         found, lamps = wires.in_box(box, sources.log)
+        # Spans whose returns the survey classed as vegetation, where the wire stage found nothing.
+        known = [shapely.LineString([w["a"][:2], w["b"][:2]]) for w in found]
+        more, on_them = spans.in_box(sources, box)
+        fresh = [w for w in more if not any(line.distance(shapely.Point((w["a"][0] + w["b"][0]) / 2, (w["a"][1] + w["b"][1]) / 2)) <= SAME for line in known)]
+        found = found + fresh
+        lamps = lamps + [lamp for lamp in on_them if any(lamp["wire"] is w for w in fresh)]
         if not found:
             return []
         streets = registers.Streets(sources, box)
@@ -122,7 +129,8 @@ class Wire:
             length = float(np.hypot(*(b - a)[:2]))
             facts = {
                 "at": wire["a"], "a": wire["a"], "b": wire["b"], "sag": wire["sag"], "type": wire["kind"], "ends": wire["ends"],
-                "lamps": hung, "measured": {"lidar": {"length": round(length, 2), "extended": bool(wire.get("extended"))}},
+                "lamps": hung, "measured": {"lidar": {"length": round(length, 2), "extended": bool(wire.get("extended")),
+                                       **({"returns": wire["returns"], "found": "free-hanging returns across a carriageway"} if "returns" in wire else {})}},
                 "guessed": ["lamps"] if any(lamp.get("guessed") for lamp in hung) else [],
                 "interaction": interaction("fixed", "capsule", [RADIUS.get(wire["kind"], 0.012), round(length, 2)]),
             }

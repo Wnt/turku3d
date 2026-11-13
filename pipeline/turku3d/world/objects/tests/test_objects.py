@@ -121,3 +121,22 @@ def test_signal_posts_stand_right_of_the_approach_past_the_carriageway_edge():
     output = signal.Signal().compile({"id": "signal/n2r", "at": [23459000.0, 6704000.0, 10.0], "heads": alone[0]["heads"],
                                       "interaction": {"behaviour": "knock-over"}})
     assert [len(item.transforms) for item in output.instances] == [1, 1, 1]
+
+
+def test_free_hanging_returns_across_a_street_are_a_span_with_its_lamp():
+    import numpy as np
+    import shapely
+
+    from turku3d.world.objects import spans
+
+    street = [shapely.LineString([(0, -60), (0, 60)])]
+    rng = np.random.default_rng(1)
+    across = np.column_stack([np.linspace(-5, 5, 41), np.full(41, 10.0) + rng.normal(0, 0.03, 41), np.full(41, 9.5), np.full(41, 5.0)])
+    knot = np.column_stack([rng.normal(0.5, 0.1, 14), rng.normal(10.0, 0.1, 14), np.full(14, 9.2), np.full(14, 5.0)])
+    along = np.column_stack([np.full(41, 2.0), np.linspace(-40, -30, 41), np.full(41, 9.5), np.full(41, 5.0)])  # an eave or a branch
+    crown = np.column_stack([rng.uniform(-4, 4, 400), rng.uniform(30, 38, 400), rng.uniform(3, 11, 400), np.full(400, 5.0)])
+    roofed = lambda e, n: abs(e) >= 8.0  # noqa: E731
+    found, lamps = spans.find(np.vstack([across, knot, along, crown]), street, roofed, lambda e, n: 12.0)
+    assert len(found) == 1 and found[0]["ends"] == ["facade", "facade"] and found[0]["kind"] == "span"
+    assert sorted(round(found[0][end][0]) for end in ("a", "b")) == [-8, 8] and abs(found[0]["a"][1] - 10.0) < 0.2
+    assert len(lamps) == 1 and abs(lamps[0]["at"][0] - 0.5) < 0.4 and 21.0 < lamps[0]["at"][2] < 22.0

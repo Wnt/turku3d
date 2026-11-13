@@ -74,6 +74,17 @@ free air, straight in plan and a parabola in profile, ends reached to a facade, 
 A lighting span on which the scan shows no lamp gets one over each carriageway centreline it crosses, at least
 7 m over the ground and 4 m from any other lamp (`guessed: true`): the old generator's rule.
 
+### Street spans the wire stage misses
+
+The survey classes the returns of many lighting spans as high vegetation, and the wire stage reads unclassified
+returns only (at the Humalistonkatu pilot it found none of the spans across the street). `objects/spans.py` finds
+them from the object returns: returns 6 to 12.5 m above ground within 6 m of a carriageway centreline that hang free
+(nothing under them down to 2.5 m), linked within 1.5 m into a run of at least 4 m and 10 returns that is thin
+(0.3 m), smooth in height (0.25 m about a parabola) and crosses its street (more than 40 degrees to it). Each end is
+followed up to 14 m along the line to the building that carries it (`ends`: `facade` or `open`). A knot of returns on
+the line is its luminaire; a span without one gets the centreline rule above (`guessed: ["lamps"]`). Stored per
+500 m survey tile in `sources/object-spans/1`; `measured.lidar.returns` and `found` mark these wires.
+
 ## `turku-description/fence/1`
 
 | Field | Meaning |
