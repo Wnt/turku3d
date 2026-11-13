@@ -124,3 +124,23 @@ def outlines(sources, box, without=None) -> list[tuple[shapely.Polygon, str]]:
                         part = part.difference(without)
                     found += [(piece, name) for piece in shapely.get_parts(part) if piece.geom_type == 'Polygon' and piece.area >= MIN_AREA]
     return found
+
+
+def spread(grass: list, mapped, reach: float = 1.5) -> list:
+    """Polygons of unmapped land that lawns grow into: the slivers and notches narrower than twice `reach` between
+    an orthophoto lawn and mapped ground (a carriageway's edge, a track bed) or another lawn.
+
+    The orthophoto loses a verge's edge to shadow, parked cars and dry grass, so the lawn ends in ragged teeth a
+    metre or two short of the kerb, and the unmapped base (yard asphalt) showed between them. A morphological
+    closing of lawn and mapped ground together fills those gaps; only fills that touch a lawn are kept, so a narrow
+    unmapped lane between two mapped surfaces stays what it was. Local, so it depends on the place alone.
+    """
+    if not grass:
+        return []
+    lawn = shapely.unary_union(grass)
+    solid = shapely.unary_union([lawn, mapped.simplify(0.05)])
+    closed = solid.buffer(reach, quad_segs=2).buffer(-reach, quad_segs=2)
+    gaps = closed.difference(solid)
+    near = lawn.buffer(0.3, quad_segs=1)
+    shapely.prepare(near)
+    return [part for part in shapely.get_parts(gaps) if part.geom_type == 'Polygon' and part.area >= 0.5 and near.intersects(part)]

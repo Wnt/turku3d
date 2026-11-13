@@ -348,7 +348,11 @@ class Ground:
         mapped = osm.features(box)
         roofs = shapely.unary_union(list(mapped[mapped.building.notna() & mapped.geom_type.isin(('Polygon', 'MultiPolygon'))].geometry)) \
             if mapped is not None else None
-        for n, (shape, name) in enumerate(aerial.outlines(sources, box, roofs)):
+        seen = aerial.outlines(sources, box, roofs)
+        with sources.timed('street:verges'):
+            mapped_ground = shapely.unary_union([shape for shape, _ in surfaces] + ([roofs] if roofs is not None else []))
+            seen += [(shape, 'grass') for shape in aerial.spread([shape for shape, name in seen if name == 'grass'], mapped_ground)]
+        for n, (shape, name) in enumerate(seen):
             centre = shape.representative_point()
             surfaces.append((shape, {'key': f'ortho:{name}:{centre.x:.1f}_{centre.y:.1f}', 'source': 'ortho', 'level': 'high',
                                      'use': name, 'surface': '', 'rank': UNMAPPED_RANK + n}))

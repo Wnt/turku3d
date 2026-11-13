@@ -60,8 +60,9 @@ function photographic(family: string, params: GroundParams): Photographic | null
     const level = params.grade === 'coarse' ? 1 : number(params.packed, 0) > 0.5 ? 0.78 : 0.9;
     return { key: 'gravel', tint: new THREE.Color(level * 1.04, level, level * 0.9), relief: 0.6 };
   }
-  // Kerb granite is sawn pale stone, lighter than the library's map (the photos show it paler than the footway).
-  if (family === 'kerbstone') return { key: 'granite_curb', tint: new THREE.Color(1.3, 1.3, 1.3), relief: 0.5 };
+  // Kerb stone is paler than the library's map, but only a little paler than the footway beside it: at 1.3 it read
+  // as a white line along every street of the dev points.
+  if (family === 'kerbstone') return { key: 'granite_curb', tint: new THREE.Color(1.12, 1.1, 1.06), relief: 0.5 };
   if (family === 'setts' && number(params.size_y, 0.09) >= 0.18) return { key: 'cobblestone', tint: new THREE.Color(1, 1, 1), relief: 0.8 };
   return null;
 }
