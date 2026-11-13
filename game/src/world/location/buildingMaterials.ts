@@ -6,7 +6,7 @@
 // pattern maps (buildingPatterns.ts) carry only structure: tone, joints, roughness, occlusion and relief.
 import * as THREE from 'three/webgpu';
 import { attribute, float, fract, mix, normalMap, sin, smoothstep, step, texture, uniform, uv, vec2, vec3 } from 'three/tsl';
-import { buildingPattern } from './buildingPatterns';
+import { buildingPattern, weatherMap } from './buildingPatterns';
 
 export interface BuildingMaterialParams {
   colour?: string; colour2?: string; finish?: string; bond?: string; orientation?: string; profile?: string;
@@ -41,11 +41,14 @@ function surface(family: string, p: BuildingMaterialParams) {
   const second = uniform(p.colour2 ? new THREE.Color(p.colour2) : shade(p.colour ?? '#b0a898', family === 'weatherboard' || family === 'painted_wood' ? 0.45 : 0.6));
   const at = uv().div(uniform(new THREE.Vector2(pattern.size[0], pattern.size[1])));
   const sample = texture(pattern.map, at);
-  // The same pattern read at two much larger scales breaks the repeat and gives walls their uneven weathering.
-  const far = texture(pattern.map, at.mul(0.137).add(vec2(0.31, 0.17))).r, wide = texture(pattern.map, at.mul(0.031).add(vec2(0.73, 0.41))).r;
+  // Weather: soft patches, blotches and rain streaks from one shared map read at two unrelated scales, in metres on
+  // the wall. `weathering` 0 is a wall painted this year, 1 one that has stood untouched for decades.
   const weathering = p.weathering ?? 0.35;
   const worn = uniform(0.5 + weathering);
-  const macro = float(1).add(far.sub(0.5).mul(worn.mul(0.22))).add(wide.sub(0.5).mul(worn.mul(0.3)));
+  const near = texture(weatherMap(), uv().div(vec2(9.3, 7.1))), wide = texture(weatherMap(), uv().div(vec2(23.7, 17.3)).add(vec2(0.37, 0.61)));
+  const patches = near.r.sub(0.5).mul(0.6).add(wide.r.sub(0.5)).add(near.b.sub(0.5).mul(0.35));
+  const streaks = near.g.mul(wide.b.add(0.5));
+  const macro = float(1).add(patches.mul(worn.mul(0.3))).mul(float(1).sub(streaks.mul(worn.mul(0.25))));
   let base = mix(main, second, sample.g).mul(sample.r.sub(0.5).mul(uniform(pattern.tone)).add(1)).mul(sample.a).mul(macro);
   if (p.relief === 'banded' || p.relief === 'ashlar' || p.relief === 'v_joint') {
     const course = uniform(p.course_m ?? 0.4), y = fract(uv().y.div(course));

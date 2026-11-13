@@ -342,6 +342,41 @@ function bake(f: Field, tone: number, rough: number): Pattern {
   return { map: texture(map), normal: texture(normal), size: f.size, tone, rough };
 }
 
+let weather: THREE.DataTexture | null = null;
+
+/**
+ * What weather does to any wall, one tiling map shared by every family: R soft patches metres across (damp, faded
+ * and repainted areas), G sparse vertical streaks (rain runs), B blotches a hand to an arm wide. The material reads
+ * it at two unrelated scales, so no facade shows the same patch twice.
+ */
+export function weatherMap(): THREE.DataTexture {
+  if (weather) return weather;
+  const n = 256, data = new Uint8Array(n * n * 4);
+  const byte = (value: number) => Math.max(0, Math.min(255, Math.round(value * 255)));
+  // Value noise with its own period per axis: streaks are narrow across the wall and long down it.
+  const stretched = (x: number, y: number, px: number, py: number, seed: number) => {
+    const xi = Math.floor(x), yi = Math.floor(y), fx = x - xi, fy = y - yi;
+    const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+    const at = (i: number, j: number) => hash2(((i % px) + px) % px, ((j % py) + py) % py, seed);
+    const a = at(xi, yi), b = at(xi + 1, yi), c = at(xi, yi + 1), d = at(xi + 1, yi + 1);
+    return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+  };
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const u = i / n, v = j / n, o = (j * n + i) * 4;
+    const patch = 0.5 + (fbm(u, v, 3, 4, 911) - 0.5) * 2.6;
+    const run = stretched(u * 56, v * 3, 56, 3, 409) * 0.75 + stretched(u * 112, v * 5, 112, 5, 433) * 0.25;
+    const streak = Math.max(0, Math.min(1, (run - 0.6) / 0.25)) * (0.35 + 0.65 * fbm(u, v, 4, 2, 77));
+    const blotch = 0.5 + (fbm(u, v, 14, 3, 523) - 0.5) * 2.4;
+    data[o] = byte(patch); data[o + 1] = byte(streak); data[o + 2] = byte(blotch); data[o + 3] = 255;
+  }
+  weather = new THREE.DataTexture(data, n, n, THREE.RGBAFormat, THREE.UnsignedByteType);
+  weather.wrapS = weather.wrapT = THREE.RepeatWrapping;
+  weather.magFilter = THREE.LinearFilter; weather.minFilter = THREE.LinearMipmapLinearFilter;
+  weather.generateMipmaps = true; weather.colorSpace = THREE.NoColorSpace;
+  weather.needsUpdate = true;
+  return weather;
+}
+
 const cache = new Map<string, Pattern>();
 
 /** The pattern of a family and its structural parameters (colours do not matter here). */
