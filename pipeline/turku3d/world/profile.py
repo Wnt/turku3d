@@ -11,11 +11,16 @@ import math
 from . import store
 
 
+_files: dict[str, bytes] = {}  # the stored file of each location read, by its id
+
+
 def locations() -> list[dict]:
     found = {}
     for root in reversed(store.description_roots()):
         for path in sorted((root / "location").glob("*.json")):
-            found[path.stem] = json.loads(path.read_bytes())
+            data = path.read_bytes()
+            found[path.stem] = json.loads(data)
+            _files[found[path.stem]["id"]] = data
     return list(found.values())
 
 
@@ -28,5 +33,7 @@ def near(e: float, n: float, reach_m: float = 400.0, known: list | None = None) 
             best = (distance, doc)
     if best is None:
         return None
+    if best[1]["id"] in _files:  # a build says in its manifest that this reading was in it
+        store.note_read(best[1], _files[best[1]["id"]])
     return {"location": best[1]["id"], "distance_m": round(best[0], 1), "character": best[1].get("character", ""),
             **best[1].get("profile", {})}

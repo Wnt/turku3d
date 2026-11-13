@@ -167,9 +167,15 @@ def read_description(entity: str) -> dict | None:
         if path.exists():
             data = path.read_bytes()
             description = json.loads(data)
-            READ[entity] = {"tier": description.get("tier", "auto"), "sha256": sha256(data)}
+            note_read({**description, "id": entity}, data)
             return description
     return None
+
+
+def note_read(description: dict, data: bytes) -> None:
+    """Records a stored description that was read some other way than by `read_description` (a location's
+    reading found by place, world/profile.py)."""
+    READ[description["id"]] = {"tier": description.get("tier", "auto"), "sha256": sha256(data)}
 
 
 def descriptions_used(roles: dict[str, str] | None = None) -> dict:
