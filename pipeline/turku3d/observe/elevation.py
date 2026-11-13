@@ -65,6 +65,7 @@ def material_areas(local: dict, wall_id: str, crop: dict, registration: tuple[fl
     from PIL import Image, ImageDraw
     from shapely import affinity
     from shapely.geometry import box
+
     from turku3d.world.kinds.building import facade as facades
     from turku3d.world.kinds.building import openings
 

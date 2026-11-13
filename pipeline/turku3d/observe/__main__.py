@@ -58,9 +58,11 @@ def store(doc: dict) -> str | None:
 
 def finish(record: dict, reading: dict, meta: dict, packet: Path, root: Path) -> dict:
     """Assemble a reading into its description, check it, write and store it; the facts for the run's report."""
-    from turku3d.world.kinds.building import description as fmt
+    from turkutex.streetview.height import (
+        ground_height,  # the survey lidar; on sys.path through .panoramas
+    )
 
-    from turkutex.streetview.height import ground_height  # the survey lidar; on sys.path through .panoramas
+    from turku3d.world.kinds.building import description as fmt
 
     doc = reader.assemble(record, reading, meta, ground=ground_height, tier=meta.get("tier", "observed"))
     problems = fmt.errors(doc)
@@ -115,8 +117,9 @@ def review(packet: Path, root: Path, effort: str, force: bool = False) -> dict:
     """Render and compare for one read building: drawings of what gets built beside the crops, the reader's
     corrections, the result stored at tier reviewed when it is valid and loses hardly more parts than before.
     A review already made (reading-reviewed.json) is taken again without a model call unless forced."""
-    from turku3d.world.kinds.building import description as fmt
     from turkutex.streetview.height import ground_height
+
+    from turku3d.world.kinds.building import description as fmt
 
     record = json.loads((packet / "views.json").read_text())
     first = packet / ("reading-observed.json" if (packet / "reading-observed.json").exists() else "reading.json")
@@ -192,7 +195,7 @@ def select(args) -> tuple[lod2.Scene, list, dict]:
         n = [v["pose"]["N"] for v in views]
         scene = lod2.Scene((min(e) - 400, min(n) - 400, max(e) + 400, max(n) + 400))
         if not scene.buildings:
-            sys.exit(f"no LoD2 buildings around {', '.join(args.view)}: their LoD2 tiles are not in this host's raw data")
+            sys.exit(f"no LoD2 buildings around {', '.join(args.view)}")
         for v in views:
             for key, share in visible_in_view(v, scene).items():
                 why.setdefault(key, {})[v["id"]] = share
@@ -202,13 +205,7 @@ def select(args) -> tuple[lod2.Scene, list, dict]:
         scene = lod2.scene_around(e, n, args.radius + 250)
         found = scene.within(e, n, args.radius) if args.radius > 0 else [scene.nearest(e, n)]
         return scene, [b for b in found if b is not None], why
-    if not args.building:
-        sys.exit("give --building, --at or --view")
-    # A key alone does not say where the building is: find it in the footprint index of the whole register.
-    scene = lod2.Scene((-1e12, -1e12, 1e12, 1e12)) if args.everywhere else None
-    if scene is None:
-        sys.exit("--building needs --near E,N (or --everywhere) until the world store has a building index")
-    return scene, [scene.buildings[k] for k in args.building if k in scene.buildings], why
+    sys.exit("give --at E,N, --view ID or --building KEY with --near E,N (a key alone does not say where it is)")
 
 
 def main(argv=None) -> int:
@@ -217,7 +214,6 @@ def main(argv=None) -> int:
     ap.add_argument("command", choices=["views", "describe", "assemble", "review"])
     ap.add_argument("--building", nargs="*", help="entity keys (with --near)")
     ap.add_argument("--near", help="E,N near the buildings named by --building")
-    ap.add_argument("--everywhere", action="store_true", help="load the whole register to find --building keys")
     ap.add_argument("--at", help="E,N (EPSG:3877): the nearest building, or all within --radius")
     ap.add_argument("--radius", type=float, default=0.0)
     ap.add_argument("--view", nargs="*", help="reference view ids: every building visible in them")

@@ -8,17 +8,13 @@ quantity here is read from the source data at run time: nothing is specific to a
 from __future__ import annotations
 
 import hashlib
-import json
 import math
 from dataclasses import dataclass, field
 from functools import cached_property
-from pathlib import Path
 
 import numpy as np
 import shapely
 from shapely.geometry import LineString, Point, Polygon
-
-from turku3d import config
 
 MERGE_ANGLE_DEG = 6.0  # consecutive surfaces within this turn form one wall
 MERGE_GAP_M = 0.35  # and must meet end to end within this
@@ -121,19 +117,6 @@ class Building:
     def top(self) -> float:
         return float(self.triangles[:, :, 2].max()) if len(self.triangles) else self.base
 
-
-def lod2_files(bounds) -> list[Path]:
-    import pyarrow.parquet as pq
-
-    out = []
-    for path in sorted(config.raw_dir("wfs").glob("*/bldg_Building_LOD2.parquet")):
-        schema = pq.read_schema(path)
-        if "surface_type" not in schema.names:
-            continue
-        box = json.loads(schema.metadata[b"geo"])["columns"]["geometry"].get("bbox")
-        if box and box[0] <= bounds[2] and box[2] >= bounds[0] and box[1] <= bounds[3] and box[3] >= bounds[1]:
-            out.append(path)
-    return out
 
 
 def _triangles(rings) -> np.ndarray:
@@ -294,43 +277,33 @@ def _register(row) -> dict:
 class Scene:
     """Buildings within bounds, with footprints indexed for neighbours and triangles for occlusion."""
 
-    def __init__(self, bounds):
-        import pandas as pd
+    def __init__(self, bounds, sources=None):
+        """LoD2 buildings come through the world pipeline's source reader, the one the build discovers them with:
+        blocks the raw tree does not hold are fetched on demand into the shared cache."""
+        import re
+
+        from turku3d.world.sources import Sources
 
         self.bounds = tuple(float(v) for v in bounds)
-        files = lod2_files(self.bounds)
-        self.fingerprint = hashlib.sha256(repr([(str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in files]
-                                               ).encode()).hexdigest()[:16]
-        columns = ["feature_key", "gml_id", "geom_index", "geometry", "geom_type", "surface_type", "pysyvarakennustunnus",
-                   "taydellinen_osoite_fi", "yearOfConstruction", "valmistunut", "storeysAboveGround", "kerrosluku",
-                   "measuredHeight", "function", "kerrosala"]
-        frames = [pd.read_parquet(p, columns=columns) for p in files]
+        features = (sources or Sources(log=lambda *_: None)).wfs.features("bldg:Building_LOD2", self.bounds)
+        self.fingerprint = hashlib.sha256(repr(sorted((f.key, len(f.geoms)) for f in features)).encode()).hexdigest()[:16]
         self.buildings: dict[str, Building] = {}
-        if not frames:
-            return
-        frame = pd.concat(frames, ignore_index=True).drop_duplicates(["feature_key", "geom_index"])
-        frame = frame[(frame.geom_type == "Polygon") & frame.surface_type.isin(["GroundSurface", "WallSurface",
-                                                                                "RoofSurface"])]
-        geoms = shapely.from_wkb(frame.geometry.values)
-        box = shapely.bounds(geoms)
-        keep = (box[:, 0] <= self.bounds[2]) & (box[:, 2] >= self.bounds[0]) & (box[:, 1] <= self.bounds[3]) & (
-            box[:, 3] >= self.bounds[1])
-        keys = set(frame.feature_key.values[keep])
-        frame = frame.assign(geom=geoms)[frame.feature_key.isin(keys)]
-        for key, group in frame.groupby("feature_key", sort=True):
-            ground = [shapely.force_2d(g).buffer(0) for g in group.geom[group.surface_type == "GroundSurface"]]
+        for feature in sorted(features, key=lambda f: f.key):
+            key, row = feature.key, {**feature.attrs, "gml_id": feature.gml_id}
+            parts = {kind: [g.shape for g in feature.geoms if g.role == "lod2MultiSurface" and g.type == "Polygon"
+                            and g.surface_type == kind] for kind in ("GroundSurface", "WallSurface", "RoofSurface")}
+            ground = [shapely.force_2d(g).buffer(0) for g in parts["GroundSurface"]]
             if not ground:
                 continue
             footprint = shapely.union_all(ground)
             if footprint.is_empty or footprint.geom_type not in ("Polygon", "MultiPolygon"):
                 continue
-            row = group.iloc[0].to_dict()
             pid = str(row.get("pysyvarakennustunnus"))
-            # The entity key of docs/design/world-pipeline.md: the permanent building id, else gml-<gml_id>.
-            building_id = pid if pid not in INVALID_IDS else f"gml-{row.get('gml_id') or key}"
-            surfaces = [s for g in group.geom[group.surface_type == "WallSurface"] if (s := _surface(g))]
+            # The entity key of the build's discover: the permanent building id, else gml-<gml_id>.
+            building_id = pid if pid not in INVALID_IDS else "gml-" + re.sub(r"[^A-Za-z0-9._-]", "-", feature.gml_id or key)
+            surfaces = [s for g in parts["WallSurface"] if (s := _surface(g))]
             tris = [_triangles([np.asarray(r.coords) for r in [g.exterior, *g.interiors]])
-                    for g in group.geom[group.surface_type != "GroundSurface"]
+                    for g in parts["WallSurface"] + parts["RoofSurface"]
                     if np.asarray(g.exterior.coords).shape[1] == 3]
             triangles = np.concatenate(tris) if tris else np.zeros((0, 3, 3))
             if building_id in self.buildings:  # two LoD2 features of one register building: keep the larger

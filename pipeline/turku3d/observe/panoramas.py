@@ -59,7 +59,7 @@ class Panoramas:
     _locks: dict = {}
     _guard = threading.Lock()
 
-    def _lock(self, pano: "Pano"):
+    def _lock(self, pano: Pano):
         with Panoramas._guard:
             return Panoramas._locks.setdefault((pano.source, pano.id), threading.RLock())
 
