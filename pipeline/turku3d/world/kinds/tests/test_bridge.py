@@ -16,8 +16,8 @@ def _facts(**over) -> dict:
     """A straight 60 m road bridge running east, 12 m wide: banks to 6 m and from 54 m, water between 12 and 48 m."""
     e0, n0, length, half = 23459000.0, 6704000.0, 60.0, 6.0
     stations = np.arange(0.0, length + 0.01, 1.0)
-    ground = np.where((stations < 12) | (stations > 48), 2.0, 0.0)
-    ground = np.where(stations < 4, 4.5, np.where(stations > 56, 4.5, ground))
+    ground = np.where((stations < 12) | (stations > 48), 0.8, 0.0)                 # the banks a path runs along
+    ground = np.where(stations < 6, 4.5, np.where(stations > 54, 4.5, ground))    # the streets behind the faces
     facts = {
         'key': 'osm:way/1', 'name': 'Testisilta', 'wikidata': '', 'year': 1907, 'structure': 'beam', 'material': '',
         'use': 'road',
@@ -26,6 +26,7 @@ def _facts(**over) -> dict:
         'sides': [[[e0, n0 + half], [e0 + length, n0 + half]], [[e0, n0 - half], [e0 + length, n0 - half]]],
         'water': [[12.0, 48.0]], 'faces': [6.0, 54.0], 'banks': [1.0, 1.0],
         'ground': {'step': 1.0, 'heights': ground.tolist()}, 'piers': {'measured': [30.0]}, 'gates': [],
+        'passages': [{'station': 9.0, 'sides': [0, 1], 'keys': ['osm:way/2'], 'width': None}],
     }
     return {**facts, **over}
 
@@ -59,18 +60,29 @@ def test_a_bridge_stands_on_abutments_and_its_measured_pier_with_one_girder_over
     assert 'parapet' in parts and any('panel' in (item.ids or [''])[0] for item in output.instances)
 
 
-def test_the_type_adds_piers_where_the_scan_saw_none_and_a_profile_sets_parapets_pylons_and_an_arch():
+def test_the_type_adds_piers_where_the_scan_saw_none_and_a_profile_sets_parapets_pylons_and_a_gated_passage():
     output = _compile(_facts(piers={'measured': []}, use='foot', year=1990), profile={
-        'parapets': {'approach': 'balustrade', 'span': 'lattice'},
-        'pylons': {'height': 5.0, 'width': 1.0, 'lantern': True},
-        'arches': [{'end': 0, 'from_face': 3.0, 'width': 2.0, 'height': 2.6, 'grille': True}]})
+        'support': 'stone', 'parapets': {'approach': 'balustrade', 'span': 'lattice'},
+        'pylons': {'height': 5.0, 'width': 1.0, 'lantern': True}, 'passages': {'grille': True}})
     parts = {p.name: p for p in output.parts}
     pier = parts['pier'].positions[:, 0]
-    # A 48 m foot bridge between its faces is longer than the type's 35 m span: one pier half way.
+    # Masonry abutments reach the quays (12 and 48 m): 36 m is longer than a foot bridge's 35 m span, one pier half way.
     assert abs((pier.min() + pier.max()) / 2 - 30.0) < 0.01
     assert {'balustrade-plinth', 'balustrade-coping', 'pylon', 'pylon-bronze', 'abutment-void', 'grille'} <= set(parts)
     names = {(item.ids or [''])[0].split('/')[-1].rsplit('-', 1)[0] for item in output.instances}
     assert {'baluster', 'panel', 'post'} <= names
-    # Four pylons: two at each face.
+    # Four pylons: two at each quay corner.
     pylon = parts['pylon'].positions
     assert len(np.unique(np.round(pylon[:, [0, 2]] / 3.0), axis=0)) >= 4
+    # The bank path's passage at 9 m: a grille in both side faces, from the bank up.
+    grille = parts['grille'].positions
+    assert abs(grille[:, 0].mean() - 9.0) < 1.5 and grille[:, 1].min() + output.origin[1] >= 0.8 - 0.05
+
+
+def test_an_open_path_through_a_masonry_abutment_is_a_vault_over_the_bank():
+    output = _compile(_facts(), profile={'support': 'stone'})
+    parts = {p.name: p for p in output.parts}
+    assert 'abutment-void' not in parts and 'grille' not in parts
+    abutment = parts['abutment'].positions
+    near = abutment[np.abs(abutment[:, 0] - 9.0) < 0.3]                       # the vault's sections over the path
+    assert near[:, 1].min() + output.origin[1] > 0.8 + 2.0

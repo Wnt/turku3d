@@ -40,6 +40,8 @@ PIER_GROUP = 3.0     # m of empty axis that separate two clusters
 PIER_LENGTH = 6.0    # m: a longer cluster along the axis is not a pier (a moored boat, a quay)
 PIER_POINTS = 10
 GATE_REACH = 2.0     # m outside the outline within which a mapped gate still belongs to a passage under the deck
+PASSAGE_REACH = 4.0  # m from the deck's side within which a path the map ends there goes on through the abutment
+PASSAGE_JOIN = 6.0   # m along the axis within which path ends on the two sides are one passage under the deck
 PATHS = ('footway', 'cycleway', 'path', 'pedestrian', 'bridleway', 'steps')
 RAILS = ('rail', 'tram', 'light_rail', 'narrow_gauge')
 
@@ -218,6 +220,49 @@ def _gates(mapped, axis, area) -> list[dict]:
     return found
 
 
+def _passages(mapped, axis, area, length: float) -> list[dict]:
+    """Bank paths at the deck's sides: a path the map stops at a side (it goes on through the abutment, unmapped) or
+    draws across the deck's outline under it. One row per station, with the sides it opens and the paths' keys."""
+    lines = mapped[mapped.geom_type == 'LineString']
+    ring = area.exterior
+    found = []
+    for row in lines.itertuples():
+        tags = _tags(row)
+        if tags.get('highway') not in PATHS or tags.get('highway') == 'steps' or tags.get('bridge', 'no') != 'no':
+            continue
+        if str(tags.get('layer', '0')).lstrip('-').isdigit() and int(tags.get('layer', '0')) > 0:
+            continue
+        line = row.geometry
+        ends = [shapely.Point(line.coords[0]), shapely.Point(line.coords[-1])]
+        points = [p for p in ends if ring.distance(p) <= PASSAGE_REACH and not area.buffer(-1.0).contains(p)]
+        if line.crosses(area.buffer(-1.0)):
+            points += [shapely.Point(c) for c in shapely.get_coordinates(line.intersection(ring))]
+        for point in points:
+            station = float(axis.project(point))
+            if not 0.5 < station < length - 0.5:
+                continue
+            centre = np.asarray(axis.interpolate(station).coords[0])
+            ahead = np.asarray(axis.interpolate(min(station + 0.5, length)).coords[0]) - np.asarray(axis.interpolate(max(station - 0.5, 0)).coords[0])
+            left = np.array([-ahead[1], ahead[0]])
+            side = 0 if (np.asarray(point.coords[0]) - centre) @ left > 0 else 1
+            width = str(tags.get('width', '')).replace(',', '.')
+            found.append({'station': station, 'sides': {side}, 'keys': {f'osm:way/{row.osm_id}'},
+                          'width': float(width) if width.replace('.', '', 1).isdigit() else None})
+    found.sort(key=lambda p: p['station'])
+    merged = []
+    for passage in found:
+        if merged and passage['station'] - merged[-1]['station'] <= PASSAGE_JOIN:
+            last = merged[-1]
+            last['station'] = (last['station'] + passage['station']) / 2
+            last['sides'] |= passage['sides']
+            last['keys'] |= passage['keys']
+            last['width'] = last['width'] or passage['width']
+            continue
+        merged.append(passage)
+    return [{'station': round(p['station'], 2), 'sides': sorted(p['sides']), 'keys': sorted(p['keys']), 'width': p['width']}
+            for p in merged]
+
+
 def facts(key: str, box: tuple) -> dict | None:
     """The facts of the bridge whose deck is `key`, found again from `box` (`candidates`)."""
     deck = _deck(key, box)
@@ -278,4 +323,5 @@ def facts(key: str, box: tuple) -> dict | None:
         'ground': {'step': 1.0, 'heights': np.round(np.nan_to_num(ground, nan=WATER_LEVEL), 2).tolist()},
         'piers': {'measured': measured},
         'gates': _gates(mapped, axis, area),
+        'passages': _passages(mapped, axis, area, length),
     }

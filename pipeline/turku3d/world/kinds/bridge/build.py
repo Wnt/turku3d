@@ -31,6 +31,10 @@ PARAPET_DROP = 0.6      # m of fall beside the deck from which a parapet stands
 PANEL = 2.0             # m: length of a railing panel
 BALUSTER_PITCH = 0.3    # m between balusters
 DIE_PITCH = 3.0         # m between the solid blocks of a balustrade
+QUAY_GAP = 12.0         # m of bank a masonry abutment reaches over to the water's edge
+PASSAGE_CLEAR = 2.6     # m between a bank and the deck's underside from which a path passes through an abutment
+PASSAGE_WALL = 0.6      # m of abutment kept on either side of a passage
+GATE_NEAR = 4.0         # m along the axis within which a mapped gate closes a passage
 
 
 def _hex_material(family: str, params: dict, colour: str, roughness: float = 0.85, metalness: float = 0.0) -> Material:
@@ -71,6 +75,9 @@ def style(description: dict) -> dict:
         'rail_height': 1.0 if use == 'foot' else 1.1,
         'max_span': {'arch': 60.0, 'cable-stayed': 80.0, 'suspension': 120.0}.get(structure, 35.0 if use == 'foot' else 40.0),
         'slab': decks.SLAB,
+        # Masonry abutments reach the quay and the bank path passes through them; others stop at the bank's rise.
+        'abutment': 'quay' if old or body == 'stone' or profile.get('support') == 'stone' else 'face',
+        'passages': {'width': 2.4, 'height': 2.8, 'grille': False},
     }
     for key, value in profile.items():
         out[key] = {**out[key], **value} if isinstance(value, dict) and isinstance(out.get(key), dict) else value
@@ -141,9 +148,20 @@ class Frame:
         return self.xz(self.point(s, offset))
 
 
-def supports(description: dict, frame: Frame, spec: dict) -> tuple[list[float], list[dict]]:
-    """Stations of the supports from the first abutment's face to the last's (faces included) and the piers."""
+def abutments(description: dict, spec: dict) -> tuple[float, float]:
+    """Stations where the two abutments end towards the river: their faces, or the water's edge for a masonry
+    abutment that reaches over the bank to the quay."""
     f0, f1 = description['faces']
+    water = description.get('water') or []
+    if spec.get('abutment') != 'quay' or not water:
+        return f0, f1
+    w0, w1 = water[0][0], water[-1][1]
+    return (w0 if 0.0 <= w0 - f0 <= QUAY_GAP else f0), (w1 if 0.0 <= f1 - w1 <= QUAY_GAP else f1)
+
+
+def supports(description: dict, frame: Frame, spec: dict) -> tuple[list[float], list[dict]]:
+    """Stations of the supports from the first abutment to the last (both included) and the piers."""
+    f0, f1 = abutments(description, spec)
     measured = sorted(s for s in description.get('piers', {}).get('measured', []) if f0 + 2 < s < f1 - 2)
     piers = [{'station': s, 'source': 'lidar'} for s in measured]
     fractions = (spec.get('piers') or {}).get('fractions')
@@ -206,7 +224,7 @@ def compile_bridge(description: dict) -> Output:
     detail = Mesh()   # small pieces built with the object meshes (grilles, pylons), in the entity frame
     instances: list[Instances] = []
     key = description['id']
-    f0, f1 = description['faces']
+    f0, f1 = abutments(description, spec)
     water = description.get('water') or []
     banks = description.get('banks', [WATER_LEVEL + 1.0, WATER_LEVEL + 1.0])
     stops, piers = supports(description, frame, spec)
@@ -225,8 +243,9 @@ def compile_bridge(description: dict) -> Output:
         land = ~wet & (s > f0 - 0.5) & (s < f1 + 0.5)
         return np.where(land, np.maximum(out, _ground(description, s) + CLEAR_WALK), out)
 
-    # Abutments: from each end of the deck to its face, under the slab, down into the bank.
-    arches = [a for a in spec.get('arches', []) if a.get('end') in (0, 1)]
+    # Abutments: from each end of the deck towards the river, under the slab, down into the bank; the bank paths the
+    # map stops at a side pass through them in arched openings.
+    gates = description.get('gates', [])
     for end, (a, b) in enumerate(((0.0, f0), (f1, frame.length))):
         if b - a < 0.5:
             continue
@@ -234,24 +253,34 @@ def compile_bridge(description: dict) -> Output:
         bottom = float(np.nanmin(_ground(description, s))) - ROOT
         bottom = min(bottom, banks[end] - ROOT)
         cuts = []
-        for arch in arches:
-            if arch['end'] != end:
+        for passage in description.get('passages', []):
+            opening = {**spec['passages'], 'sides': passage['sides']}
+            if passage.get('width'):
+                opening['width'] = max(passage['width'] + 0.4, 2.0)
+            half = opening['width'] / 2
+            centre = min(max(passage['station'], a + PASSAGE_WALL + half), b - PASSAGE_WALL - half)
+            if not a < passage['station'] < b or b - a < opening['width'] + 2 * PASSAGE_WALL:
                 continue
-            centre = f0 - arch['from_face'] if end == 0 else f1 + arch['from_face']
-            half = arch['width'] / 2
-            if a + 0.5 < centre - half and centre + half < b - 0.5:
-                cuts.append((centre - half, centre + half, arch))
+            sill = float(_ground(description, centre))
+            room = float(under_deck(centre)) - 0.4 - sill
+            if room < PASSAGE_CLEAR - 0.4:
+                continue
+            opening['height'] = min(opening['height'], room)
+            opening['grille'] = bool(opening.get('grille')) or any(abs(g['station'] - passage['station']) <= GATE_NEAR for g in gates)
+            if any(c[0] < centre + half and centre - half < c[1] for c in cuts):
+                continue
+            cuts.append((centre - half, centre + half, opening, sill))
         edges = sorted([a, b] + [x for c in cuts for x in c[:2]])
         for s0, s1 in zip(edges[:-1], edges[1:]):
             if s1 - s0 < 0.05:
                 continue
-            ss = frame.stations(s0, s1)
-            arch = next((c[2] for c in cuts if abs(c[0] - s0) < 1e-6 and abs(c[1] - s1) < 1e-6), None)
-            left, right = frame.side_line(0, ss, 0.0), frame.side_line(1, ss, 0.0)
-            if arch is None:
-                solids.band('abutment', support_mat, left, right, under_deck(ss), bottom)
+            ss = frame.stations(s0, s1, 0.25)
+            cut = next((c for c in cuts if abs(c[0] - s0) < 1e-6 and abs(c[1] - s1) < 1e-6), None)
+            if cut is None:
+                ss = frame.stations(s0, s1)
+                solids.band('abutment', support_mat, frame.side_line(0, ss, 0.0), frame.side_line(1, ss, 0.0), under_deck(ss), bottom)
                 continue
-            _arched_opening(solids, detail, frame, mats, support_mat, ss, arch, banks[end], bottom, under_deck, base)
+            _arched_opening(solids, detail, frame, mats, support_mat, ss, cut[2], cut[3], bottom, under_deck, base)
 
     # Piers: a cutwater across the deck from below the bed to the girders.
     stayed = spec['structure'] in ('cable-stayed', 'suspension')
@@ -558,8 +587,9 @@ def _grille_run(mesh: Mesh, material: Material, line, sill: float, top: float, b
 
 
 def _arched_opening(solids, mesh, frame, mats, material, ss, arch, sill, bottom, under_deck, base):
-    """An arched, grilled opening through both side faces of an abutment: a vaulted niche a metre deep on each side,
-    the abutment solid between them, the sill below."""
+    """An arched passage through an abutment over the stations `ss`, opening in the side faces the map's paths reach
+    (`arch['sides']`). Open on both sides and ungated it is a vault over the bank (the ground is its floor); otherwise a
+    vaulted niche a metre deep in each open face, closed by a grille where gated, the dark passage behind."""
     depth = 1.0
     s0, s1 = float(ss[0]), float(ss[-1])
     width = s1 - s0
@@ -571,12 +601,11 @@ def _arched_opening(solids, mesh, frame, mats, material, ss, arch, sill, bottom,
     crown = spring + rise * np.sqrt(np.clip(1 - x * x, 0, 1))
     top = under_deck(ss)
     vault = np.minimum(crown, top - 0.3)
-    # The faces the opening is in: those turned towards `facing` (a compass bearing), else both.
-    _, normal = frame._normal([centre])
-    left_bearing = math.degrees(math.atan2(normal[0][0], normal[0][1]))
-    sides = [side for side, bearing in ((0, left_bearing), (1, left_bearing + 180.0))
-             if 'facing' not in arch or abs((bearing - arch['facing'] + 180.0) % 360.0 - 180.0) <= 60.0]
+    sides = list(arch.get('sides', (0, 1)))
     lines = [(frame.side_line(side, ss, 0.0), frame.side_line(side, ss, depth)) for side in (0, 1)]
+    if len(sides) == 2 and not arch.get('grille'):
+        solids.band('abutment', material, lines[0][0], lines[1][0], top, vault)
+        return
     # The dark core between the niches (its sides are their backs), the vaults over them, the sill under them; a face
     # without an opening stays whole.
     solids.band('abutment-void', mats['void'], lines[0][1], lines[1][1], top, bottom)

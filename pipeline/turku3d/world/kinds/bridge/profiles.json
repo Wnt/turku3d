@@ -4,7 +4,7 @@
   "bridges": {
     "Q11853512": {
       "name": "Auransilta",
-      "evidence": "old generator PROFILES (steel body on stone supports, heritage railing, four 4.8 m end pylons); photos review_08 (west abutment from the bank: granite ashlar, arched gated passage in the downstream face, pylon at the river corner, stone balustrade), sv_10 (from the deck: white lattice railing on the span, granite obelisk with bronze lantern, balustrade on the abutment)",
+      "evidence": "old generator PROFILES (steel body on stone supports, heritage railing, four 4.8 m end pylons); photos review_08 (west abutment from the bank: granite ashlar, the bank path ends at the abutment in an arched passage closed by a diamond grille, pylon at the river corner, stone balustrade), sv_10 (from the deck: white lattice railing on the span, granite obelisk with bronze lantern, balustrade on the abutment)",
       "body": "steel",
       "support": "stone",
       "parapets": {
@@ -18,16 +18,11 @@
         "width": 1.15,
         "lantern": true
       },
-      "arches": [
-        {
-          "end": 0,
-          "facing": 235,
-          "from_face": 3.0,
-          "width": 2.3,
-          "height": 3.1,
-          "grille": true
-        }
-      ]
+      "passages": {
+        "width": 2.3,
+        "height": 3.1,
+        "grille": true
+      }
     },
     "Q6947737": {
       "name": "Myllysilta",
