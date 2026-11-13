@@ -218,8 +218,13 @@ A five-storey plastered apartment block, written by hand from one photo (shorten
 ## Earlier facade programs
 
 The 650 programs in `textures/library/facade-programs.json` (`facade-program-prototype-1`) convert with
-`python -m turku3d.world.kinds.building.convert`. The converter keeps their measurements (window rectangles, colours, storey
-splits, trim) and their `support` values as `conf`; nothing else reads the old format.
+`python -m turku3d.world.kinds.building.convert (--out DIR | --store) [KEY ...]` into `observed` descriptions.
+Measured window, ground-floor and door rectangles become placed openings of a few opening types (sizes to 5 cm); a
+wall known only by its rows becomes storeys with one opening per bay; the material that was read, a measured wall
+colour, string courses and the cornice carry over, and the programs' `support` becomes `conf`. A wall of which the
+program read nothing is left out, so the priors describe it: 256 of the 650 programs hold something a description
+can carry (313 walls, 4,044 openings); the other 394 only say why the wall could not be read. `--store` never
+replaces a description somebody else stored. Nothing else reads the old format.
 
 ## Changes
 
