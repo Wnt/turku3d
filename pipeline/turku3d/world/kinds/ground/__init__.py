@@ -129,6 +129,32 @@ def _verges(mapped, zones) -> list[tuple]:
     return found
 
 
+# Land the orthophoto never saw. The city's orthophoto ends short of its rural outskirts (Paattinen, the south-west
+# islands), where nothing but the open map says what the ground is, and the unmapped base was yard asphalt across
+# fields and forest. All 9 street views read there (gap views of 2026-11-13) show asphalt only on the carriageways,
+# driveways and lots the maps carry, grass verges, meadow and forest everywhere else (w2-rules, 2026-11-13). So a
+# cell with no imagery over half of it takes meadow for its base.
+UNSEEN_SHARE = 0.5
+UNSEEN_PX = 0.8  # m: the coarse orthophoto level the imagery's extent is read at
+
+
+def unseen_mask(sources, box):
+    """The orthophoto's validity raster over the box at a coarse level, or None where it cannot be read."""
+    try:
+        return sources.ortho.image(box, UNSEEN_PX)
+    except Exception:  # noqa: BLE001 - no imagery service: the base keeps its default
+        return None
+
+
+def unseen(cell, raster) -> bool:
+    """Whether the orthophoto has no imagery over at least UNSEEN_SHARE of the cell."""
+    if raster is None:
+        return False
+    east, north = np.meshgrid(np.arange(cell[0], cell[2], raster.px_m * 2) + raster.px_m, np.arange(cell[1], cell[3], raster.px_m * 2) + raster.px_m)
+    _, valid = raster.at(east.ravel(), north.ravel())
+    return float(np.mean(~valid)) >= UNSEEN_SHARE
+
+
 def _tags(row) -> dict:
     try:
         return json.loads(row.tags) if isinstance(row.tags, str) else {}
@@ -473,6 +499,7 @@ class Ground:
                                      'use': name, 'surface': '', 'rank': UNMAPPED_RANK + n}))
         zones = centre_zones(sources, box)
         surfaces += _verges(mapped, zones)
+        imagery = unseen_mask(sources, box)
         wet, quays = banks.quay_lines(box)
         quays = None if quays is None or quays.is_empty else quays
         with sources.timed('street:lidar'):
@@ -521,6 +548,8 @@ class Ground:
                 stone = kerb_stone(cell, zones)
                 if stone:  # only outside the old centre, so that no centre cell's description changes
                     facts['kerb_stone'] = stone
+                if unseen(cell, imagery):  # only where the orthophoto ends
+                    facts['unseen'] = True
                 refs = [{'source': 'turku-lidar:pistepilvi', 'key': cell_key(i, j)},
                         {'source': 'turku-wfs:GIS:Katualueet', 'key': cell_key(i, j)},
                         {'source': 'turku-wfs:GIS:Viheralueet', 'key': cell_key(i, j)},
@@ -546,7 +575,7 @@ class Ground:
             surfaces.append({**row, 'cover': cover})
         kerb = covers.NAMED['kerb-concrete' if stub.facts.get('kerb_stone') == 'concrete' else 'kerb']
         return {**envelope(self.name, VERSION, stub, stored, 'w2-street'), **stub.facts, 'surfaces': surfaces,
-                'base': stored.get('base', covers.NAMED['unmapped']), 'kerb': stored.get('kerb', kerb)}
+                'base': stored.get('base', covers.NAMED['unseen' if stub.facts.get('unseen') else 'unmapped']), 'kerb': stored.get('kerb', kerb)}
 
     def compile(self, description: dict) -> Output:
         return compile_cell(description)

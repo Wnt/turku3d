@@ -101,6 +101,8 @@ NAMED = {
     'setts-yard': {'family': 'setts', 'params': {'size_x': 0.09, 'size_y': 0.09, 'tone': 0.5}, 'color': (0.171, 0.149, 0.135), 'roughness': 0.81},
     # Land nobody mapped and the orthophoto shows neither green nor gravel: a yard's asphalt (the old generator's choice).
     'unmapped': {'family': 'asphalt', 'params': {'tone': 0.8}, 'color': (0.19, 0.19, 0.19), 'roughness': 0.93},
+    # Land nobody mapped where the orthophoto has no imagery (the city's rural outskirts): meadow and forest floor.
+    'unseen': {'family': 'grass', 'params': {'mown': 0.2}, 'color': (0.076, 0.122, 0.014), 'roughness': 0.96},
     'kerb': {'family': 'kerbstone', 'params': {}, 'color': (0.381, 0.336, 0.312), 'roughness': 0.81},
     # Cast concrete kerb stones: pale, even grey, where the streets were built outside the old centre (ground's
     # `kerb_stone`).

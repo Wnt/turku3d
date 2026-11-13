@@ -239,6 +239,24 @@ def test_outside_the_centre_kerbs_are_concrete_and_unmapped_streets_get_grass_ve
     assert shape.intersection(centre).area < 1e-6                          # nothing in the centre
 
 
+def test_unmapped_land_the_orthophoto_never_saw_is_meadow_not_yard_asphalt():
+    import numpy as np
+
+    from turku3d.world.api import Stub
+    from turku3d.world.kinds import ground
+    from turku3d.world.sources.ortho import Raster
+
+    valid = np.zeros((125, 250), bool)
+    valid[:, :125] = True  # imagery over the western half only
+    raster = Raster(np.zeros((125, 250, 3), np.uint8), valid, 0.0, 100.0, 0.8)
+    assert not ground.unseen((0.0, 37.5, 62.5, 100.0), raster)
+    assert ground.unseen((137.5, 37.5, 200.0, 100.0), raster)
+    assert not ground.unseen((137.5, 37.5, 200.0, 100.0), None)  # no imagery service: the default
+    unseen = ground.Ground().describe(Stub('ground/x', (0, 0, 1, 1), [], {'surfaces': [], 'unseen': True}), None)
+    seen = ground.Ground().describe(Stub('ground/x', (0, 0, 1, 1), [], {'surfaces': []}), None)
+    assert unseen['base']['family'] == 'grass' and seen['base']['family'] == 'asphalt'
+
+
 def test_a_box_the_clips_do_not_cover_reads_the_city_wide_osm_table(monkeypatch):
     from turku3d.world.street import osm
 
