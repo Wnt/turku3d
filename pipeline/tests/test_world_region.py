@@ -40,7 +40,7 @@ def test_assemble_keeps_each_row_once_by_its_origin_and_reports_the_seams(tmp_pa
     store.put_location(unit_manifest("r", "u_1_0", [
         row("building/a", 495.0, 100.0), row("lamp/l1", 510.0, 300.0, "y"), row("lamp/l2", 600.0, 260.0)],
         cells=("c_8_0", "c_0_0")))
-    index = region.assemble(store, "r", log=lambda *_: None)
+    index = region.assemble(store, "r", log=lambda *_: None, place=False)
     assert index["schema"] == "turku-region/1" and index["stats"]["entities"] == 4
     assert set(index["chunks"]) == {"0_0", "1_0", "2_1"}
     chunk = json.loads((store.root / index["chunks"]["1_0"]["url"]).read_bytes())
@@ -52,5 +52,5 @@ def test_assemble_keeps_each_row_once_by_its_origin_and_reports_the_seams(tmp_pa
     # Each collision cell from the unit that owns it; the outer margin's cell from nobody.
     assert set(index["collision"]) == {"c_0_0", "c_8_0"}
     # Assembling again from the same units writes the same chunk objects: a ring added later leaves them as they are.
-    again = region.assemble(store, "r", log=lambda *_: None)
+    again = region.assemble(store, "r", log=lambda *_: None, place=False)
     assert again["revision"] == 2 and again["chunks"] == index["chunks"]

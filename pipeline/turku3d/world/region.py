@@ -213,8 +213,9 @@ def build_units(store: Store, name: str, units: list[str], parallel: int, margin
 
 # ------------------------------------------------------------------------------------------------------ assemble
 
-def assemble(store: Store, name: str, log=print) -> dict:
-    """Writes the region index `locations/NAME.json` and its chunk objects from the built units' manifests."""
+def assemble(store: Store, name: str, log=print, place: bool = True) -> dict:
+    """Writes the region index `locations/NAME.json` and its chunk objects from the built units' manifests; with
+    `place`, the start and focus come from the street and ground at the region's centre (sources are read)."""
     plan = read_plan(store, name)
     if plan is None:
         raise SystemExit(f"no region {name} in {store.root}")
@@ -301,8 +302,24 @@ def assemble(store: Store, name: str, log=print) -> dict:
         "failures": [f for m in manifests.values() for f in m.get("failures", [])],
         "stats": stats_of(rows),
     }
-    if "start" in home:
-        index["start"] = home["start"]
+    # A player starts on the street nearest the region's centre, not at its home unit's middle.
+    start = home.get("start")
+    try:
+        if not place:
+            raise LookupError("not asked")
+        from .collision import street_start
+        from .sources import Sources
+
+        sources = Sources(log=lambda *_: None)
+        start = street_start(Area(*plan["centre"], 150.0), sources, log) or start
+        ground = float(sources.terrain.heights(*plan["centre"])[0])
+        if math.isfinite(ground):
+            index["focus"] = [round(float(v), 3) for v in to_engine(*plan["centre"], ground)]
+    except Exception as error:  # noqa: BLE001 - the home unit's start is the fallback
+        if place:
+            log(f"  start at the centre failed ({type(error).__name__}: {error}): the home unit's is used")
+    if start:
+        index["start"] = start
     store.put_location(index)
     log(f"region {name} r{index['revision']}: {len(manifests)} units, {len(index_chunks)} chunks, {len(rows)} entities, "
         f"{len(collision)} collision cells, {len(roads)} road tiles; seams {index['seams']['equal']} equal, "
