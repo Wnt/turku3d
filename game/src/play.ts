@@ -458,7 +458,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     enterVehicle: id => { enterVehicle(id); snapChase = true; },
     spawn, car: world.car, startAt: world.startAt, cityStart: world.cityStart,
     // A prepared release owns its bounds; readiness needs the actual start support and its published collision cells.
-    startStreamed: (x, z) => streamer.missingNear(x, z, START_STREAM_M).length === 0 && (!coarse
+    // Never beyond the radius the streamer loads: a world with cells out there (a location of the world pipeline)
+    // would wait for them for the whole START_STREAM_MS at every start.
+    startStreamed: (x, z) => streamer.missingNear(x, z, Math.min(START_STREAM_M, streamer.radius)).length === 0 && (!coarse
       || coarse.streetsAt(x, z)),
     view: () => ({ mode, drivenId, feet, cameraYaw: orbit.yaw }), leaveCar: () => leaveCar(null),
     placed: (at, yaw) => { feet.set(at.x, at.y, at.z); desiredVelocity.set(0, 0); orbit.yaw = yaw; },
@@ -516,7 +518,10 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   // the room's slot positions only number the players). This pose only marks a start as fresh and is where the menu
   // preloads; SaveGameController resolves the start itself (the page's for the first placement, then the city's).
   const ticket = hot ? null : takeTicket(sessionStore(), CITY.name, Date.now());
-  const solo = !hot && !ticket && soloSession(location);
+  // A location of the world pipeline (?world=NAME) plays alone and at once, like a solo session: the room's server
+  // places its players at the old city's start, which a location does not contain. Multiplayer returns when the
+  // server knows locations (the client side stays as it is: one room per location).
+  const solo = !hot && !ticket && (soloSession(location) || !!params.world);
   const multiplayerStartState = prepareMultiplayer(spawn, kept?.socket, !!ticket, coarse?.sessionScope, solo);
   const { client, ready: preparedMultiplayer } = multiplayerStartState;
   multiplayer = client;

@@ -83,19 +83,51 @@ try {
     // The start menu, as scene-capture.mjs passes it: New game, then wait for the session.
     await page.waitForFunction(() => window.__game.state().startScreen !== undefined || window.__game.state().loading === false, null, { timeout: 30000 }).catch(() => {});
     if (await page.evaluate(() => window.__game.state().startScreen)) { await page.getByText('New game', { exact: true }).click(); report.notes.push('start menu: New game'); }
-    await page.waitForFunction(() => { const s = window.__game.state(); return !s.startScreen && !s.loading; }, null, { timeout: 240000 });
+    // A new game opens with the story's intro pages once the player is placed: skip them, as a player may.
+    const playing = () => page.evaluate(() => { const s = window.__game.state(); return !s.startScreen && !s.loading; });
+    for (const began = Date.now(); !await playing();) {
+      if (Date.now() - began > 150000) throw new Error('the new game did not start within 150 s');
+      // With a save in this browser profile the menu asks once more; then the intro pages.
+      for (const label of ['Start a new game', 'Skip']) {
+        const button = page.getByText(label, { exact: true });
+        if (await button.isVisible().catch(() => false)) { await button.click(); report.notes.push(`${label} after ${Math.round((Date.now() - began) / 1000)} s`); }
+      }
+      await page.waitForTimeout(500);
+    }
     report.session = await page.evaluate(() => { const { startScreen, loading, paused, mode, inputSource, tilesSettled } = window.__game.state(); return { startScreen, loading, paused, mode, inputSource, tilesSettled }; });
     await page.waitForTimeout(3000);
     const a = await state();
     await still('play-1-start');
-    await hold('KeyW', 3000);
+    await hold('KeyW', 2500);
     const b = await state();
     await still('play-2-walked');
+    // Walk to the car with the keys whose direction (relative to the camera) points at it, then get in.
+    const toCar = () => page.evaluate(() => {
+      const s = window.__game.state(), car = (window.__game.physics?.latest?.vehicles ?? [])[0];
+      // On foot the camera stands behind the player: its ground direction to the feet is "forward".
+      return car ? { dx: car.pos.x - s.feet[0], dz: car.pos.z - s.feet[2], fx: s.feet[0] - s.camera.pos[0], fz: s.feet[2] - s.camera.pos[2] } : null;
+    });
+    const combos = { KeyW: [0, 1], KeyS: [0, -1], KeyD: [1, 0], KeyA: [-1, 0], 'KeyW+KeyD': [1, 1], 'KeyW+KeyA': [-1, 1], 'KeyS+KeyD': [1, -1], 'KeyS+KeyA': [-1, -1] };
+    for (let step = 0; step < 40; step++) {
+      const t = await toCar();
+      if (!t || Math.hypot(t.dx, t.dz) < 2.6) break;
+      const f = Math.hypot(t.fx, t.fz) || 1, forward = [t.fx / f, t.fz / f], right = [-forward[1], forward[0]], n = Math.hypot(t.dx, t.dz);
+      let best = 'KeyW', score = -Infinity;
+      for (const [keys, [r, f]] of Object.entries(combos)) {
+        const x = right[0] * r + forward[0] * f, z = right[1] * r + forward[1] * f, dot = (x * t.dx + z * t.dz) / (Math.hypot(x, z) * n);
+        if (dot > score) { score = dot; best = keys; }
+      }
+      const keys = best.split('+');
+      for (const key of keys) await page.keyboard.down(key);
+      await page.waitForTimeout(250);
+      for (const key of keys) await page.keyboard.up(key);
+    }
+    report.carDistance = await toCar().then(t => t && Math.hypot(t.dx, t.dz));
     await page.keyboard.press('KeyF');
     await page.waitForTimeout(4000);
     const c = await state();
     await still('play-3-in-car');
-    await hold('KeyW', 5000);
+    await hold('KeyW', 6000);
     const d = await state();
     await still('play-4-driving');
     await page.waitForTimeout(2500);
@@ -105,6 +137,7 @@ try {
     const dist = (p, q) => Math.hypot(p.feet[0] - q.feet[0], p.feet[2] - q.feet[2]);
     report.checks.onGround = Number.isFinite(a.feet?.[1]) && Math.abs(a.feet[1] - b.feet[1]) < 3;
     report.checks.walked = dist(a, b) > 3;
+    report.moved = { walked: dist(a, b), drove: dist(c, d) };
     report.checks.enteredCar = !!c.drivenId;
     report.checks.drove = !!d.drivenId && dist(c, d) > 8;
     report.checks.stayedInWorld = Number.isFinite(e.feet?.[1]) && e.feet[1] > a.feet[1] - 20;
