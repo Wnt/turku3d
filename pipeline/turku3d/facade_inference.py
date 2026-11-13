@@ -211,8 +211,8 @@ def reading_materials(observed):
 
 
 def building_material(attrs, record, observed, description=None):
-    """Owner evidence, unopposed reviewed wall readings, register/OSM cladding, then the
-    AI description's material.
+    """Owner evidence, unopposed reviewed wall readings, register/OSM cladding, the AI
+    description's material, then the register's pre-1940 timber table (``register_timber``).
 
     Register and OSM cladding are source data and outrank a description's material
     guess (the description itself is kept). An inferred family supplies unobserved
@@ -240,7 +240,11 @@ def building_material(attrs, record, observed, description=None):
             support=0.4,
             source="existing generated description",
         )
-    return None
+    # The register's pre-1940 facade material outside the inputs that carry it: timber, and low
+    # residential houses of "other material" inferred as timber (coarse.register_timber).
+    from turku3d.coarse.register_timber import timber
+
+    return timber(attrs)
 
 
 def finish_material(wall, family, own, record, description, key):
