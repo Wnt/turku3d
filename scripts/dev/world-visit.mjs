@@ -3,12 +3,14 @@
 // and leaves stills: what `w2-play` shows as evidence that a link works.
 //
 //   python3 ~/turku3d/tools/host-lease/session.py run mac NAME --kind func --window-size 1600,900 --load-timeout 300 -- \
-//     node scripts/dev/world-visit.mjs --url 'https://city.lab.madekivi.fi/?world=portsa' --out DIR [--mode look|play]
+//     node scripts/dev/world-visit.mjs --url 'https://city.lab.madekivi.fi/?world=portsa' --out DIR [--mode look|play|edge|page]
 //
 // look (default): the free camera (?world=NAME): waits for the location, takes a still, flies forward and turns with
 // the keys and the mouse a visitor uses, takes stills, and checks that the camera moved.
 // play: the game itself (?world=NAME&play=1): waits for the session, walks, enters the car, drives; stills and the
 // player's positions from window.__game.state().
+// edge: the game, then the car is put 45 m inside the east and the north edge of the location's collision and driven
+// straight at it for 12 s: where it stops, whether it stays on the ground, stills of what the edge looks like.
 // page: any page of the site (the start page, the old build): final address, text, links and a still (--wait SECONDS).
 // The browser is the leased one (BROWSER_CDP). Exit 0 when every check held; report.json lists them.
 import fs from 'node:fs';
@@ -106,6 +108,42 @@ try {
     }
     report.session = await page.evaluate(() => { const { startScreen, loading, paused, mode, inputSource, tilesSettled } = window.__game.state(); return { startScreen, loading, paused, mode, inputSource, tilesSettled }; });
     await page.waitForTimeout(3000);
+    if (mode === 'edge') {
+      const name = new URL(url).searchParams.get('world');
+      const cells = await page.evaluate(async name => Object.keys((await (await fetch(new URL(`world/locations/${name}.json`, location.href))).json()).collision ?? {}), name);
+      const ij = cells.map(id => id.split('_').slice(1).map(Number)), CELL = 62.5;
+      const east = (Math.max(...ij.map(c => c[0])) + 1) * CELL, north = Math.min(...ij.map(c => c[1])) * CELL;
+      const start = (await state()).feet;
+      await page.evaluate(() => window.__game.enterVehicle('player'));
+      report.edges = [];
+      // Forward is (-sin yaw, -cos yaw): east is yaw -90 degrees, north (towards -z) yaw 0.
+      for (const edge of [{ name: 'east', yaw: -Math.PI / 2, at: k => [east - 45, start[2] + k], out: p => p[0] - east },
+        { name: 'north', yaw: 0, at: k => [start[0] + k, north + 45], out: p => north - p[2] }]) {
+        let placed = null;
+        for (const k of Array.from({ length: 41 }, (_, n) => (n % 2 ? 1 : -1) * Math.ceil(n / 2) * 15)) {
+          const [x, z] = edge.at(k);
+          if (await page.evaluate(([x, z, yaw]) => window.__game.relocateVehicle(x, z, yaw), [x, z, edge.yaw])) { placed = [x, z]; break; }
+        }
+        if (!placed) { report.edges.push({ edge: edge.name, placed: null }); continue; }
+        await page.waitForTimeout(1500);
+        const before = await state();
+        await still(`edge-${edge.name}-1-before`);
+        const track = [];
+        await page.keyboard.down('KeyW');
+        for (let t = 0; t < 12; t++) { await page.waitForTimeout(1000); const s = await state(); track.push([Math.round(edge.out(s.feet) * 10) / 10, Math.round(s.feet[1] * 10) / 10]); }
+        await page.keyboard.up('KeyW');
+        await page.waitForTimeout(1500);
+        const after = await state();
+        await still(`edge-${edge.name}-2-at`);
+        // Metres beyond the edge of the collision (negative: inside), and height, each second of the drive.
+        report.edges.push({ edge: edge.name, placed, track, beyond: edge.out(after.feet), height: [before.feet[1], after.feet[1]] });
+      }
+      report.checks.placed = report.edges.every(e => e.placed);
+      report.checks.stoppedAtEdge = report.edges.every(e => e.placed && e.beyond < 4);
+      report.checks.reachedEdge = report.edges.every(e => e.placed && e.beyond > -12);
+      report.checks.stayedOnGround = report.edges.every(e => e.placed && Math.abs(e.height[1] - e.height[0]) < 15);
+      await finish(Object.values(report.checks).every(Boolean) ? 0 : 1);
+    }
     const a = await state();
     await still('play-1-start');
     await hold('KeyW', 2500);
