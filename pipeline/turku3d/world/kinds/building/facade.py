@@ -914,7 +914,114 @@ def _attached(soup, facade, wall, plan, doc, palette, wall_record, trim, templat
             metal = palette.key({"family": "metal", "colour": part.get("colour", "#3c3c3b")})
             w, h = part.get("w_m", 0.16), part.get("h_m", 0.16)
             mesh.box(local, "attached", metal, u - w / 2, v, u + w / 2, v + h, 0.0, 0.015)
+    _balconies(local, facade, wall, plan, palette, to_u)
     soup.place(local, facade)
+
+
+RAILING_FAMILY = {
+    "bars": "metal",
+    "glass": "metal",
+    "sheet": "metal",
+    "mesh": "metal",
+    "boards": "painted_wood",
+}
+
+
+def _balconies(local, facade, wall, plan, palette, to_u):
+    """Balconies: a slab at each of their storeys' floors with a railing round it. A french balcony is the railing
+    alone in front of its door; a recessed one is drawn as its front at the wall plane (the recess is not cut)."""
+    for part in wall.get("balconies", []):
+        kind = part.get("type", "cantilever")
+        u, w = to_u(part.get("u_m", facade.width / 2)), part.get("w_m", 3.0)
+        u0, u1 = max(0.0, u - w / 2), min(facade.width, u + w / 2)
+        if u1 - u0 < 0.3:
+            continue
+        flat = kind in ("french", "recessed")
+        depth = 0.1 if flat else max(0.4, part.get("depth_m", 1.4))
+        railing, slab = part.get("railing", {}), part.get("slab", {})
+        height, style = railing.get("height_m", 1.05), railing.get("kind", "bars")
+        rail = palette.key(
+            railing.get("material"),
+            fallback={
+                "family": RAILING_FAMILY.get(style, "concrete"),
+                "colour": railing.get("colour", "#8a8d8f"),
+            },
+        )
+        deck = palette.key(
+            slab.get("material"),
+            fallback={
+                "family": "concrete",
+                "colour": slab.get("colour", "#b9b8b2"),
+                "finish": "cast",
+            },
+        )
+        thickness = slab.get("thickness_m", 0.18)
+        if "storeys" in part:
+            floors = [plan.floors[i][0] for i in part["storeys"] if 0 <= i < len(plan.floors)]
+        elif "v_m" in part:
+            floors = [plan.datum + part["v_m"]]
+        else:
+            floors = [floor[0] for floor in plan.floors[1:]]
+        for floor in floors:
+            if kind != "french":
+                mesh.box(
+                    local, "attached", deck, u0, floor - thickness, u1, floor, 0.0, depth, back=True
+                )
+            if style == "bars":
+                # Top and bottom rails with upright bars; a long balcony keeps the count down with wider spacing.
+                for low, high in (
+                    (floor + height - 0.05, floor + height),
+                    (floor + 0.08, floor + 0.12),
+                ):
+                    mesh.box(
+                        local, "attached", rail, u0, low, u1, high, depth - 0.05, depth, back=True
+                    )
+                    if not flat:
+                        for x in (u0, u1 - 0.04):
+                            mesh.box(
+                                local, "attached", rail, x, low, x + 0.04, high, 0.0, depth - 0.05
+                            )
+                count = min(60, max(2, round((u1 - u0) / 0.13)))
+                for k in range(count + 1):
+                    x = u0 + (u1 - u0 - 0.02) * k / count
+                    mesh.box(
+                        local,
+                        "attached",
+                        rail,
+                        x,
+                        floor + 0.12,
+                        x + 0.02,
+                        floor + height - 0.05,
+                        depth - 0.035,
+                        depth - 0.015,
+                        back=True,
+                    )
+            else:
+                mesh.box(
+                    local,
+                    "attached",
+                    rail,
+                    u0,
+                    floor,
+                    u1,
+                    floor + height,
+                    depth - 0.05,
+                    depth,
+                    back=True,
+                )
+                if not flat:
+                    for x in (u0, u1 - 0.05):
+                        mesh.box(
+                            local,
+                            "attached",
+                            rail,
+                            x,
+                            floor,
+                            x + 0.05,
+                            floor + height,
+                            0.0,
+                            depth - 0.05,
+                        )
 
 
 def blocked_region(facade, neighbours: list):
