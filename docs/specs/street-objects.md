@@ -37,6 +37,10 @@ with shared readers and geometry in `pipeline/turku3d/world/objects/`.
 | `placement` | `register`, or `register+lidar` when the lidar moved the axis onto the measured post |
 | `measured.lidar` | `{offset, top, returns}` of the post found in the lidar |
 
+Plates hang in one column from the top of the post: those that face another way (`turn`) are clamped above the
+others (a crossing sign over the back of a give-way triangle), and only the two faces of a two-sided sign share a
+height, back to back. The lowest edge is `clear` (2.2 m) above the ground unless the lidar measured the post's top.
+
 Sign faces are drawn by `objects/signfaces.py` from the code: a planar partition of coloured polygons (vertex
 colours, family `sign`, params `{code, uv: "atlas", width, height, text?, blue?}`) that is the front of a 3 mm
 aluminium slab. A code with no drawing gets the generic face of its class (triangle, disc, blue square, plate) and

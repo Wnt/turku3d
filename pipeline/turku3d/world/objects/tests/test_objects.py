@@ -268,3 +268,16 @@ def test_fence_setting_is_old_town_only_among_pre_war_buildings():
     assert fence.setting(line, tree, old, np.array([np.nan, np.nan, np.nan]))[0] == "garden"
     assert fence.setting(shapely.LineString([(0, -5), (30, -5)]), tree, old, np.array([1905.0, 1911.0, 1975.0])) == ("old-town", 7.0)
     assert fence.setting(line, None, [], np.array([])) == ("garden", math.inf)
+
+
+def test_plates_facing_two_ways_stack_in_one_column_and_twins_share_a_height():
+    def heights(plates):
+        description = {"id": "signpost/t", "at": [23458500.0, 6704150.0, 10.0], "plates": plates, "facing": {"bearing": 0.0}}
+        out = signpost.SignPost().compile(description)
+        return {name: round(float(row[1]), 2) for item in out.instances for row, name in zip(np.asarray(item.transforms).reshape(-1, 7), item.ids)}
+
+    give_way = heights([{"code": "B5"}, {"code": "E1", "turn": 180}])
+    crossing, triangle = give_way["signpost/t#plate1"], give_way["signpost/t#plate0"]
+    assert crossing > triangle + 0.5 and triangle >= signpost.CLEAR - 0.01  # the crossing sign above the triangle
+    twins = heights([{"code": "E1"}, {"code": "E1", "turn": 180}])
+    assert twins["signpost/t#plate0"] == twins["signpost/t#plate1"]

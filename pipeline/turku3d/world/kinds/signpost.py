@@ -178,7 +178,17 @@ class SignPost:
             key = (plate["code"], plate.get("label", ""), text, bool(plate.get("blue")))
             if plate_face(*key) is not None:
                 stacks.setdefault(int(plate.get("turn", 0)) % 360, []).append((index, key))
-        tallest = max((sum(plate_face(*key).size[1] for _, key in stack) + GAP * (len(stack) - 1) for stack in stacks.values()), default=0.6)
+        # One column down the post: plates that face different ways are clamped above one another, the turned ones on
+        # top (the crossing sign over the back of the give-way triangle, as at the junctions photographed); only the
+        # two faces of a two-sided sign share a height, back to back.
+        slots: list[tuple[float, dict]] = []  # (plate height, {turn: (index, key)})
+        for turn in sorted(stacks, key=lambda turn: (turn == 0, turn)):
+            for index, key in stacks[turn]:
+                twin = next((held for _, held in slots if turn not in held and any(other == key for _, other in held.values())), None)
+                if twin is None:
+                    slots.append((plate_face(*key).size[1], twin := {}))
+                twin[turn] = (index, key)
+        tallest = sum(height for height, _ in slots) + GAP * (len(slots) - 1) if slots else 0.6
         top = float(support.get("height") or 0.0)
         if hosted or not 2.0 <= top <= 4.8 or top - 0.04 - tallest < 1.0:
             top = float(description.get("clear", CLEAR)) + tallest + 0.04
@@ -190,15 +200,14 @@ class SignPost:
             items.append(Instances(post_asset(top, radius), np.array([[0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0]]), ids=[f"{entity}#post"],
                                    behaviour=behaviour, collision={"shape": "cylinder", "size": [round(radius, 3), top]}, mass=mass))
         rows: dict[tuple, list] = {}
-        for turn, stack in sorted(stacks.items()):
-            yaw = yaw_of_bearing(bearing + turn)
-            out = np.array([math.sin(yaw), 0.0, math.cos(yaw)]) * (radius + STANDOFF)
-            y = top - 0.04
-            for index, key in stack:
-                height = plate_face(*key).size[1]
-                y -= height
+        y = top - 0.04
+        for height, held in slots:
+            y -= height
+            for turn, (index, key) in sorted(held.items()):
+                yaw = yaw_of_bearing(bearing + turn)
+                out = np.array([math.sin(yaw), 0.0, math.cos(yaw)]) * (radius + STANDOFF)
                 rows.setdefault(key, []).append(([out[0], y, out[2], yaw, 1.0, 1.0, 1.0], f"{entity}#plate{index}"))
-                y -= GAP
+            y -= GAP
         for key, placed in rows.items():
             width, height = plate_face(*key).size
             items.append(Instances(plate_asset(*key), np.round(np.array([row for row, _ in placed]), 4), ids=[name for _, name in placed],
