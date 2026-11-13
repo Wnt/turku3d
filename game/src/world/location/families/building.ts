@@ -3,5 +3,8 @@
 import { registerFamily } from '../materials';
 import { BUILDING_FAMILIES, buildingMaterial, type BuildingMaterialParams } from '../buildingMaterials';
 
-// For building entities only: street objects use some of the same names (metal, stone) with their own parameters.
-for (const family of BUILDING_FAMILIES) registerFamily(family, params => buildingMaterial(family, params as BuildingMaterialParams), 'building');
+// For buildings and quay walls (metre UVs along the face and up) only: street objects use some of the same names
+// (metal, stone) with their own parameters, and ground's granite is paving.
+for (const kind of ['building', 'wall']) {
+  for (const family of BUILDING_FAMILIES) registerFamily(family, params => buildingMaterial(family, params as BuildingMaterialParams), kind);
+}
