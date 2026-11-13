@@ -23,8 +23,10 @@ REGISTER = (
     # pavers in running bond, not half-metre slabs; "Maatiili" is clay brick.
     ('maatiili', {'family': 'paving', 'params': {'size_x': 0.1, 'size_y': 0.2, 'bond': 'running', 'tone': 0.7, 'joint_m': 0.004, 'stone': 'concrete', 'tint': '#ffc4b0'},
                   'color': (0.275, 0.154, 0.121), 'roughness': 0.86}),
-    ('betonilaatta', {'family': 'paving', 'params': {'size_x': 0.125, 'size_y': 0.2, 'bond': 'running', 'tone': 0.88, 'joint_m': 0.005, 'stone': 'concrete'},
-                      'color': (0.315, 0.307, 0.292), 'roughness': 0.86}),
+    # Concrete slabs: the photos of the centre's footways show pale 40 cm slabs in half bond (the old table drew
+    # small pavers here, which read as dark setts from a distance).
+    ('betonilaatta', {'family': 'paving', 'params': {'size_x': 0.4, 'size_y': 0.4, 'bond': 'running', 'tone': 0.88, 'joint_m': 0.006, 'stone': 'concrete'},
+                      'color': (0.343, 0.335, 0.319), 'roughness': 0.86}),
     ('betonikivi', {'family': 'paving', 'params': {'size_x': 0.1, 'size_y': 0.2, 'bond': 'running', 'tone': 0.72, 'joint_m': 0.004, 'stone': 'concrete', 'tint': '#ffccba'},
                     'color': (0.279, 0.171, 0.138), 'roughness': 0.86}),
     ('noppakivi', {'family': 'setts', 'params': {'size_x': 0.09, 'size_y': 0.09, 'tone': 0.5}, 'color': (0.171, 0.149, 0.135), 'roughness': 0.81}),
