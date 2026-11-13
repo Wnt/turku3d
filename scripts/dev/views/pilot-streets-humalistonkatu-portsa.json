@@ -1,0 +1,40 @@
+{
+  "schema": "turku-capture-views/1",
+  "scene": null,
+  "note": "Along-street views of the first two W2 locations, Humalistonkatu and Portsa: four views of scripts/dev/views/pilot-streets.json, with the same cameras, photos and settings, judged as a set of their own (history ~/turku3d/loops/judge/pilot-streets-humalistonkatu-portsa.jsonl). Its first row is the frozen city's scores for these views, taken from the 16-view baseline run.",
+  "references": "qa/views/views.jsonl",
+  "quality": "medium",
+  "time": "2026-06-15T14:00:00+03:00",
+  "weather": "clear",
+  "viewport": [
+    960,
+    720
+  ],
+  "renderScale": 1,
+  "views": [
+    {
+      "id": "humalistonkatu-street-01",
+      "reference": "humalistonkatu_street_01",
+      "group": "humalistonkatu",
+      "aim": "street"
+    },
+    {
+      "id": "humalistonkatu-street-02",
+      "reference": "humalistonkatu_street_02",
+      "group": "humalistonkatu",
+      "aim": "street"
+    },
+    {
+      "id": "portsa-street-01",
+      "reference": "portsa_street_01",
+      "group": "portsa",
+      "aim": "street"
+    },
+    {
+      "id": "portsa-street-02",
+      "reference": "portsa_street_02",
+      "group": "portsa",
+      "aim": "street"
+    }
+  ]
+}
