@@ -36,6 +36,8 @@ VISIBLE_SHARE = 0.004  # of a view's pixels, for a building to count as visible 
 # Tiers by rule, from what the street sees of a building (prepare.street_presence):
 READ_AREA_M2 = 40.0  # less facade than this in sight: not read, the building stays at the automatic tier
 VIEW_SHARE = 0.02  # a building filling this much of an asked view is read however small its street front
+# A second look is a whole second reading (0.5 to 1.3 USD notional): one or two lost openings do not pay for it.
+SECOND_LOOK_FROM = 3
 REVIEW_FRONTAGE_M = 8.0  # a street frontage at least this long is reviewed against its drawing after the reading
 
 
@@ -322,7 +324,7 @@ def main(argv=None) -> int:
             line["error"] = str(error)[:300]
         else:
             first = finish(record, reading, meta, packet, root)
-            if first.get("dropped_reader") and not a.no_second_look:
+            if (first.get("dropped_reader") or 0) >= SECOND_LOOK_FROM and not a.no_second_look:
                 reading, meta, first = second_look(record, packet, root, reading, meta, first, a.effort)
             (packet / "reading.json").write_text(json.dumps({"reading": reading, "meta": meta}, indent=1,
                                                             ensure_ascii=False))
