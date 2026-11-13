@@ -89,7 +89,9 @@ class Store:
 
     # ---------------------------------------------------------------- location manifests
     def location_path(self, name: str) -> Path:
-        return self.root / "locations" / f"{name}.json"
+        """`locations/NAME.json`; a region's build unit `REGION/UNIT` is `units/REGION/UNIT.json`, a manifest the
+        lab does not list (docs/design/world-regions.md)."""
+        return self.root / ("units" if "/" in name else "locations") / f"{name}.json"
 
     def location(self, name: str) -> dict | None:
         path = self.location_path(name)
@@ -101,7 +103,7 @@ class Store:
     def builds_running(self) -> list[dict]:
         """The markers of builds of this store that still run (a marker of this machine whose process is gone is not one)."""
         running = []
-        for path in sorted((self.root / "building").glob("*.json")):
+        for path in sorted((self.root / "building").rglob("*.json")):
             marker = json.loads(path.read_text())
             if marker.get("host") == socket.gethostname():
                 try:
@@ -130,10 +132,15 @@ class Store:
         write_atomic(self.location_path(manifest["name"]), json.dumps(manifest, separators=(",", ":")).encode())
 
     def referenced(self) -> set[str]:
-        """Object urls that any location manifest of this store draws."""
+        """Object urls that any location manifest of this store draws (a region's rows are its units' manifests)."""
         urls: set[str] = set()
-        for path in (self.root / "locations").glob("*.json"):
+        for path in [*(self.root / "locations").glob("*.json"), *(self.root / "units").glob("*/*.json")]:
             manifest = json.loads(path.read_bytes())
+            if "entities" not in manifest:  # a region index or a region's plan: its chunks repeat unit rows
+                urls.update(chunk["url"] for chunk in manifest.get("chunks", {}).values())
+                urls.update(cell["url"] for cell in manifest.get("collision", {}).values())
+                urls.update(tile["url"] for tile in manifest.get("roads", {}).values())
+                continue
             urls.update(cell["url"] for cell in manifest.get("collision", {}).values())
             urls.update(tile["url"] for tile in manifest.get("roads", {}).values())
             for row in manifest["entities"]:

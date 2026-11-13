@@ -185,6 +185,21 @@ def main() -> None:
     describe = commands.add_parser("describe", help="print the effective description of an entity of a built location")
     describe.add_argument("id")
     commands.add_parser("gc", help="delete objects that no location manifest of this store references")
+    region = commands.add_parser("region", help="one continuous world in 500 m units (docs/design/world-regions.md)")
+    region.add_argument("action", choices=("plan", "build", "unit", "assemble"),
+                        help="plan: add a ring to the plan and list its units; build: plan, build the units not built yet "
+                             "(or --rebuild), assemble; unit: build one unit (what build runs per process); assemble: "
+                             "write the region index and chunk objects from the built units")
+    region.add_argument("name")
+    region.add_argument("unit", nargs="?", help="unit id u_I_J (action unit)")
+    region.add_argument("--at", metavar="E,N", help="the region's centre (first ring)")
+    region.add_argument("--radius", type=float, help="the ring: units whose square meets this circle around the centre")
+    region.add_argument("--with-area", action="append", default=[], metavar="AREA", help="also the units of a pilot area's query")
+    region.add_argument("--units", help="also these units, comma separated u_I_J")
+    region.add_argument("--only", help="build only these planned units, comma separated")
+    region.add_argument("--rebuild", action="store_true", help="build planned units that are built already too")
+    region.add_argument("--parallel", type=int, default=3, help="units built at once (each its own process)")
+    region.add_argument("--margin", type=float, default=62.5, help="metres discovered around a unit's square")
     args = parser.parse_args()
     store = Store()
     if args.command == "build":
@@ -208,6 +223,30 @@ def main() -> None:
                 raise SystemExit(f"no location {args.location} in {store.root}")
             manifest["roads"] = location_roads(store, manifest["entities"], Sources())
             store.put_location(manifest)
+    elif args.command == "region":
+        from . import region as regions
+
+        if args.action == "unit":
+            regions.build_unit(store, args.name, args.unit, args.margin)
+            return
+        if args.action == "assemble":
+            regions.assemble(store, args.name)
+            return
+        at = tuple(float(v) for v in args.at.split(",")) if args.at else None
+        plan = regions.extend(store, args.name, at, args.radius, args.with_area, args.units.split(",") if args.units else None)
+        units = regions.all_units(plan)
+        if args.only:
+            units = [u for u in units if u in args.only.split(",")]
+        todo = [u for u in units if args.rebuild or store.location(f"{args.name}/{u}") is None]
+        print(f"region {args.name}: centre {plan['centre']}, {len(units)} units planned, {len(todo)} to build: {' '.join(todo)}")
+        if args.action == "plan":
+            return
+        results = regions.build_units(store, args.name, todo, args.parallel, args.margin)
+        failed = [r["unit"] for r in results if r["exit"]]
+        if failed:
+            print(f"region {args.name}: units failed: {' '.join(failed)} (logs in $TURKU3D_WORK/region/{args.name}/)")
+        regions.assemble(store, args.name)
+        raise SystemExit(1 if failed else 0)
     elif args.command == "watch":
         watch(args.location, store)
     elif args.command == "warm":

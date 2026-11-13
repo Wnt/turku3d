@@ -21,24 +21,27 @@ SHAPES = ("box", "capsule", "cylinder")
 
 @dataclass(frozen=True)
 class Area:
-    """A location query: a circle in EPSG:3877."""
+    """A location query in EPSG:3877: a circle, or with `shape="square"` the axis-aligned square of half-side
+    `radius` (a region's build unit, docs/design/world-regions.md)."""
 
     e: float
     n: float
     radius: float
+    shape: str = "circle"
 
     def bbox(self, margin: float = 0.0) -> tuple[float, float, float, float]:
         r = self.radius + margin
         return self.e - r, self.n - r, self.e + r, self.n + r
 
     def grown(self, radius: float) -> Area:
-        return Area(self.e, self.n, radius)
+        return Area(self.e, self.n, radius, self.shape)
 
     def box_distance(self, box: tuple[float, float, float, float]) -> float:
-        """Distance from the centre to an (e0, n0, e1, n1) box; 0 inside it."""
+        """Distance from the centre to an (e0, n0, e1, n1) box, 0 inside it; for a square the larger of the two
+        axis distances, so `box_distance(box) <= radius` exactly when the box meets the square."""
         dx = max(box[0] - self.e, 0.0, self.e - box[2])
         dy = max(box[1] - self.n, 0.0, self.n - box[3])
-        return math.hypot(dx, dy)
+        return max(dx, dy) if self.shape == "square" else math.hypot(dx, dy)
 
     def touches(self, box: tuple[float, float, float, float]) -> bool:
         return self.box_distance(box) <= self.radius
