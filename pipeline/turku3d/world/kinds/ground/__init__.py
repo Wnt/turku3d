@@ -32,10 +32,11 @@ CENTRE_LINED_WHEN_LANES_TAGGED = ('residential', 'unclassified')
 CROSSING_WIDTH = 4.0
 JUNCTION_CLEAR = 10.0   # lane lines stop this far from where roads meet
 DASH, GAP = 3.0, 5.0    # centre line in town
-AERIAL_STEP = 0.2       # orthophoto resolution the cover of unmapped land is read at
 UNMAPPED_RANK = 1_000_000  # orthophoto outlines lie under everything mapped
 CYCLE_LANE = 1.5        # width of a cycle lane on the carriageway when its tag says less or nothing
 CYCLE_DASH, CYCLE_GAP = 1.0, 2.0
+PARKING_CLEAR = 0.4     # a parking bay's outline is painted where it lies this far inside the carriageway
+SOLID = 1e6             # dash length of an unbroken line
 SIDE_STREET = 9.0       # half the width a joining street's mouth takes from a lane
 CORRIDOR = 14.0         # a street's carriageway lies within this distance of its mapped centre line
 
@@ -45,6 +46,12 @@ def _tags(row) -> dict:
         return json.loads(row.tags) if isinstance(row.tags, str) else {}
     except ValueError:
         return {}
+
+
+def _text(row, name: str) -> str:
+    """A register attribute as text; a missing one is empty."""
+    value = getattr(row, name, None)
+    return value if isinstance(value, str) else ''
 
 
 def _lanes(row) -> int:
@@ -71,18 +78,18 @@ def _surfaces(box) -> list[tuple]:
     for row in streets.itertuples():
         if row.geometry.geom_type != 'Polygon':
             continue
-        use = (getattr(row, 'Katuosalaji', None) or '')
+        use = _text(row, 'Katuosalaji')
         level = 'low' if use.lower() in covers.LOW_USES else 'high'
         found.append((shapely.make_valid(shapely.force_2d(row.geometry)), {
             'key': f'street:{row.feature_key}', 'source': 'street', 'level': level, 'use': use,
-            'surface': getattr(row, 'Pintamateriaali', None) or '', 'rank': 0 if level == 'low' else 1}))
+            'surface': _text(row, 'Pintamateriaali'), 'rank': 0 if level == 'low' else 1}))
     greens = registers.layer('GIS:Viheralueet', box)
     for row in greens.itertuples():
         if row.geometry.geom_type != 'Polygon':
             continue
         found.append((shapely.make_valid(shapely.force_2d(row.geometry)), {
             'key': f'green:{row.feature_key}', 'source': 'green', 'level': 'high',
-            'use': getattr(row, 'Viheralueosalaji', None) or '', 'surface': getattr(row, 'Pintamateriaali', None) or '',
+            'use': _text(row, 'Viheralueosalaji'), 'surface': _text(row, 'Pintamateriaali'),
             'rank': 2}))
     mapped = osm.features(box)
     if mapped is not None:
@@ -155,13 +162,31 @@ def _paint(box) -> tuple[list, list]:
     return crossings, lanes
 
 
-def _cycle_lanes(box, surfaces) -> tuple[list, list]:
-    """Cycle lanes painted on the carriageway (OpenStreetMap `cycleway*=lane`): the strip along each kerb as a
-    surface of its own and its boundary line towards the traffic lane as a dashed line."""
+def _strips(box, surfaces) -> tuple[list, list]:
+    """What OpenStreetMap says is painted along the kerbs of a carriageway: kerbside parking (`amenity=parking` areas
+    on the street) as outlines, and cycle lanes (`cycleway*=lane`) as a strip of their own with a dashed line towards
+    the traffic lane. A cycle lane passes outside parked cars."""
     mapped = osm.features(box)
     low = [shape for shape, row in surfaces if row['level'] == 'low']
     if mapped is None or not low:
         return [], []
+    carriageway = shapely.unary_union(low)
+    bands, edges = [], []
+    parked = []
+    for row in mapped[mapped.geom_type.isin(('Polygon', 'MultiPolygon'))].itertuples():
+        tags = _tags(row)
+        if tags.get('amenity') != 'parking' or tags.get('parking') not in ('street_side', 'lane') or tags.get('access') == 'private':
+            continue
+        bay = shapely.make_valid(row.geometry)
+        if bay.intersection(carriageway).area < 0.8 * bay.area:
+            continue
+        parked.append(bay)
+        outline = bay.boundary.intersection(carriageway.buffer(-PARKING_CLEAR))
+        for part in shapely.get_parts(shapely.line_merge(outline) if outline.geom_type == 'MultiLineString' else outline):
+            if part.geom_type == 'LineString' and part.length > 1.5:
+                edges.append((part, 0.0, f'osm:{row.osm_type}/{row.osm_id}:bay', SOLID, 0.0))
+    if parked:
+        carriageway = carriageway.difference(shapely.unary_union(parked).buffer(0.05))
     lines = mapped[mapped.geom_type == 'LineString']
     roads = lines[lines.highway.isin(ROADS)]
     ends = {}
@@ -170,7 +195,6 @@ def _cycle_lanes(box, surfaces) -> tuple[list, list]:
             ends.setdefault((round(point[0], 2), round(point[1], 2)), set()).add(row.osm_id)
     junctions = shapely.unary_union([shapely.Point(p).buffer(JUNCTION_CLEAR) for p, ways in ends.items() if len(ways) > 1]
                                     or [shapely.Polygon()])
-    carriageway = shapely.unary_union(low)
 
     def sides_of(row) -> set:
         tags = _tags(row)
@@ -181,7 +205,6 @@ def _cycle_lanes(box, surfaces) -> tuple[list, list]:
     others = shapely.unary_union([row.geometry.buffer(SIDE_STREET, cap_style='flat') for row in roads.itertuples() if not sides_of(row)]
                                  or [shapely.Polygon()])
     junctions = shapely.unary_union([junctions, others])
-    bands, edges = [], []
     for row in roads.itertuples():
         tags = _tags(row)
         sides = sides_of(row)
@@ -218,16 +241,16 @@ class Ground:
         with sources.timed('street:surfaces'):
             surfaces = _surfaces(box)
             crossings, lanes = _paint(box)
-            bands, edges = _cycle_lanes(box, surfaces)
+            bands, edges = _strips(box, surfaces)
             surfaces += bands
             lanes += edges
         # Land nobody mapped: what the orthophoto shows, outside buildings (a roof's colour says nothing).
         mapped = osm.features(box)
         roofs = shapely.unary_union(list(mapped[mapped.building.notna() & mapped.geom_type.isin(('Polygon', 'MultiPolygon'))].geometry)) \
             if mapped is not None else None
-        for n, (shape, name) in enumerate(aerial.outlines(sources.ortho.image(box, AERIAL_STEP), roofs)):
+        for n, (shape, name) in enumerate(aerial.outlines(sources, box, roofs)):
             centre = shape.representative_point()
-            surfaces.append((shape, {'key': f'ortho:{name}:{round(centre.x)}_{round(centre.y)}', 'source': 'ortho', 'level': 'high',
+            surfaces.append((shape, {'key': f'ortho:{name}:{centre.x:.1f}_{centre.y:.1f}', 'source': 'ortho', 'level': 'high',
                                      'use': name, 'surface': '', 'rank': UNMAPPED_RANK + n}))
         with sources.timed('street:lidar'):
             window = lidar.Window(*box)

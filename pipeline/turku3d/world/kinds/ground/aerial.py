@@ -7,9 +7,16 @@ bright and nearly as neutral as asphalt. Everything else stays what the ground k
 """
 from __future__ import annotations
 
+import hashlib
+import os
+from pathlib import Path
+
 import numpy as np
 import shapely
 
+STEP = 0.2            # m: the orthophoto resolution the cover is read at
+TILE = 250.0          # m: the cover is classified and kept per square of this size
+RIM = 8.0             # m of orthophoto read around a square
 MIN_AREA = 8.0        # m2: smaller patches and holes are noise and take the surrounding class
 SMOOTH = 0.75         # m: gaussian sigma of each class mask
 GRAVEL_SMOOTH = 1.5   # m: gaussian sigma of the sunlit chromaticity
@@ -65,24 +72,55 @@ def classes(rgb: np.ndarray, valid: np.ndarray, step: float) -> dict[str, np.nda
     return {'grass': grass, 'gravel': gravel}
 
 
-def outlines(raster, without=None) -> list[tuple[shapely.Polygon, str]]:
-    """(polygon in the survey frame, cover name) of the lawns and gravel the orthophoto `raster` shows, outside the
-    shape `without`."""
+def _trace(raster, keep) -> dict[str, list]:
+    """Polygons by cover name of what `raster` shows inside the survey box `keep`."""
     from affine import Affine
     from rasterio.features import shapes
 
     step = raster.px_m
     transform = Affine(step, 0, raster.e0, 0, -step, raster.n1)
-    found = []
+    window = shapely.box(*keep)
+    found: dict[str, list] = {}
     for name, mask in classes(raster.rgb, raster.valid, step).items():
         mask = mask.astype(np.uint8)
+        parts = found.setdefault(name, [])
         for geometry, value in shapes(mask, mask=mask.astype(bool), transform=transform):
             if not value:
                 continue
-            area = shapely.make_valid(shapely.geometry.shape(geometry).simplify(step))
-            if without is not None:
-                area = area.difference(without)
-            for part in shapely.get_parts(area):
-                if part.geom_type == 'Polygon' and part.area >= MIN_AREA:
-                    found.append((part, name))
+            area = shapely.make_valid(shapely.geometry.shape(geometry).simplify(step)).intersection(window)
+            parts += [part for part in shapely.get_parts(area) if part.geom_type == 'Polygon' and part.area >= 1.0]
+    return found
+
+
+def _tile(sources, i: int, j: int) -> dict[str, list]:
+    """The outlines of one TILE-sized square of the city (south-west corner i, j in tiles), from the shared source
+    cache or classified now. The orthophoto is read with a rim, so the cleaning sees across the tile's edges."""
+    recipe = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:16]
+    path = sources.cache / 'ortho-cover' / recipe / f'{i}_{j}.wkb'
+    if path.exists():
+        shapes = shapely.get_parts(shapely.from_wkb(path.read_bytes()))
+        return {'grass': list(shapely.get_parts(shapes[0])), 'gravel': list(shapely.get_parts(shapes[1]))}
+    keep = (i * TILE, j * TILE, (i + 1) * TILE, (j + 1) * TILE)
+    raster = sources.ortho.image((keep[0] - RIM, keep[1] - RIM, keep[2] + RIM, keep[3] + RIM), STEP)
+    found = _trace(raster, keep)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f'.{path.name}.{os.getpid()}.tmp')
+    tmp.write_bytes(shapely.to_wkb(shapely.GeometryCollection([shapely.MultiPolygon(found['grass']), shapely.MultiPolygon(found['gravel'])])))
+    tmp.replace(path)
+    return found
+
+
+def outlines(sources, box, without=None) -> list[tuple[shapely.Polygon, str]]:
+    """(polygon in the survey frame, cover name) of the lawns and gravel the orthophoto shows over the survey box,
+    outside the shape `without`. A polygon ends at the edges of the cache's tiles."""
+    found = []
+    if without is not None:
+        shapely.prepare(without)
+    for i in range(int(np.floor(box[0] / TILE)), int(np.floor(box[2] / TILE)) + 1):
+        for j in range(int(np.floor(box[1] / TILE)), int(np.floor(box[3] / TILE)) + 1):
+            for name, parts in _tile(sources, i, j).items():
+                for part in parts:
+                    if without is not None and without.intersects(part):
+                        part = part.difference(without)
+                    found += [(piece, name) for piece in shapely.get_parts(part) if piece.geom_type == 'Polygon' and piece.area >= MIN_AREA]
     return found
