@@ -127,6 +127,24 @@ def dashes(line, start: float, dash: float, gap: float, low_area) -> list:
     return bars
 
 
+def areal(shape):
+    """The polygons of a shape as one geometry (an overlay of mixed collections has no answer)."""
+    if shape.geom_type in ('Polygon', 'MultiPolygon'):
+        return shape
+    return shapely.unary_union(polygons(shape) or [shapely.Polygon()])
+
+
+def remainder(shape, taken):
+    """`shape` without `taken`; where the overlay fails on a degenerate outline, both are first snapped to the
+    millimetre lattice."""
+    shape, taken = areal(shape), areal(taken)
+    try:
+        return shape.difference(taken)
+    except shapely.errors.GEOSException:
+        shape, taken = (areal(shapely.make_valid(shapely.set_precision(g, 0.001))) for g in (shape, taken))
+        return shape.difference(taken)
+
+
 def partition(description: dict, e0: float, n1: float):
     """The cell as disjoint pieces [(shape, cover, role)], the carriageway area and the kerb lines."""
     cell = shapely.box(0, 0, CELL, CELL)
@@ -156,11 +174,11 @@ def partition(description: dict, e0: float, n1: float):
 
     pieces, taken = [], shapely.Polygon()
     for shape, cover, role in layers:
-        rest = shapely.set_precision(shape.intersection(cell).difference(taken), 0.001)
+        rest = shapely.set_precision(remainder(shape.intersection(cell), taken), 0.001)
         for part in polygons(rest):
             pieces.append((part, cover, role))
         if not rest.is_empty:
-            taken = shapely.unary_union([taken, rest])
+            taken = areal(shapely.unary_union([taken, areal(rest)]))
     for part in polygons(shapely.set_precision(cell.difference(taken), 0.001)):
         pieces.append((part, description['base'], 'high'))
     return pieces, low_area, kerb_lines

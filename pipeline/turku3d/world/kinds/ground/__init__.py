@@ -16,7 +16,7 @@ import shapely
 from ...api import Area, Output, Stub, envelope
 from ...frame import CELL, cell_at, cell_box_en, cell_key
 from ...street import lidar, osm, registers
-from . import covers
+from . import aerial, covers
 from .mesh import compile_cell
 
 VERSION = 1
@@ -32,6 +32,8 @@ CENTRE_LINED_WHEN_LANES_TAGGED = ('residential', 'unclassified')
 CROSSING_WIDTH = 4.0
 JUNCTION_CLEAR = 10.0   # lane lines stop this far from where roads meet
 DASH, GAP = 3.0, 5.0    # centre line in town
+AERIAL_STEP = 0.2       # orthophoto resolution the cover of unmapped land is read at
+UNMAPPED_RANK = 1_000_000  # orthophoto outlines lie under everything mapped
 CYCLE_LANE = 1.5        # width of a cycle lane on the carriageway when its tag says less or nothing
 CYCLE_DASH, CYCLE_GAP = 1.0, 2.0
 CORRIDOR = 14.0         # a street's carriageway lies within this distance of its mapped centre line
@@ -209,6 +211,14 @@ class Ground:
             bands, edges = _cycle_lanes(box, surfaces)
             surfaces += bands
             lanes += edges
+        # Land nobody mapped: what the orthophoto shows, outside buildings (a roof's colour says nothing).
+        mapped = osm.features(box)
+        roofs = shapely.unary_union(list(mapped[mapped.building.notna() & mapped.geom_type.isin(('Polygon', 'MultiPolygon'))].geometry)) \
+            if mapped is not None else None
+        for n, (shape, name) in enumerate(aerial.outlines(sources.ortho.image(box, AERIAL_STEP), roofs)):
+            centre = shape.representative_point()
+            surfaces.append((shape, {'key': f'ortho:{name}:{round(centre.x)}_{round(centre.y)}', 'source': 'ortho', 'level': 'high',
+                                     'use': name, 'surface': '', 'rank': UNMAPPED_RANK + n}))
         with sources.timed('street:lidar'):
             window = lidar.Window(*box)
         tree = shapely.STRtree([shape for shape, _ in surfaces])
@@ -243,7 +253,8 @@ class Ground:
                 refs = [{'source': 'turku-lidar:pistepilvi', 'key': cell_key(i, j)},
                         {'source': 'turku-wfs:GIS:Katualueet', 'key': cell_key(i, j)},
                         {'source': 'turku-wfs:GIS:Viheralueet', 'key': cell_key(i, j)},
-                        {'source': 'osm', 'key': cell_key(i, j)}]
+                        {'source': 'osm', 'key': cell_key(i, j)},
+                        {'source': 'turku-ortho', 'key': cell_key(i, j)}]
                 stubs.append(Stub(f'ground/{cell_key(i, j)}', cell, refs, facts))
         return stubs
 
@@ -257,7 +268,7 @@ class Ground:
             key = row['key'].split('#')[0]
             if key in chosen:
                 cover = chosen[key]
-            elif row['source'] == 'osm':
+            elif row['source'] in ('osm', 'ortho'):
                 cover = covers.NAMED[row['use']]
             else:
                 cover = covers.of_register(row['surface'], row['level'], row['source'] == 'green')

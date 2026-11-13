@@ -38,7 +38,7 @@ def test_cell_is_one_height_field_with_kerb_solids():
     output = compile_cell(street_cell())
     skin = [part for part in output.parts if part.lod == 0 and part.name != 'kerbs']
     names = {part.name for part in skin}
-    assert {'asphalt-carriageway', 'paving', 'road_paint-carriageway', 'gravel'} <= names
+    assert {'asphalt-carriageway', 'paving', 'road_paint-carriageway', 'asphalt'} <= names
 
     # The skin covers the cell exactly once: its plan area is the cell's, and no triangle faces down.
     area = 0.0

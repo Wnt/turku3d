@@ -77,8 +77,8 @@ NAMED = {
     'asphalt-yard': {'family': 'asphalt', 'params': {'tone': 0.55, 'grain': 0.5}, 'color': (0.146, 0.143, 0.138), 'roughness': 0.88},
     'pavers-yard': {'family': 'paving', 'params': {'size_x': 0.14, 'size_y': 0.21, 'bond': 'running', 'tone': 0.5, 'joint_m': 0.005, 'stone': 'concrete'}, 'color': (0.237, 0.231, 0.219), 'roughness': 0.86},
     'setts-yard': {'family': 'setts', 'params': {'size_x': 0.09, 'size_y': 0.09, 'tone': 0.5}, 'color': (0.171, 0.149, 0.135), 'roughness': 0.81},
-    # Land nobody mapped: the worn mineral ground of a yard.
-    'unmapped': {'family': 'gravel', 'params': {'grade': 'fine', 'packed': 1.0}, 'color': (0.204, 0.18, 0.142), 'roughness': 0.95},
+    # Land nobody mapped and the orthophoto shows neither green nor gravel: a yard's asphalt (the old generator's choice).
+    'unmapped': {'family': 'asphalt', 'params': {'tone': 0.55, 'grain': 0.5}, 'color': (0.146, 0.143, 0.138), 'roughness': 0.88},
     'kerb': {'family': 'kerbstone', 'params': {}, 'color': (0.273, 0.252, 0.241), 'roughness': 0.82},
     'paint': {'family': 'road_paint', 'params': {'colour': '#eeeeea', 'wear': 0.35}, 'color': (0.729, 0.729, 0.681), 'roughness': 0.63},
 }
