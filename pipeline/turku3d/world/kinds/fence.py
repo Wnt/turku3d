@@ -21,29 +21,35 @@ import numpy as np
 from ..api import Area, Instances, Output, Stub
 from ..frame import to_engine
 from ..objects import registers
-from ..objects.common import GALVANISED, GRANITE, describe, interaction, painted_wood, yaw_of_run, unique
+from ..objects.common import GALVANISED, GRANITE, describe, interaction, painted_metal, painted_wood, yaw_of_run, unique
 from ..objects.mesh import Mesh
 
 VERSION = 1
-PANEL = {"board": 2.4, "picket": 2.4, "stone-wall": 2.0, "railing": 2.0}
+PANEL = {"board": 2.4, "picket": 2.4, "iron": 2.0, "stone-wall": 2.0, "railing": 2.0}
 LIMITS = {"wood-fence": (0.7, 2.6), "stone-fence": (0.3, 3.0), "railing": (0.8, 1.3)}
 DEFAULT_HEIGHT = {"wood-fence": 1.6, "stone-fence": 0.9, "railing": 1.0}
 PRESENT = {"wood-fence": 0.3, "stone-fence": 0.2, "railing": 0.1}  # share of the line the lidar must see standing
-DEFAULT_WOOD = "#8a8074"
 SCAN_DATE = "2021-04-17"
 BURY = 0.2  # m a panel reaches below its base, so stepped panels leave no gap on a slope
+OPEN = 4.0  # lidar returns per metre of fence under which it is open bars, not boards (boards: 20 to 35, bars: about 1)
+IRON = "#1b1c1e"
+# Fence paints of the wooden-house blocks. The scan's colours come from above (shadow, ground beside the fence) and
+# only tell a warm paint from the rest, so a board fence is cream, the commonest paint, unless they are clearly warm.
+PAINTS = {"cream": "#d8d0b6", "ochre": "#c9a35a", "red": "#8c3b2c", "brown": "#6b4a36"}
+DEFAULT_WOOD = PAINTS["cream"]
 
 
 def _paint(rgb: np.ndarray | None) -> tuple[str, bool]:
-    """A paint colour from the scan's own colours of the fence returns, when they have a hue at all."""
+    """A paint of the palette from the scan's own colours of the fence returns, when they are clearly warm."""
     if rgb is None or len(rgb) < 12:
         return DEFAULT_WOOD, False
     r, g, b = (float(v) / 255 for v in np.median(rgb, axis=0))
     h, s, v = colorsys.rgb_to_hsv(r, g, b)
-    if s < 0.18 or v < 0.15:
+    if s < 0.28 or v < 0.25 or not (h <= 0.14 or h >= 0.95):
         return DEFAULT_WOOD, False
-    r, g, b = colorsys.hsv_to_rgb(h, min(s * 1.15, 0.8), min(max(v * 1.25, 0.35), 0.8))
-    return f"#{round(r * 255):02x}{round(g * 255):02x}{round(b * 255):02x}", True
+    if h >= 0.08:
+        return PAINTS["ochre"], True
+    return (PAINTS["red"] if v >= 0.45 else PAINTS["brown"]), True
 
 
 def _joints(line: np.ndarray, panel: float) -> np.ndarray:
@@ -69,6 +75,21 @@ def board_panel(height: float, colour: str) -> Mesh:
         mesh.box("boards", wood, [x, (height - BURY) / 2, 0.011], [board, height + BURY, 0.022])
     for y in (0.3, height - 0.25):
         mesh.box("rails", wood, [0, y, -0.035], [length, 0.095, 0.045])
+    mesh.box("cap", wood, [0, height + 0.014, -0.012], [length, 0.028, 0.12])
+    return mesh
+
+
+def iron_panel(height: float) -> Mesh:
+    """An open steel fence, 2 m long: square bars between a top and a bottom rail, painted black."""
+    steel = painted_metal(IRON)
+    mesh = Mesh()
+    length, pitch, bar = PANEL["iron"], 0.11, 0.014
+    count = round(length / pitch)
+    for k in range(count):
+        x = -length / 2 + pitch * (k + 0.5)
+        mesh.box("bars", steel, [x, (0.12 + height) / 2, 0], [bar, height - 0.12, bar])
+    for y in (0.14, height - 0.06):
+        mesh.box("rails", steel, [0, y, 0], [length, 0.03, 0.03])
     return mesh
 
 
@@ -106,6 +127,8 @@ def post(family: str, height: float, colour: str) -> Mesh:
     mesh = Mesh()
     if family == "railing":
         mesh.tube("post", GALVANISED, [[0, -BURY, 0], [0, height + 0.02, 0]], 0.024, sides=8)
+    elif family == "iron":
+        mesh.box("post", painted_metal(IRON), [0, (height + 0.04 - BURY) / 2, 0], [0.05, height + 0.04 + BURY, 0.05])
     else:
         mesh.box("post", painted_wood(colour), [0, (height + 0.08 - BURY) / 2, -0.06], [0.1, height + 0.08 + BURY, 0.1])
     return mesh
@@ -147,6 +170,23 @@ class Fence:
                 guessed.append("height")
             family = {"stone-fence": "stone-wall", "railing": "railing"}.get(kind) or ("board" if height >= 1.25 else "picket")
             guessed.append("family")
+            near = np.zeros((0, 7))
+            if kind == "wood-fence":
+                import shapely
+
+                points = lidar.box(box[0] - 0.4, box[1] - 0.4, box[2] + 0.4, box[3] + 0.4, rgb=True)
+                points = points[(points[:, 2] > 0.3) & (points[:, 2] < 3.0) & (points[:, 3] != 5)]
+                path = shapely.LineString(line)
+                near = points[shapely.distance(path, shapely.points(points[:, :2])) <= 0.3] if len(points) else near
+                density = len(near) / max(path.length, 0.5)
+                if density < OPEN and path.length >= 4.0:
+                    # Boards return the scan all along; a fence it barely sees is open bars. What stands higher over
+                    # such a line is the planting behind it, so its height is read from the low returns only.
+                    family = "iron"
+                    low_returns = near[near[:, 2] < 1.6, 2]
+                    height = float(np.clip(np.percentile(low_returns, 70), 0.8, 1.3)) if len(low_returns) >= 5 else 1.0
+                    if len(low_returns) < 5:
+                        guessed.append("height")
             joints = _joints(line, PANEL[family])
             ground = np.array([registers.ground_height(sources, e, n) for e, n in joints])
             if not np.isfinite(ground).all():
@@ -160,17 +200,14 @@ class Fence:
                 "register": {"code": row["code"], "surveyed": row["surveyed"]},
             }
             if kind == "wood-fence":
-                points = lidar.box(box[0] - 0.4, box[1] - 0.4, box[2] + 0.4, box[3] + 0.4, rgb=True)
-                near = points[(points[:, 2] > 0.5) & (points[:, 2] < height + 0.2)]
-                if len(near):
-                    import shapely
-
-                    distance = shapely.distance(shapely.LineString(line), shapely.points(near[:, :2]))
-                    near = near[distance <= 0.3]
-                colour, hued = _paint(near[:, 4:7] if len(near) else None)
-                facts["colour"] = colour
+                facts["measured"]["lidar"]["returns_per_m"] = round(float(density), 1)
+                if family == "iron":
+                    facts["colour"] = IRON
+                else:
+                    body = near[(near[:, 2] > 0.5) & (near[:, 2] < height + 0.2)]
+                    facts["colour"], _ = _paint(body[:, 4:7] if len(body) else None)
+                    facts["measured"]["lidar"]["rgb"] = [int(v) for v in np.median(body[:, 4:7], axis=0)] if len(body) else None
                 guessed.append("colour")
-                facts["measured"]["lidar"]["rgb"] = [int(v) for v in np.median(near[:, 4:7], axis=0)] if len(near) else None
             facts["guessed"] = guessed
             facts["break"] = "panel"
             behaviour = "fixed" if family == "stone-wall" else "breakable"
@@ -227,7 +264,7 @@ class Fence:
         last = points[-1]
         posts.append([last[0], last[1], last[2], posts[-1][3], 1.0, 1.0, 1.0])
         asset = {"board": lambda: board_panel(height, colour), "picket": lambda: picket_panel(height, colour),
-                 "stone-wall": lambda: wall_panel(height), "railing": lambda: railing_panel(height)}.get(family, lambda: board_panel(height, colour))()
+                 "iron": lambda: iron_panel(height), "stone-wall": lambda: wall_panel(height), "railing": lambda: railing_panel(height)}.get(family, lambda: board_panel(height, colour))()
         items = [Instances(asset.parts(), np.round(np.array(panels), 4), ids=[f"{entity}#p{k}" for k in range(len(panels))],
                            behaviour=block.get("behaviour"), collision=block.get("collision"))]
         if family != "stone-wall":
