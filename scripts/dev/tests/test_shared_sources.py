@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -34,6 +35,24 @@ class OverlayTests(unittest.TestCase):
             self.assertFalse((a / 'raw/wfs/building.json').exists())
             self.assertEqual((base / 'raw/laz/old.laz').read_bytes(), b'old')
             self.assertEqual(module.publish(base, overlay, [first, second]), b)
+
+    def test_a_version_derived_from_a_version_keeps_the_base_catalog(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base, owned = root / 'versions/base', root / 'owned'
+            (base / 'raw/laz').mkdir(parents=True)
+            (base / 'raw/laz/old.laz').write_bytes(b'old')
+            catalog = '{"files": {"raw/laz/old.laz": {"bytes": 3}}, "version": "base"}\n'
+            (base / 'source-version.json').write_text(catalog)
+            source = owned / 'derived/walls/walls.json'
+            source.parent.mkdir(parents=True)
+            source.write_text('{}')
+            output = module.publish(base, root / 'overlay', [owned])
+            self.assertEqual((base / 'source-version.json').read_text(), catalog)
+            own = output / 'source-version.json'
+            self.assertFalse(own.is_symlink())
+            self.assertEqual(json.loads(own.read_text())['version'], output.name)
+            self.assertEqual((output / 'raw/laz/old.laz').read_bytes(), b'old')
 
     def test_description_store_is_content_versioned_at_the_data_root(self):
         with tempfile.TemporaryDirectory() as directory:
