@@ -362,6 +362,9 @@ def main(argv=None) -> int:
     ap.add_argument("--title", default="", help="colour --sheet: the sheet's heading")
     ap.add_argument("--light", action="store_true",
                     help="colour: measure the light (overcast 0..1) of every panorama the packets use")
+    ap.add_argument("--scatter", action="store_true",
+                    help="colour: how far each part's colour scatters between panoramas of one wall, overcast against "
+                         "sunny (packets under --out prepared with --layers; needs --parts TAG and --light done)")
     ap.add_argument("--layers", type=int, default=0, metavar="N",
                     help="views: every time layer of the panorama spots is a candidate; a wall gets its best view of "
                          "each visit, up to N (for ranking by weather and for scatter between visits)")
@@ -406,6 +409,16 @@ def main(argv=None) -> int:
         light = colour_light.of_root(root)
         print(json.dumps({"panoramas": len(light), "overcast_0.7_or_more": sum(v["overcast"] >= 0.7 for v in light.values()),
                           "file": str(root / "panorama-light.json")}), flush=True)
+        return 0
+    if a.command == "colour" and a.scatter:
+        from . import colour_parts
+
+        light = json.loads((root / "panorama-light.json").read_text())
+        report = [colour_parts.scatter(root, a.parts or colour_parts.TAG, {k: v["overcast"] for k, v in light.items()}, part)
+                  for part in ("wall", "plinth", "roof")]
+        (root / "scatter.json").write_text(json.dumps(report, indent=1))
+        for line in report:
+            print(json.dumps(line), flush=True)
         return 0
     if a.command == "colour" and (a.check or a.apply):
         from turku3d.world.store import data_root

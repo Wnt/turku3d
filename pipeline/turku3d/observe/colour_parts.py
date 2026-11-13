@@ -28,6 +28,7 @@ CLUSTER_DE = 9.0
 MIN_PART_PX = 250
 MIN_VISIBLE = 0.2  # a crop showing less of its wall than this measures nothing
 PLINTH_MAX_M = 1.6
+SHADE_AB = 6.0  # a second colour nearer than this in a*, b* and not lighter is the same paint in shade
 TAG = "m2f"
 
 
@@ -73,6 +74,32 @@ def _part(lab_pixels: np.ndarray, near: np.ndarray, centre: np.ndarray, of: int)
             "light_range": round(float(np.quantile(members[:, 0], 0.9) - np.quantile(members[:, 0], 0.1)), 1)}
 
 
+def eaves_in_picture(lab: np.ndarray, plain: np.ndarray, inside: np.ndarray, z: np.ndarray, eaves: float,
+                     ppm: float, reach: float = 1.2) -> tuple[float, float] | None:
+    """Where the wall's colour ends and where the roof's begins, in metres above the wall's foot: the lowest and
+    the highest strong change of the row colour within `reach` of the LoD2 eaves (between them the eaves board,
+    soffit and gutter). None when no row changes colour there (a hidden eaves, a wall and roof alike)."""
+    rows = np.flatnonzero((z >= eaves - reach) & (z <= eaves + reach))
+    if len(rows) < 8:
+        return None
+    colours, held = np.full((len(rows), 3), np.nan), np.zeros(len(rows), bool)
+    for k, r in enumerate(rows):
+        mask = plain[r] & inside
+        if mask.sum() >= 0.25 * inside.sum():
+            colours[k], held[k] = np.median(lab[r][mask], axis=0), True
+    band = max(2, round(0.25 * ppm))
+    steps = []
+    for k in range(band, len(rows) - band):
+        below, above = colours[k + 1:k + 1 + band][held[k + 1:k + 1 + band]], colours[k - band:k][held[k - band:k]]
+        if len(below) >= band // 2 and len(above) >= band // 2:  # rows run downwards: larger index is lower
+            steps.append((k, float(np.linalg.norm(np.median(below, axis=0) - np.median(above, axis=0)))))
+    strong = [k for k, d in steps if d >= 12.0]
+    if not strong:
+        return None
+    wall_top, roof_from = float(z[rows[max(strong)]]), float(z[rows[min(strong)]])
+    return wall_top + 0.15 - 0.5 * band / ppm, roof_from + 0.5 * band / ppm + 0.1
+
+
 def of_crop(picture: np.ndarray, labels: np.ndarray, crop: dict, wall: dict) -> dict:
     """Parts of one wall in one crop. Returns {'visible', 'in_front': {class: share}, 'parts': {name: {...}},
     'map': uint8 image of part indices (0 none, 1.. PARTS order, 255 in front)}."""
@@ -86,8 +113,16 @@ def of_crop(picture: np.ndarray, labels: np.ndarray, crop: dict, wall: dict) -> 
         else np.full(w, eaves)
     inside = (x >= crop["x0_m"] + 0.2) & (x <= crop["x1_m"] - 0.2)
     X, Z = np.meshgrid(x, z)
+    lab = colour.to_lab(picture.reshape(-1, 3)).reshape(h, w, 3)
+    roof_from = eaves + 0.35
+    if not gable:  # LoD2 eaves are a metre off on some houses: the picture says where the wall's colour ends
+        seen = eaves_in_picture(lab, labels == L["building"], inside, z, eaves, ppm)
+        if seen is not None:
+            eaves, roof_from = seen
+            edge = np.full(w, eaves)
     on_wall = inside[None, :] & (Z >= 0.0) & (Z <= edge[None, :] - 0.15)
-    out = {"visible": 0.0, "in_front": {}, "parts": {}, "gable": bool(gable), "map": np.zeros((h, w), np.uint8)}
+    out = {"visible": 0.0, "in_front": {}, "parts": {}, "gable": bool(gable), "map": np.zeros((h, w), np.uint8),
+           "eaves_m": round(float(eaves), 2)}
     area = int(on_wall.sum())
     if area < 4 * MIN_PART_PX:
         return out
@@ -98,7 +133,6 @@ def of_crop(picture: np.ndarray, labels: np.ndarray, crop: dict, wall: dict) -> 
     out["map"][on_wall & ~house] = 255
     if out["visible"] < MIN_VISIBLE:
         return out
-    lab = colour.to_lab(picture.reshape(-1, 3)).reshape(h, w, 3)
     plain = labels == L["building"]
     openings = (labels == L["window"]) | (labels == L["door"])
     ring = _grow(openings, max(2, round(0.14 * ppm))) & ~_grow(openings, 1) & plain & on_wall
@@ -143,6 +177,13 @@ def of_crop(picture: np.ndarray, labels: np.ndarray, crop: dict, wall: dict) -> 
         second = mode(lab[rest]) if rest.sum() >= 0.06 * body.sum() else None
         if second is None or second[1].sum() < 0.04 * body.sum() or np.linalg.norm(second[0] - centre) < 10.0:
             break
+        hue_apart = float(np.linalg.norm(second[0][1:] - centre[1:]))
+        if hue_apart < SHADE_AB and second[0][0] < centre[0] + 12.0:
+            # The wall's own paint in shade (under the eaves, beside a porch): not a part. How much darker it is
+            # tells how hard the light was.
+            out["parts"]["wall"]["shade_L"] = round(float(centre[0] - second[0][0]), 1)
+            rest.ravel()[np.flatnonzero(rest.ravel())[second[1]]] = False
+            continue
         members = np.zeros(h * w, bool)
         members[np.flatnonzero(rest.ravel())[second[1]]] = True
         members = members.reshape(h, w)
@@ -164,7 +205,7 @@ def of_crop(picture: np.ndarray, labels: np.ndarray, crop: dict, wall: dict) -> 
     if found is not None:
         record("door", door, found[1], found[0])
     if not gable:  # the roof slope shows above the eaves of an eaves-side wall
-        above = inside[None, :] & (Z > eaves + 0.35) & (Z < eaves + 2.3) & np.isin(labels, (L["building"], L["roof"]))
+        above = inside[None, :] & (Z > roof_from) & (Z < roof_from + 1.9) & np.isin(labels, (L["building"], L["roof"]))
         found = mode(lab[above])
         if found is not None and above.sum() >= 0.15 * inside.sum() * 1.9 * ppm:
             record("roof", above, found[1], found[0])
@@ -239,3 +280,50 @@ def of_packet(packet: Path, tag: str = TAG, overcast: dict | None = None, keep_m
     rows.sort(key=lambda r: -r["score"])
     return {"building": record["building"], "address": record.get("register", {}).get("address"),
             "year": record.get("register", {}).get("year"), "candidates": rows, "parts": combine(rows)}
+
+
+def scatter(root: Path, tag: str = TAG, overcast: dict | None = None, part: str = "wall", free: float = 0.5,
+            cloudy: float = 0.5, sunny: float = 0.2) -> dict:
+    """How far a part's colour scatters between independent panoramas of one wall, under cloud and in sun.
+
+    Every pair of different panoramas that both show a wall at least `free` is one distance (CIELAB, pixel
+    colours): both overcast (>= `cloudy`), both sunny (<= `sunny`), or one of each. Also per axis what sun does
+    to a colour: sunny minus the wall's overcast median."""
+    pairs = {"overcast": [], "sunny": [], "mixed": []}
+    shift, walls = [], 0
+    for packet in sorted(p for p in (root / "buildings").iterdir() if p.is_dir()):
+        result = of_packet(packet, tag, overcast)
+        by_wall: dict = {}
+        for row in (result or {}).get("candidates", []):
+            if part in row["parts"] and row["visible"] >= free and row["overcast"] is not None:
+                by_wall.setdefault(row["wall"], []).append(row)
+        for rows in by_wall.values():
+            if len(rows) < 2:
+                continue
+            walls += 1
+            kind = lambda r: "overcast" if r["overcast"] >= cloudy else "sunny" if r["overcast"] <= sunny else None  # noqa: E731
+            for i, a in enumerate(rows):
+                for b in rows[i + 1:]:
+                    if a["panorama"]["id"] == b["panorama"]["id"] or kind(a) is None or kind(b) is None:
+                        continue
+                    distance = float(np.linalg.norm(np.array(a["parts"][part]["lab"]) - np.array(b["parts"][part]["lab"])))
+                    pairs[kind(a) if kind(a) == kind(b) else "mixed"].append(distance)
+            under_cloud = [r["parts"][part]["lab"] for r in rows if kind(r) == "overcast"]
+            if under_cloud:
+                reference = np.median(np.array(under_cloud), axis=0)
+                shift += [np.array(r["parts"][part]["lab"]) - reference for r in rows if kind(r) == "sunny"]
+
+    def stats(values: list) -> dict:
+        if not values:
+            return {"pairs": 0}
+        v = np.array(values)
+        return {"pairs": len(v), "median": round(float(np.median(v)), 1), "upper_quartile": round(float(np.quantile(v, 0.75)), 1),
+                "within_6": round(float((v <= 6).mean()), 2)}
+
+    out = {"part": part, "walls": walls, **{name: stats(values) for name, values in pairs.items()}}
+    if shift:
+        s = np.array(shift)
+        out["sunny_minus_overcast"] = {"n": len(s), "L": round(float(np.median(s[:, 0])), 1), "a": round(float(np.median(s[:, 1])), 1),
+                                       "b": round(float(np.median(s[:, 2])), 1),
+                                       "spread_L_a_b": [round(float(np.quantile(s[:, k], 0.75) - np.quantile(s[:, k], 0.25)), 1) for k in range(3)]}
+    return out
