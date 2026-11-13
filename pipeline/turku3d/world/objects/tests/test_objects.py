@@ -140,3 +140,11 @@ def test_free_hanging_returns_across_a_street_are_a_span_with_its_lamp():
     assert len(found) == 1 and found[0]["ends"] == ["facade", "facade"] and found[0]["kind"] == "span"
     assert sorted(round(found[0][end][0]) for end in ("a", "b")) == [-8, 8] and abs(found[0]["a"][1] - 10.0) < 0.2
     assert len(lamps) == 1 and abs(lamps[0]["at"][0] - 0.5) < 0.4 and 21.0 < lamps[0]["at"][2] < 22.0
+
+
+def test_crossing_sign_on_a_give_way_post_faces_the_junction():
+    rows = [{"id": "1", "code": "B5", "label": "", "note": "", "e": 0.0, "n": 0.0}, {"id": "2", "code": "E1", "label": "", "note": "", "e": 0.1, "n": 0.0}]
+    plates = {plate["code"]: plate for plate in signpost._plates(rows)}
+    assert plates["E1"].get("turn") == 180 and "turn" not in plates["B5"]
+    alone = signpost._plates([dict(rows[1])])
+    assert "turn" not in alone[0]

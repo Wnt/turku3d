@@ -33,7 +33,7 @@ with shared readers and geometry in `pipeline/turku3d/world/objects/`.
 | `at` | base of the support |
 | `support` | `{type: "post", height, radius}` or `{type: "host", host: "lamp/<id>", height}` when the plates hang on a lamp pole |
 | `facing` | `{bearing, method, conf}`: the grid bearing the faces look towards. `method` is `traffic-rule` (against the traffic of the nearest carriageway side) or `observed` |
-| `plates` | top to bottom: `{code, register, label, note, turn, blue}`. `code` is the 2020 sign code (`C32`, `E1`, `H24`); `label` the register's text (speed digits are read from it); `note` free text of an additional plate; `turn` degrees about the post relative to `facing` (180 = the back-to-back twin of a crossing sign); `blue` a blue additional plate |
+| `plates` | top to bottom: `{code, register, label, note, turn, blue}`. `code` is the 2020 sign code (`C32`, `E1`, `H24`); `label` the register's text (speed digits are read from it); `note` free text of an additional plate; `turn` degrees about the post relative to `facing` (180 = the back-to-back twin of a crossing sign, or by rule a single crossing sign on a give-way or stop post, which faces the junction: `turn_basis` says so); `blue` a blue additional plate |
 | `placement` | `register`, or `register+lidar` when the lidar moved the axis onto the measured post |
 | `measured.lidar` | `{offset, top, returns}` of the post found in the lidar |
 

@@ -25,6 +25,7 @@ VERSION = 1
 SAME_POST = 0.5  # m: register plates this close share a support
 PLATE_REACH = 1.2  # m: an additional plate alone joins the nearest main sign this close
 TWIN = 0.35  # m: the same code this close is the other face of a two-sided sign, or the row twice
+GIVE_WAY = ("B5", "B6")  # give way, stop
 TWO_SIDED = ("E1", "E6", "E24", "E25", "E26", "E27", "F24")
 HOST_REACH = 0.8  # m: a register lamp pole this close to the plates carries them
 POST_RADIUS = 0.03
@@ -83,6 +84,14 @@ def _plates(members: list[dict]) -> list[dict]:
                 continue  # the same plate recorded twice
             plate["turn"] = 180
         plates.append(plate)
+    # A crossing sign that shares its post with a give-way or stop sign is the far-side sign of the crossing at the
+    # mouth of that street: it faces the junction, back to back with the sign for the street's own approach
+    # (portsa_03: the photo shows the crossing sign's face and the triangle's back). A rule, so the turn is marked.
+    yields = any(plate["code"].split(".")[0] in GIVE_WAY for plate in plates)
+    crossings = [plate for plate in plates if plate["code"].split(".")[0] == "E1"]
+    if yields and len(crossings) == 1:
+        crossings[0]["turn"] = 180
+        crossings[0]["turn_basis"] = "rule: on a give-way post the crossing sign faces the junction"
     blue = False
     for plate in plates:
         if plate["code"][:1] != "H":
