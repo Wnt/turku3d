@@ -26,6 +26,7 @@ TARGET_PX_PER_M = 40.0  # enough to read glazing bars; beyond it more resolution
 VIEWS_PER_WALL = 3
 SECOND_OPINION_APART_M = 6.0
 CROPS_PER_BUILDING = 10  # wall crops in one reading
+SAME_PATH_M = 2.5  # panoramas of one provider and year this alike in distance from a wall share a path along it
 
 
 @dataclass
@@ -191,10 +192,20 @@ def budget(views: dict, limit: int = CROPS_PER_BUILDING) -> dict:
     return kept
 
 
+def same_path(provider: str, date, distance: float, blocked: list) -> bool:
+    """Whether a panorama stands on the path of one that did not show the wall: what hid the wall from there (a
+    quay wall, a fence, a hedge between that path and the building) hides it along the whole path."""
+    return any(provider == b["provider"] and (not date or str(date)[:4] == b["year"])
+               and abs(distance - b["distance_m"]) <= SAME_PATH_M for b in blocked)
+
+
 def building_views(scene: Scene, building: Building, panos: Panoramas, *, per_wall: int = VIEWS_PER_WALL,
-                   resolve_limit: int = 14) -> dict:
-    """{'views': {wall id: [WallView]}, 'unseen': [{wall, reason}], 'candidates': {wall id: n}} for one building."""
-    walls = [w for w in building.walls]
+                   resolve_limit: int = 14, only: set | None = None, avoid: dict | None = None) -> dict:
+    """{'views': {wall id: [WallView]}, 'unseen': [{wall, reason}], 'candidates': {wall id: n}} for one building.
+
+    `only` limits the walls; `avoid` gives per wall id the views that did not show it, as [{provider, year,
+    distance_m}]: no panorama on their paths is taken for that wall again (same_path)."""
+    walls = [w for w in building.walls if only is None or w.id in only]
     far = max((reach(w) for w in walls), default=40.0)
     b = building.footprint.bounds
     spots = panos.spots((b[0], b[1], b[2], b[3]), margin=far)
@@ -211,11 +222,13 @@ def building_views(scene: Scene, building: Building, panos: Panoramas, *, per_wa
             unseen.append({"wall": wall.id, "reason": f"shorter than {MIN_WALL_M} m: read from the adjoining walls"})
             continue
         # Cheap pass on the coverage positions (camera height assumed), then resolve only promising spots.
-        rough = []
+        rough, blocked = [], (avoid or {}).get(wall.id, [])
         for spot in spots:
             rel = np.array([spot["E"], spot["N"]]) - wall.a
             d, s = float(rel @ wall.normal), float(rel @ wall.tangent)
             if d < MIN_DISTANCE_M or d > reach(wall) or s < -reach(wall) or s > wall.length + reach(wall):
+                continue
+            if same_path(spot["provider"], spot.get("date"), d, blocked):
                 continue
             key = (spot["provider"], spot["id"])
             stand_in = resolved.get(key) or Pano(_Stub(spot), np.array([spot["E"], spot["N"], wall.base + 2.4]), 0.0,
@@ -232,7 +245,7 @@ def building_views(scene: Scene, building: Building, panos: Panoramas, *, per_wa
             if pano is None:
                 continue
             v = measure(scene, building, wall, pano)
-            if v is not None:
+            if v is not None and not same_path(pano.source, pano.date, v.distance, blocked):
                 found.append(v)
         counts[wall.id] = len(found)
         every += found

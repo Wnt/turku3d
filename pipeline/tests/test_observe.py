@@ -185,3 +185,27 @@ def test_a_second_look_asks_for_the_complained_walls_only_and_keeps_the_rest():
     assert roofed["description"]["roof"]["dormers"] == [{"type": "gable"}]
     assert "tile" in roofed["description"]["materials"]
     assert [w["bays"]["count"] for w in roofed["description"]["walls"]] == [4, 3]
+
+
+def test_walls_no_crop_showed_get_views_from_other_paths():
+    from turku3d.observe.prepare import blocked_walls
+
+    def crop(wall, name, distance):
+        return {"wall": wall, "file": f"/p/{name}", "distance_m": distance,
+                "panorama": {"provider": "lookaround", "id": name, "date": "2026-06-10"}}
+
+    record = {"crops": [crop("b:w00", "w00-1.jpg", 18.6), crop("b:w00", "w00-2.jpg", 18.9), crop("b:w01", "w01-1.jpg", 9.0),
+                        crop("b:w01", "w01-2.jpg", 12.0)]}
+    reading = {"views": [{"file": "w00-1.jpg", "usable": False, "hidden_share": 0.97},
+                         {"file": "w00-2.jpg", "usable": True, "hidden_share": 0.9},
+                         {"file": "w01-1.jpg", "usable": False, "hidden_share": 1.0}]}  # w01-2 showed its wall
+    blocked = blocked_walls(record, reading)
+    assert list(blocked) == ["b:w00"] and [v["distance_m"] for v in blocked["b:w00"]] == [18.6, 18.9]
+    # The quay path (same provider and year, the same distance from the wall) is avoided; the street is not.
+    assert views.same_path("lookaround", "2026-06-11", 17.0, blocked["b:w00"])
+    assert not views.same_path("lookaround", "2026-06-11", 10.3, blocked["b:w00"])
+    assert not views.same_path("google", "2026-07", 18.6, blocked["b:w00"])
+    # A wall the first reading left out is added by the answer about it.
+    first = {"description": {"walls": [{"id": "w01"}]}, "views": []}
+    assert [w["id"] for w in reader.corrected(first, {"walls": [{"id": "w00"}], "views": []})["description"]["walls"]] \
+        == ["w01", "w00"]

@@ -6,6 +6,11 @@
     python -m turku3d.observe review [--building KEY...]   compare each wall with a drawing of what gets built
     python -m turku3d.observe review --render --building KEY...   compare the game's render with the photograph
     python -m turku3d.observe roof --building KEY...       ask again about the dormers and chimneys of read buildings
+    python -m turku3d.observe unblock --building KEY... --near E,N   other views for walls no crop showed
+
+`describe` does what `unblock` does by itself: when the reader reports that no crop of a wall showed it (a quay
+wall, a fence or trees in the way, which LoD2 does not hold), the wall gets crops from panoramas on other paths
+and is read again from them, once.
 
 Views can be prepared on another machine and read here: run `views` there (scripts/dev/on-host HOST --data
 raw/laz/maanpinta --pull observe/buildings -- python -m turku3d.observe views --view ID... --min-share 0.01), then
@@ -37,7 +42,7 @@ from turku3d import config
 
 from . import check, elevation, lod2, reader
 from .panoramas import REPO, Panoramas
-from .prepare import prepare
+from .prepare import blocked_walls, other_views, prepare
 
 VISIBLE_SHARE = 0.004  # of a view's pixels, for a building to count as visible in it
 # Tiers by rule, from what the street sees of a building (prepare.street_presence):
@@ -117,6 +122,37 @@ def second_look(record: dict, packet: Path, root: Path, reading: dict, meta: dic
         kept = finish(record, reading, {**meta, **total}, packet, root)  # the first reading stays stored
         return reading, {**meta, **total}, {**kept, "second_look": note + " (first kept)"}
     return again, {**meta_again, **total}, {**second, "second_look": note}
+
+
+def unblock(scene, building, record: dict, reading: dict, meta: dict, packet: Path, effort: str, panos):
+    """Walls none of whose crops showed them (the reader's report: a quay wall, a fence, trees in the way) get
+    crops from panoramas on other paths, once, and the reader reads those walls from them.
+    Returns (reading, meta, note); the record gains the new crops."""
+    blocked = {wall: views for wall, views in blocked_walls(record, reading, REVIEW_HIDDEN).items()
+               if wall not in record.get("blocked", {})}
+    if not blocked:
+        return reading, meta, None
+    walls = ", ".join(sorted(w.split(":")[-1] for w in blocked))
+    new = other_views(scene, building, panos, packet, record, blocked)
+    (packet / "views.json").write_text(json.dumps(record, indent=1, ensure_ascii=False))
+    if not new:
+        return reading, meta, f"{walls}: hidden in every crop, and no panorama on another path sees them"
+    hidden = {name for names in record["blocked"].values() for name in names}
+    report = {v["file"]: v for v in reading.get("views", [])}
+    shown = {**record, "crops": [c for c in record["crops"] if Path(c["file"]).name not in hidden],
+             "contexts": [c for c in record["contexts"] if report.get(Path(c["file"]).name, {}).get("usable", True)]}
+    try:
+        again, meta_again = reader.read(shown, packet, effort=effort, feedback_text=reader.blocked_text(blocked, new),
+                                        first=reading)
+    except Exception as error:  # noqa: BLE001 - the first reading stands
+        return reading, meta, f"{walls}: new crops, but the reading failed: {error}"[:200]
+    (packet / "reading-blocked.json").write_text(json.dumps({"reading": reading, "meta": meta}, indent=1,
+                                                            ensure_ascii=False))
+    total = {**meta_again, "seconds": round(meta["seconds"] + meta_again["seconds"], 1),
+             "cost_usd": (meta["cost_usd"] or 0) + (meta_again["cost_usd"] or 0),
+             **({"tier": meta["tier"]} if "tier" in meta else {})}
+    return again, total, (f"{walls}: hidden in every crop; read again from {len(new)} crops on other paths "
+                          f"(+{meta_again['seconds']} s, +${meta_again['cost_usd'] or 0:.2f})")
 
 
 REVIEW_MAY_DROP = 2  # parts a review may lose more than the first reading: the photographs outweigh the fit
@@ -284,7 +320,7 @@ def select(args) -> tuple[lod2.Scene, list, dict]:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m turku3d.observe", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["views", "describe", "assemble", "review", "roof"])
+    ap.add_argument("command", choices=["views", "describe", "assemble", "review", "roof", "unblock"])
     ap.add_argument("--building", nargs="*", help="entity keys (with --near)")
     ap.add_argument("--near", help="E,N near the buildings named by --building")
     ap.add_argument("--at", help="E,N (EPSG:3877): the nearest building, or all within --radius")
@@ -385,6 +421,26 @@ def main(argv=None) -> int:
 
     local = threading.local()
 
+    def panoramas():  # this thread's own panorama reader
+        if not hasattr(local, "panos"):
+            local.panos = Panoramas(root / "panoramas")
+        return local.panos
+
+    if a.command == "unblock":  # read buildings: other views for walls whose crops did not show them
+        for b in buildings:
+            packet = root / "buildings" / b.id
+            record = json.loads((packet / "views.json").read_text())
+            saved = json.loads((packet / "reading.json").read_text())
+            reading, meta, note = unblock(scene, b, record, saved["reading"], saved["meta"], packet, a.effort,
+                                          panoramas())
+            line = {"building": b.id, "other_views": note}
+            if reading is not saved["reading"]:
+                (packet / "reading.json").write_text(json.dumps({"reading": reading, "meta": meta}, indent=1,
+                                                                ensure_ascii=False))
+                line.update(finish(record, reading, meta, packet, root))
+            print(json.dumps({k: v for k, v in line.items() if k != "description"}, ensure_ascii=False), flush=True)
+        return 0
+
     def prepared(b):  # views and crops of one building, with this thread's own panorama reader
         started = time.time()
         packet = root / "buildings" / b.id
@@ -397,9 +453,7 @@ def main(argv=None) -> int:
             if all((packet / Path(c["file"]).name).exists() for c in record["crops"] + record["contexts"]):
                 record["selected_by"] = why.get(b.id, record.get("selected_by", {}))
                 return record, 0.0
-        if not hasattr(local, "panos"):
-            local.panos = Panoramas(root / "panoramas")
-        record = prepare(scene, b, local.panos, packet)
+        record = prepare(scene, b, panoramas(), packet)
         record["selected_by"] = why.get(b.id, {})
         packet.mkdir(parents=True, exist_ok=True)  # a building no panorama sees has no crops, but keeps its record
         (packet / "views.json").write_text(json.dumps(record, indent=1, ensure_ascii=False))
@@ -444,6 +498,14 @@ def main(argv=None) -> int:
         except Exception as error:  # noqa: BLE001 - one failed building must not stop the others
             line["error"] = str(error)[:300]
         else:
+            if not a.no_second_look:
+                try:
+                    reading, meta, note = unblock(scene, scene.buildings[key], record, reading, meta, packet,
+                                                  a.effort, panoramas())
+                except Exception as error:  # noqa: BLE001 - the first reading stands
+                    note = f"other views failed: {type(error).__name__}: {error}"[:200]
+                if note:
+                    line["other_views"] = note
             first = finish(record, reading, meta, packet, root)
             if (first.get("dropped_reader") or 0) >= SECOND_LOOK_FROM and not a.no_second_look:
                 reading, meta, first = second_look(record, packet, root, reading, meta, first, a.effort)

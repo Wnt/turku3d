@@ -153,7 +153,9 @@ def corrected(reading: dict, correction: dict) -> dict:
     it. A roof given replaces the whole roof."""
     out = copy.deepcopy(reading)
     walls = {w.get("id"): w for w in correction.get("walls", [])}
-    out["description"]["walls"] = [walls.get(w.get("id"), w) for w in out["description"].get("walls", [])]
+    known = {w.get("id") for w in out["description"].get("walls", [])}
+    out["description"]["walls"] = ([walls.get(w.get("id"), w) for w in out["description"].get("walls", [])]
+                                   + [w for w in correction.get("walls", []) if w.get("id") not in known])
     out["description"].setdefault("opening_types", {}).update(correction.get("opening_types") or {})
     out["description"].setdefault("materials", {}).update(correction.get("materials") or {})
     if correction.get("roof"):
@@ -171,8 +173,11 @@ def task_text(record: dict, packet: Path, feedback_text: str = "", first: dict |
              + ", ".join(f"{k} {v}" for k, v in reg.items() if v is not None) + ".", "", "Walls of the city model:"]
     seen = {c["wall"] for c in record["crops"]}
     asked = None  # a second look: only the walls the generator complained about, and only their crops
-    if first is not None:
-        asked = {w["id"] for w in first["description"].get("walls", []) if f"- wall {w['id']} " in feedback_text}
+    if first is not None:  # the walls the text names: read before, or (a question) any wall of the building
+        named = [w["id"] for w in first["description"].get("walls", [])]
+        if feedback_text.startswith(QUESTION):
+            named += [w["id"].split(":")[-1] for w in record["walls"]]
+        asked = {wall for wall in named if f"- wall {wall} " in feedback_text}
     for w in record["walls"]:
         short = w["id"].split(":")[-1]
         if asked is not None and short not in asked:
@@ -420,6 +425,22 @@ def roof_text(reading: dict) -> str:
               "Answer with `roof`: the whole roof entry again, corrected (it replaces the first one; keep its "
               "covering, eaves and verge unless the photographs show otherwise), with `walls` as an empty list, "
               "`opening_types` only for a dormer window type you add, and the report of the images you looked at."]
+    return "\n".join(lines)
+
+
+def blocked_text(blocked: dict, new: list) -> str:
+    """A question about walls whose crops did not show them: read them from the new crops `new` instead."""
+    lines = [QUESTION + " When you first read this building, no crop of the walls below showed them: something the "
+             "city model does not hold (a quay wall, a fence, trees, vehicles) stood in the way. The wall crops "
+             "listed above are new, from panoramas on other paths:"]
+    for wall in sorted(blocked):
+        names = [Path(c["file"]).name for c in new if c["wall"] == wall]
+        lines.append(f"- wall {wall.split(':')[-1]} (new crops: {', '.join(names) or 'none'})")
+    lines += ["Read each of these walls from its new crops as your instructions say. Answer with `walls`: the whole "
+              "entry of each wall a new crop shows (its id; `measured_on` is the new crop it was measured on; leave "
+              "a wall out when its new crops do not show it either), `opening_types` and `materials` only for names "
+              "you add or change, `roof` only when the new views show its covering, dormers or chimneys differently "
+              "from your first reading (then the whole roof entry), and the report of every image you looked at."]
     return "\n".join(lines)
 
 
