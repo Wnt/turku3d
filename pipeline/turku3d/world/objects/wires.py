@@ -581,7 +581,9 @@ def _returns(e0: float, n0: float, e1: float, n1: float, fetch: bool):
     out = []
     for te in np.arange(np.floor(e0 / TILE) * TILE, e1, TILE):
         for tn in np.arange(np.floor(n0 / TILE) * TILE, n1, TILE):
-            path = laz_path(f"{int(te)}_{int(tn + TILE)}", fetch=fetch)
+            # The tile itself is fetched when missing; a neighbour only lends its 60 m edge, so it is read when present.
+            own = te <= (e0 + e1) / 2 < te + TILE and tn <= (n0 + n1) / 2 < tn + TILE
+            path = laz_path(f"{int(te)}_{int(tn + TILE)}", fetch=fetch and own)
             if path is None:
                 continue
             las = laspy.read(path)

@@ -83,7 +83,7 @@ def text_shape(text: str, height: float, weight: float = 0.13, centre: tuple[flo
         x += width + GAP
     if not lines:
         return shapely.Polygon()
-    shape = shapely.MultiLineString(lines).buffer(6.0 * weight / 2, quad_segs=2)
+    shape = shapely.MultiLineString(lines).buffer(6.0 * weight / 2, quad_segs=1, cap_style="square", join_style="bevel")
     scale = height / 6.0
     shape = affinity.scale(shape, scale, scale, origin=(0, 0))
     total = (x - GAP) * scale

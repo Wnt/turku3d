@@ -449,11 +449,16 @@ def is_blue(code: str) -> bool:
     return code[:1] in "EFG" or code.split(".")[0] in ("C37", "C38", "C39") and False
 
 
+DETAIL = 0.001  # m
+
+
 def face_mesh(face: Face) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """(positions (n, 2), triangles, colours (n, 3)) of the face as one planar partition: the linework of every
     layer is noded together and each cell takes the colour of the topmost layer over it, so neighbouring cells share
     their border vertices exactly (no overlap, no T-junction) and the outer border is the plate outline."""
-    layers = [(colour, shape.intersection(face.outline)) for colour, shape in face.layers if shape is not None and not shape.is_empty]
+    # Curves are drawn to 1 mm (a texel of the 1024 px/m sign atlas): finer vertices only cost triangles.
+    layers = [(colour, shapely.simplify(shape, DETAIL).intersection(face.outline)) for colour, shape in face.layers
+              if shape is not None and not shape.is_empty]
     # Noded on a 0.1 mm grid, the precision the packer snaps to, so no two border vertices merge afterwards.
     lines = shapely.set_precision(shapely.union_all([face.outline.boundary] + [shape.boundary for _, shape in layers]), 1e-4)
     lines = shapely.set_precision(shapely.union_all([lines]), 1e-4)
@@ -498,3 +503,25 @@ def border_edges(positions: np.ndarray, triangles: np.ndarray) -> list[tuple[int
             count[(min(wi, wj), max(wi, wj))] = count.get((min(wi, wj), max(wi, wj)), 0) + 1
             directed.append((wi, wj))
     return [(i, j) for i, j in directed if count[(min(i, j), max(i, j))] == 1]
+
+
+def back_mesh(positions: np.ndarray, triangles: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """(positions (n, 2), triangles) covering the same outline as a face mesh with its border vertices only: the
+    plate's back, which meets the rim at exactly the face's border vertices."""
+    following = dict(border_edges(positions, triangles))
+    if not following:
+        return np.zeros((0, 2)), np.zeros((0, 3), dtype=np.int64)
+    start = min(following)
+    loop, at = [start], following[start]
+    while at != start and len(loop) <= len(following):
+        loop.append(at)
+        at = following[at]
+    ring = np.round(positions[loop], 4)
+    with np.errstate(invalid="ignore"):
+        corners = shapely.get_coordinates(shapely.constrained_delaunay_triangles(shapely.Polygon(ring))).reshape(-1, 4, 2)[:, :3]
+    u, v = corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]
+    cross = u[:, 0] * v[:, 1] - u[:, 1] * v[:, 0]
+    corners[cross < 0] = corners[cross < 0][:, ::-1]
+    corners = corners[np.abs(cross) > 1e-12]
+    points = np.round(corners.reshape(-1, 2), 4)
+    return points, np.arange(len(points)).reshape(-1, 3)

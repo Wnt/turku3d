@@ -226,10 +226,12 @@ def _plate_parts(code: str, label: str, text: str, blue: bool) -> tuple:
     flat = points + lift
     front = np.column_stack([flat, np.full(len(flat), PLATE_THICKNESS)])
     back = np.column_stack([flat, np.zeros(len(flat))])
+    behind, behind_triangles = signfaces.back_mesh(points, triangles)
+    behind = np.column_stack([behind + lift, np.zeros(len(behind))])
     mesh = Mesh()
     uvs = np.column_stack([(points[:, 0] - x0) / width, (points[:, 1] - y0) / height])
     mesh.add("face", sign_material(drawn.code, width, height, text, blue), front, np.tile([0.0, 0.0, 1.0], (len(front), 1)), triangles, colours, uvs=uvs)
-    mesh.add("plate", SIGN_BACK, back, np.tile([0.0, 0.0, -1.0], (len(back), 1)), triangles[:, ::-1])
+    mesh.add("plate", SIGN_BACK, behind, np.tile([0.0, 0.0, -1.0], (len(behind), 1)), behind_triangles[:, ::-1])
     rim = [t for a, b in signfaces.border_edges(points, triangles) for t in (
         [front[a], back[a], back[b]], [front[a], back[b], front[b]])]
     if rim:
