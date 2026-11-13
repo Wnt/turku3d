@@ -1,0 +1,32 @@
+{
+ "building_key": "Building_278935314",
+ "description": {
+  "facade_id": "reading-Building_278935314",
+  "features": [
+   "ornament"
+  ],
+  "ground_floor": "doors",
+  "ground_openings": 3,
+  "material": "stone",
+  "plinth": false,
+  "problem": "",
+  "roof_line": "parapet",
+  "storeys": 3,
+  "trim_colour": "#e4ddd0",
+  "wall_colour": "#9c9e9d",
+  "wall_visible": true,
+  "window_columns": 1,
+  "window_height": 0.5,
+  "window_width": 0.45
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T07:41:58Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T07:41:58Z",
+  "style": "commercial",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "width_m": 8.092
+}

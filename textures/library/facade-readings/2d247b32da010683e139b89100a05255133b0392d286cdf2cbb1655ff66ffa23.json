@@ -1,0 +1,154 @@
+{
+ "building_key": "101455300L",
+ "description": {
+  "facade_id": "reading-101455300L",
+  "features": [
+   "balconies"
+  ],
+  "ground_floor": "windows",
+  "ground_openings": 3,
+  "material": "concrete",
+  "plinth": true,
+  "problem": "",
+  "roof_line": "eaves",
+  "storeys": 3,
+  "trim_colour": "#f0f0ec",
+  "wall_colour": "#b3b5a8",
+  "wall_visible": true,
+  "window_columns": 3,
+  "window_height": 0.5192,
+  "window_width": 0.2282
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T06:47:23Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T06:47:23Z",
+  "style": "modern_apartment",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "walls": [
+  {
+   "balconies": [
+    [
+     5.1,
+     3.7,
+     6.4,
+     1.0
+    ],
+    [
+     5.1,
+     6.3,
+     6.4,
+     1.0
+    ],
+    [
+     5.1,
+     8.9,
+     6.4,
+     1.0
+    ]
+   ],
+   "base_height": 29.89,
+   "coordinates": [
+    [
+     23462840.353,
+     6706800.601
+    ],
+    [
+     23462850.599,
+     6706786.106
+    ]
+   ]
+  },
+  {
+   "balconies": [
+    [
+     6.03,
+     3.2,
+     6.5,
+     1.0
+    ],
+    [
+     6.03,
+     5.8,
+     6.5,
+     1.0
+    ],
+    [
+     6.03,
+     8.4,
+     6.5,
+     1.0
+    ]
+   ],
+   "base_height": 29.89,
+   "coordinates": [
+    [
+     23462854.649,
+     6706780.347
+    ],
+    [
+     23462864.883,
+     6706765.836
+    ]
+   ]
+  },
+  {
+   "balconies": [
+    [
+     0.03,
+     5.9,
+     3.9,
+     1.0
+    ],
+    [
+     0.03,
+     8.6,
+     3.9,
+     1.0
+    ]
+   ],
+   "base_height": 29.89,
+   "coordinates": [
+    [
+     23462852.205,
+     6706783.399
+    ],
+    [
+     23462854.972,
+     6706780.575
+    ]
+   ]
+  },
+  {
+   "balconies": [
+    [
+     0.05,
+     6.25,
+     3.1,
+     1.0
+    ],
+    [
+     0.05,
+     8.95,
+     3.1,
+     1.0
+    ]
+   ],
+   "base_height": 29.89,
+   "coordinates": [
+    [
+     23462850.913,
+     6706786.328
+    ],
+    [
+     23462852.205,
+     6706783.399
+    ]
+   ]
+  }
+ ],
+ "width_m": 17.751
+}

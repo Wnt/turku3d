@@ -1,0 +1,30 @@
+{
+ "building_key": "102217648F",
+ "description": {
+  "facade_id": "reading-102217648F",
+  "features": [],
+  "ground_floor": "doors",
+  "ground_openings": 5,
+  "material": "metal",
+  "plinth": true,
+  "problem": "",
+  "roof_line": "parapet",
+  "storeys": 3,
+  "trim_colour": "#3a3c40",
+  "wall_colour": "#5a5c61",
+  "wall_visible": true,
+  "window_columns": 17,
+  "window_height": 0.3667,
+  "window_width": 0.7881
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T12:11:52Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T12:11:52Z",
+  "style": "commercial",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "width_m": 64.714
+}

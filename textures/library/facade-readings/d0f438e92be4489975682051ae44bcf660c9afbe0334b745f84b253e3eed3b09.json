@@ -1,0 +1,57 @@
+{
+ "building_key": "103313128J",
+ "description": {
+  "facade_id": "reading-103313128J",
+  "features": [
+   "balconies",
+   "string_courses",
+   "ornament"
+  ],
+  "ground_floor": "shops",
+  "ground_openings": 3,
+  "material": "plaster",
+  "plinth": true,
+  "problem": "",
+  "roof_line": "cornice",
+  "storeys": 2,
+  "trim_colour": "#3a2c24",
+  "wall_colour": "#d8b064",
+  "wall_visible": true,
+  "window_columns": 7,
+  "window_height": 0.4756,
+  "window_width": 0.405
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T07:41:11Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T07:41:11Z",
+  "style": "stone_apartment",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "walls": [
+  {
+   "balconies": [
+    [
+     5.15,
+     4.9,
+     4.4,
+     0.95
+    ]
+   ],
+   "base_height": 12.98,
+   "coordinates": [
+    [
+     23459120.37,
+     6704649.334
+    ],
+    [
+     23459112.132,
+     6704661.498
+    ]
+   ]
+  }
+ ],
+ "width_m": 14.691
+}

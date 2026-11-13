@@ -1,0 +1,32 @@
+{
+ "building_key": "102228939P",
+ "description": {
+  "facade_id": "reading-102228939P",
+  "features": [
+   "pilasters"
+  ],
+  "ground_floor": "plain",
+  "ground_openings": 0,
+  "material": "concrete",
+  "plinth": false,
+  "problem": "",
+  "roof_line": "parapet",
+  "storeys": 1,
+  "trim_colour": "#8f8d88",
+  "wall_colour": "#d9dacf",
+  "wall_visible": true,
+  "window_columns": 3,
+  "window_height": 0.5,
+  "window_width": 0.45
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T21:48:44Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T21:48:44Z",
+  "style": "industrial",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "width_m": 15.5
+}

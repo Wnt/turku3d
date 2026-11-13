@@ -91,6 +91,13 @@ def row(key):
 # ------------------------------------------------------------------------------------------
 
 
+def proven_key(doc: dict) -> str:
+    """The building's key in proven's tiles: W2 names an LoD2-only building ``gml-Building_N``, proven
+    ``Building_N``; register buildings share their permanent building id."""
+    key = doc["id"].split("/", 1)[1]
+    return key.removeprefix("gml-")
+
+
 def is_reading(doc: dict) -> bool:
     return any(p.get("by") in READERS for p in doc.get("provenance", []))
 
@@ -225,7 +232,7 @@ def balcony_rects(wall):
 
 def convert(doc: dict) -> tuple[dict | None, str]:
     """The proven facade description row of one reading, or None and why it has none."""
-    key = doc["id"].split("/", 1)[1]
+    key = proven_key(doc)
     materials = doc.get("materials", {})
     types = doc.get("opening_types", {})
     walls = resolved_walls(doc)
@@ -390,7 +397,7 @@ def run_convert(readings: Path, proven: dict, out: Path) -> dict:
         doc = json.loads(path.read_text())
         if not is_reading(doc):
             continue
-        key = doc["id"].split("/", 1)[1]
+        key = proven_key(doc)
         report["read"] += 1
         status = proven.get(key)
         if status is None:

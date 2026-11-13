@@ -1,0 +1,62 @@
+{
+ "building_key": "102162385T",
+ "description": {
+  "facade_id": "reading-102162385T",
+  "features": [
+   "balconies",
+   "ornament"
+  ],
+  "ground_floor": "windows",
+  "ground_openings": 2,
+  "material": "wood",
+  "plinth": true,
+  "problem": "",
+  "roof_line": "eaves",
+  "storeys": 2,
+  "trim_colour": "#e8ece6",
+  "wall_colour": "#d8be6e",
+  "wall_visible": true,
+  "window_columns": 5,
+  "window_height": 0.7083,
+  "window_width": 0.3706
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T21:51:07Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T21:51:07Z",
+  "style": "wooden_villa",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "walls": [
+  {
+   "balconies": [
+    [
+     0.12,
+     6.6,
+     5.2,
+     0.9
+    ],
+    [
+     0.12,
+     9.1,
+     5.2,
+     0.9
+    ]
+   ],
+   "base_height": 2.39,
+   "coordinates": [
+    [
+     23450779.009,
+     6701880.416
+    ],
+    [
+     23450784.186,
+     6701882.068
+    ]
+   ]
+  }
+ ],
+ "width_m": 13.491
+}

@@ -1,0 +1,30 @@
+{
+ "building_key": "103762753K",
+ "description": {
+  "facade_id": "reading-103762753K",
+  "features": [],
+  "ground_floor": "shops",
+  "ground_openings": 16,
+  "material": "stone",
+  "plinth": false,
+  "problem": "",
+  "roof_line": "cornice",
+  "storeys": 5,
+  "trim_colour": "#6c7074",
+  "wall_colour": "#cfc8ba",
+  "wall_visible": true,
+  "window_columns": 33,
+  "window_height": 0.7031,
+  "window_width": 0.5171
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T07:38:58Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T07:38:58Z",
+  "style": "commercial",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "width_m": 60.622
+}

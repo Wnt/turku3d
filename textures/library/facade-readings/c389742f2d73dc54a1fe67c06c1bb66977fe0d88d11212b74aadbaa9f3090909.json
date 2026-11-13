@@ -1,0 +1,30 @@
+{
+ "building_key": "103650280D",
+ "description": {
+  "facade_id": "reading-103650280D",
+  "features": [],
+  "ground_floor": "shops",
+  "ground_openings": 3,
+  "material": "brick",
+  "plinth": true,
+  "problem": "",
+  "roof_line": "eaves",
+  "storeys": 7,
+  "trim_colour": "#d0ccc4",
+  "wall_colour": "#6c6660",
+  "wall_visible": true,
+  "window_columns": 10,
+  "window_height": 0.5,
+  "window_width": 0.45
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T12:08:06Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T12:08:06Z",
+  "style": "public",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "width_m": 52.119
+}

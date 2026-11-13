@@ -1,0 +1,32 @@
+{
+ "building_key": "1017858074",
+ "description": {
+  "facade_id": "reading-1017858074",
+  "features": [
+   "string_courses"
+  ],
+  "ground_floor": "doors",
+  "ground_openings": 3,
+  "material": "plaster",
+  "plinth": true,
+  "problem": "",
+  "roof_line": "cornice",
+  "storeys": 1,
+  "trim_colour": "#eeeeea",
+  "wall_colour": "#a3b0c4",
+  "wall_visible": true,
+  "window_columns": 3,
+  "window_height": 0.5147,
+  "window_width": 0.8679
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T21:32:08Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T21:32:08Z",
+  "style": "detached_house",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "width_m": 10.369
+}

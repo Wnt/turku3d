@@ -1,0 +1,30 @@
+{
+ "building_key": "Building_51329282",
+ "description": {
+  "facade_id": "reading-Building_51329282",
+  "features": [],
+  "ground_floor": "doors",
+  "ground_openings": 1,
+  "material": "wood",
+  "plinth": false,
+  "problem": "",
+  "roof_line": "eaves",
+  "storeys": 1,
+  "trim_colour": "#e8e4da",
+  "wall_colour": "#243a36",
+  "wall_visible": true,
+  "window_columns": 2,
+  "window_height": 0.5,
+  "window_width": 0.45
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T06:35:41Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T06:35:41Z",
+  "style": "garage",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "width_m": 5.616
+}

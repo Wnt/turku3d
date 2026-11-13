@@ -1,0 +1,33 @@
+{
+ "building_key": "103329711F",
+ "description": {
+  "facade_id": "reading-103329711F",
+  "features": [
+   "string_courses",
+   "ornament"
+  ],
+  "ground_floor": "shops",
+  "ground_openings": 5,
+  "material": "plaster",
+  "plinth": false,
+  "problem": "",
+  "roof_line": "cornice",
+  "storeys": 2,
+  "trim_colour": "#ece8de",
+  "wall_colour": "#e6ad4c",
+  "wall_visible": true,
+  "window_columns": 5,
+  "window_height": 0.3804,
+  "window_width": 0.2971
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T01:42:21Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T01:42:21Z",
+  "style": "wooden_house",
+  "tier": "reviewed"
+ },
+ "source": "w2-reading",
+ "width_m": 15.147
+}

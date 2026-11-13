@@ -1,0 +1,32 @@
+{
+ "building_key": "102086808U",
+ "description": {
+  "facade_id": "reading-102086808U",
+  "features": [
+   "pilasters"
+  ],
+  "ground_floor": "shops",
+  "ground_openings": 12,
+  "material": "metal",
+  "plinth": true,
+  "problem": "",
+  "roof_line": "parapet",
+  "storeys": 2,
+  "trim_colour": "#e6e6e3",
+  "wall_colour": "#2a2b2e",
+  "wall_visible": true,
+  "window_columns": 13,
+  "window_height": 0.3026,
+  "window_width": 0.5016
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T06:43:36Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T06:43:36Z",
+  "style": "industrial",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "width_m": 67.384
+}

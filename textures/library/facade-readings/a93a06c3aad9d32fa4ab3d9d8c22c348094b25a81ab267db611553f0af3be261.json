@@ -1,0 +1,30 @@
+{
+ "building_key": "1017975896",
+ "description": {
+  "facade_id": "reading-1017975896",
+  "features": [],
+  "ground_floor": "doors",
+  "ground_openings": 3,
+  "material": "wood",
+  "plinth": true,
+  "problem": "",
+  "roof_line": "eaves",
+  "storeys": 2,
+  "trim_colour": "#3d4347",
+  "wall_colour": "#dcdedb",
+  "wall_visible": true,
+  "window_columns": 4,
+  "window_height": 0.3824,
+  "window_width": 0.4298
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T06:37:36Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T06:37:36Z",
+  "style": "detached_house",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "width_m": 13.03
+}

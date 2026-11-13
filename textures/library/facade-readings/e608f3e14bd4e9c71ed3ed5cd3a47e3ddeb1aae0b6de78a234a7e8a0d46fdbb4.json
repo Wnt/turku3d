@@ -1,0 +1,82 @@
+{
+ "building_key": "103998415K",
+ "description": {
+  "facade_id": "reading-103998415K",
+  "features": [
+   "balconies"
+  ],
+  "ground_floor": "doors",
+  "ground_openings": 3,
+  "material": "plaster",
+  "plinth": false,
+  "problem": "",
+  "roof_line": "eaves",
+  "storeys": 2,
+  "trim_colour": "#34373a",
+  "wall_colour": "#eeece7",
+  "wall_visible": true,
+  "window_columns": 4,
+  "window_height": 0.6613,
+  "window_width": 0.261
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T06:44:03Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T06:44:03Z",
+  "style": "detached_house",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "walls": [
+  {
+   "balconies": [
+    [
+     2.54,
+     5.3,
+     3.6,
+     1.0
+    ]
+   ],
+   "base_height": 14.03,
+   "coordinates": [
+    [
+     23463995.62,
+     6706081.833
+    ],
+    [
+     23464002.382,
+     6706070.698
+    ]
+   ]
+  },
+  {
+   "balconies": [
+    [
+     2.01,
+     5.15,
+     1.0,
+     1.1
+    ],
+    [
+     4.22,
+     5.15,
+     1.0,
+     1.1
+    ]
+   ],
+   "base_height": 14.03,
+   "coordinates": [
+    [
+     23464002.382,
+     6706070.698
+    ],
+    [
+     23464008.552,
+     6706074.463
+    ]
+   ]
+  }
+ ],
+ "width_m": 13.027
+}

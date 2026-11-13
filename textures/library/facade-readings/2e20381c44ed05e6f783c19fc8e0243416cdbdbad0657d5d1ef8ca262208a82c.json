@@ -1,0 +1,30 @@
+{
+ "building_key": "1021900795",
+ "description": {
+  "facade_id": "reading-1021900795",
+  "features": [],
+  "ground_floor": "plain",
+  "ground_openings": 0,
+  "material": "wood",
+  "plinth": false,
+  "problem": "",
+  "roof_line": "eaves",
+  "storeys": 1,
+  "trim_colour": "#e8e4da",
+  "wall_colour": "#9a958a",
+  "wall_visible": true,
+  "window_columns": 1,
+  "window_height": 0.5,
+  "window_width": 0.45
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T21:30:42Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T21:30:42Z",
+  "style": "wooden_house",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "width_m": 8.474
+}

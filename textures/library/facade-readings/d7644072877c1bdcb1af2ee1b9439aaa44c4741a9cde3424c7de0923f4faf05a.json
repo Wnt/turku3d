@@ -1,0 +1,33 @@
+{
+ "building_key": "103329718P",
+ "description": {
+  "facade_id": "reading-103329718P",
+  "features": [
+   "pilasters",
+   "ornament"
+  ],
+  "ground_floor": "doors",
+  "ground_openings": 4,
+  "material": "plaster",
+  "plinth": true,
+  "problem": "",
+  "roof_line": "cornice",
+  "storeys": 2,
+  "trim_colour": "#e8e4d8",
+  "wall_colour": "#eadfae",
+  "wall_visible": true,
+  "window_columns": 4,
+  "window_height": 0.6034,
+  "window_width": 0.4816
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T01:43:48Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T01:43:48Z",
+  "style": "stone_apartment",
+  "tier": "reviewed"
+ },
+ "source": "w2-reading",
+ "width_m": 10.797
+}

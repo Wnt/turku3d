@@ -1,0 +1,33 @@
+{
+ "building_key": "103329738B",
+ "description": {
+  "facade_id": "reading-103329738B",
+  "features": [
+   "string_courses",
+   "ornament"
+  ],
+  "ground_floor": "windows",
+  "ground_openings": 1,
+  "material": "wood",
+  "plinth": true,
+  "problem": "",
+  "roof_line": "eaves",
+  "storeys": 2,
+  "trim_colour": "#f1f1ea",
+  "wall_colour": "#dcdfcc",
+  "wall_visible": true,
+  "window_columns": 12,
+  "window_height": 0.2,
+  "window_width": 0.1376
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-12",
+  "by": "w2-buildings",
+  "reading": "portsa_03",
+  "style": "wooden_house",
+  "tier": "reviewed"
+ },
+ "source": "w2-reading",
+ "width_m": 36.621
+}

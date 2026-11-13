@@ -1,0 +1,129 @@
+{
+ "building_key": "103286647A",
+ "description": {
+  "facade_id": "reading-103286647A",
+  "features": [
+   "balconies",
+   "string_courses",
+   "ornament"
+  ],
+  "ground_floor": "windows",
+  "ground_openings": 7,
+  "material": "plaster",
+  "plinth": true,
+  "problem": "",
+  "roof_line": "cornice",
+  "storeys": 3,
+  "trim_colour": "#5b4b42",
+  "wall_colour": "#cdb2b1",
+  "wall_visible": true,
+  "window_columns": 4,
+  "window_height": 0.5467,
+  "window_width": 0.1615
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T11:56:26Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T11:56:26Z",
+  "style": "stone_apartment",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "walls": [
+  {
+   "balconies": [
+    [
+     7.16,
+     7.76,
+     2.9,
+     1.0
+    ],
+    [
+     7.16,
+     11.51,
+     2.9,
+     1.0
+    ],
+    [
+     7.16,
+     15.26,
+     2.9,
+     1.0
+    ]
+   ],
+   "base_height": 20.86,
+   "coordinates": [
+    [
+     23459437.829,
+     6704865.67
+    ],
+    [
+     23459421.45,
+     6704854.512
+    ]
+   ]
+  },
+  {
+   "balconies": [
+    [
+     1.75,
+     8.5,
+     3.2,
+     1.0
+    ],
+    [
+     1.75,
+     12.3,
+     3.2,
+     1.0
+    ],
+    [
+     1.75,
+     16.0,
+     3.2,
+     1.0
+    ]
+   ],
+   "base_height": 20.86,
+   "coordinates": [
+    [
+     23459450.441,
+     6704874.262
+    ],
+    [
+     23459440.205,
+     6704867.289
+    ]
+   ]
+  },
+  {
+   "balconies": [
+    [
+     15.51,
+     14.76,
+     2.6,
+     0.9
+    ],
+    [
+     48.2,
+     11.16,
+     1.5,
+     0.6
+    ]
+   ],
+   "base_height": 20.86,
+   "coordinates": [
+    [
+     23459420.808,
+     6704851.11
+    ],
+    [
+     23459449.878,
+     6704809.162
+    ]
+   ]
+  }
+ ],
+ "width_m": 19.818
+}

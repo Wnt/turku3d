@@ -1,0 +1,85 @@
+{
+ "building_key": "103295865N",
+ "description": {
+  "facade_id": "reading-103295865N",
+  "features": [
+   "balconies"
+  ],
+  "ground_floor": "windows",
+  "ground_openings": 2,
+  "material": "brick",
+  "plinth": false,
+  "problem": "",
+  "roof_line": "eaves",
+  "storeys": 8,
+  "trim_colour": "#4a4d50",
+  "wall_colour": "#a4553f",
+  "wall_visible": true,
+  "window_columns": 2,
+  "window_height": 0.5333,
+  "window_width": 0.2913
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T06:40:37Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T06:40:37Z",
+  "style": "modern_apartment",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "walls": [
+  {
+   "balconies": [
+    [
+     0.0,
+     7.6,
+     2.7,
+     1.1
+    ],
+    [
+     0.0,
+     10.6,
+     2.7,
+     1.1
+    ],
+    [
+     0.0,
+     13.6,
+     2.7,
+     1.1
+    ],
+    [
+     0.0,
+     16.6,
+     2.7,
+     1.1
+    ],
+    [
+     0.0,
+     19.6,
+     2.7,
+     1.1
+    ],
+    [
+     0.0,
+     22.6,
+     2.7,
+     1.1
+    ]
+   ],
+   "base_height": 10.22,
+   "coordinates": [
+    [
+     23459915.269,
+     6705402.154
+    ],
+    [
+     23459913.016,
+     6705403.647
+    ]
+   ]
+  }
+ ],
+ "width_m": 9.611
+}

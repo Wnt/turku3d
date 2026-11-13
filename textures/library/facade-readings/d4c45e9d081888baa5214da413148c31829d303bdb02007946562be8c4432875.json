@@ -1,0 +1,33 @@
+{
+ "building_key": "103436172P",
+ "description": {
+  "facade_id": "reading-103436172P",
+  "features": [
+   "string_courses",
+   "ornament"
+  ],
+  "ground_floor": "doors",
+  "ground_openings": 8,
+  "material": "plaster",
+  "plinth": true,
+  "problem": "",
+  "roof_line": "cornice",
+  "storeys": 5,
+  "trim_colour": "#f1eee5",
+  "wall_colour": "#e8cb8c",
+  "wall_visible": true,
+  "window_columns": 8,
+  "window_height": 0.5152,
+  "window_width": 0.2849
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T06:42:25Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T06:42:25Z",
+  "style": "classicist_apartment",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "width_m": 33.701
+}

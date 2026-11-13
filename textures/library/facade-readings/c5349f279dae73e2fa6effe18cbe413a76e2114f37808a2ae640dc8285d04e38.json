@@ -1,0 +1,86 @@
+{
+ "building_key": "103286680C",
+ "description": {
+  "facade_id": "reading-103286680C",
+  "features": [
+   "balconies",
+   "pilasters"
+  ],
+  "ground_floor": "doors",
+  "ground_openings": 1,
+  "material": "plaster",
+  "plinth": false,
+  "problem": "",
+  "roof_line": "eaves",
+  "storeys": 11,
+  "trim_colour": "#eeeeea",
+  "wall_colour": "#dfa996",
+  "wall_visible": true,
+  "window_columns": 4,
+  "window_height": 0.4259,
+  "window_width": 0.2247
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T11:57:35Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T11:57:35Z",
+  "style": "tower_block",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "walls": [
+  {
+   "balconies": [
+    [
+     0.28,
+     13.0,
+     11.6,
+     1.1
+    ],
+    [
+     0.28,
+     15.8,
+     11.6,
+     1.1
+    ],
+    [
+     0.28,
+     18.6,
+     11.6,
+     1.1
+    ],
+    [
+     0.28,
+     21.4,
+     11.6,
+     1.1
+    ],
+    [
+     0.28,
+     24.2,
+     11.6,
+     1.1
+    ],
+    [
+     0.28,
+     27.0,
+     11.6,
+     1.1
+    ]
+   ],
+   "base_height": 16.09,
+   "coordinates": [
+    [
+     23459380.692,
+     6704976.257
+    ],
+    [
+     23459390.793,
+     6704983.016
+    ]
+   ]
+  }
+ ],
+ "width_m": 17.798
+}

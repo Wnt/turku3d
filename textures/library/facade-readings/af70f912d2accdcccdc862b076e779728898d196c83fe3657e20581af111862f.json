@@ -1,0 +1,30 @@
+{
+ "building_key": "1013194722",
+ "description": {
+  "facade_id": "reading-1013194722",
+  "features": [],
+  "ground_floor": "windows",
+  "ground_openings": 1,
+  "material": "metal",
+  "plinth": true,
+  "problem": "",
+  "roof_line": "eaves",
+  "storeys": 1,
+  "trim_colour": "#141516",
+  "wall_colour": "#b3b7bb",
+  "wall_visible": true,
+  "window_columns": 1,
+  "window_height": 0.3012,
+  "window_width": 0.6416
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T06:41:32Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T06:41:32Z",
+  "style": "industrial",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "width_m": 20.185
+}

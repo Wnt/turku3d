@@ -1,0 +1,55 @@
+{
+ "building_key": "103867061B",
+ "description": {
+  "facade_id": "reading-103867061B",
+  "features": [
+   "balconies"
+  ],
+  "ground_floor": "doors",
+  "ground_openings": 15,
+  "material": "concrete",
+  "plinth": false,
+  "problem": "",
+  "roof_line": "parapet",
+  "storeys": 8,
+  "trim_colour": "#3a3b40",
+  "wall_colour": "#c48a76",
+  "wall_visible": true,
+  "window_columns": 15,
+  "window_height": 0.6867,
+  "window_width": 0.2727
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T12:03:17Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T12:03:17Z",
+  "style": "office",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "walls": [
+  {
+   "balconies": [
+    [
+     13.08,
+     33.55,
+     26.0,
+     1.1
+    ]
+   ],
+   "base_height": 20.9,
+   "coordinates": [
+    [
+     23461329.24,
+     6704198.075
+    ],
+    [
+     23461369.511,
+     6704164.769
+    ]
+   ]
+  }
+ ],
+ "width_m": 52.259
+}

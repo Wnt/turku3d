@@ -1,0 +1,30 @@
+{
+ "building_key": "1017954174",
+ "description": {
+  "facade_id": "reading-1017954174",
+  "features": [],
+  "ground_floor": "windows",
+  "ground_openings": 3,
+  "material": "wood",
+  "plinth": false,
+  "problem": "",
+  "roof_line": "eaves",
+  "storeys": 1,
+  "trim_colour": "#e8e4da",
+  "wall_colour": "#3b2a20",
+  "wall_visible": true,
+  "window_columns": 3,
+  "window_height": 0.5,
+  "window_width": 0.45
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T06:37:43Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T06:37:43Z",
+  "style": "outbuilding",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "width_m": 6.563
+}

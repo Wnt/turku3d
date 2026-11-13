@@ -1,0 +1,34 @@
+{
+ "building_key": "103277387L",
+ "description": {
+  "facade_id": "reading-103277387L",
+  "features": [
+   "pilasters",
+   "string_courses",
+   "ornament"
+  ],
+  "ground_floor": "shops",
+  "ground_openings": 9,
+  "material": "plaster",
+  "plinth": false,
+  "problem": "",
+  "roof_line": "cornice",
+  "storeys": 5,
+  "trim_colour": "#3a3837",
+  "wall_colour": "#d8d5ca",
+  "wall_visible": true,
+  "window_columns": 27,
+  "window_height": 0.4783,
+  "window_width": 0.5415
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T07:41:45Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T07:41:45Z",
+  "style": "commercial",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "width_m": 39.888
+}

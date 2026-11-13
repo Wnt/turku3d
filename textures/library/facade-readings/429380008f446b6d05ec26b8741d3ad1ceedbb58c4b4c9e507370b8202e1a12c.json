@@ -1,0 +1,32 @@
+{
+ "building_key": "103313257P",
+ "description": {
+  "facade_id": "reading-103313257P",
+  "features": [
+   "ornament"
+  ],
+  "ground_floor": "doors",
+  "ground_openings": 8,
+  "material": "plaster",
+  "plinth": true,
+  "problem": "",
+  "roof_line": "cornice",
+  "storeys": 5,
+  "trim_colour": "#efeadd",
+  "wall_colour": "#a57468",
+  "wall_visible": true,
+  "window_columns": 8,
+  "window_height": 0.5312,
+  "window_width": 0.2768
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-12",
+  "by": "w2-buildings",
+  "reading": "humalistonkatu_01",
+  "style": "classicist_apartment",
+  "tier": "reviewed"
+ },
+ "source": "w2-reading",
+ "width_m": 37.569
+}

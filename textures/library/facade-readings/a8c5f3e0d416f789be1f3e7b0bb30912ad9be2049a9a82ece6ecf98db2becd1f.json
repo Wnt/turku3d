@@ -1,0 +1,33 @@
+{
+ "building_key": "1033297048",
+ "description": {
+  "facade_id": "reading-1033297048",
+  "features": [
+   "string_courses",
+   "ornament"
+  ],
+  "ground_floor": "windows",
+  "ground_openings": 1,
+  "material": "wood",
+  "plinth": true,
+  "problem": "",
+  "roof_line": "cornice",
+  "storeys": 2,
+  "trim_colour": "#f1eee4",
+  "wall_colour": "#d8bc62",
+  "wall_visible": true,
+  "window_columns": 3,
+  "window_height": 0.4627,
+  "window_width": 0.2223
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T01:41:34Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T01:41:34Z",
+  "style": "wooden_house",
+  "tier": "reviewed"
+ },
+ "source": "w2-reading",
+ "width_m": 14.848
+}

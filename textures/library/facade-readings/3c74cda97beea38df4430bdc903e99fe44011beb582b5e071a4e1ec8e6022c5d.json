@@ -1,0 +1,30 @@
+{
+ "building_key": "1033131209",
+ "description": {
+  "facade_id": "reading-1033131209",
+  "features": [],
+  "ground_floor": "shops",
+  "ground_openings": 8,
+  "material": "plaster",
+  "plinth": false,
+  "problem": "",
+  "roof_line": "parapet",
+  "storeys": 5,
+  "trim_colour": "#2e2a28",
+  "wall_colour": "#d3c9b6",
+  "wall_visible": true,
+  "window_columns": 8,
+  "window_height": 0.3793,
+  "window_width": 0.4193
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T07:24:54Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T07:24:54Z",
+  "style": "modern_apartment",
+  "tier": "reviewed"
+ },
+ "source": "w2-reading",
+ "width_m": 29.574
+}

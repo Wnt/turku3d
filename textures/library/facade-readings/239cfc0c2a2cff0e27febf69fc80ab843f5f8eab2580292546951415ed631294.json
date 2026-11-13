@@ -1,0 +1,121 @@
+{
+ "building_key": "1013194113",
+ "description": {
+  "facade_id": "reading-1013194113",
+  "features": [
+   "balconies"
+  ],
+  "ground_floor": "doors",
+  "ground_openings": 1,
+  "material": "concrete",
+  "plinth": false,
+  "problem": "",
+  "roof_line": "parapet",
+  "storeys": 6,
+  "trim_colour": "#7a2c2e",
+  "wall_colour": "#908f89",
+  "wall_visible": true,
+  "window_columns": 10,
+  "window_height": 0.365,
+  "window_width": 0.5837
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T21:32:16Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T21:32:16Z",
+  "style": "slab_block",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "walls": [
+  {
+   "balconies": [
+    [
+     8.33,
+     2.93,
+     2.8,
+     1.1
+    ],
+    [
+     8.33,
+     5.67,
+     2.8,
+     1.1
+    ],
+    [
+     8.33,
+     8.41,
+     2.8,
+     1.1
+    ],
+    [
+     8.33,
+     11.15,
+     2.8,
+     1.1
+    ],
+    [
+     8.33,
+     13.89,
+     2.8,
+     1.1
+    ],
+    [
+     8.33,
+     16.63,
+     2.8,
+     1.1
+    ],
+    [
+     26.745,
+     2.93,
+     2.75,
+     1.1
+    ],
+    [
+     26.745,
+     5.67,
+     2.75,
+     1.1
+    ],
+    [
+     26.745,
+     8.41,
+     2.75,
+     1.1
+    ],
+    [
+     26.745,
+     11.15,
+     2.75,
+     1.1
+    ],
+    [
+     26.745,
+     13.89,
+     2.75,
+     1.1
+    ],
+    [
+     26.745,
+     16.63,
+     2.75,
+     1.1
+    ]
+   ],
+   "base_height": 36.59,
+   "coordinates": [
+    [
+     23459506.792,
+     6708683.153
+    ],
+    [
+     23459489.51,
+     6708716.649
+    ]
+   ]
+  }
+ ],
+ "width_m": 37.692
+}

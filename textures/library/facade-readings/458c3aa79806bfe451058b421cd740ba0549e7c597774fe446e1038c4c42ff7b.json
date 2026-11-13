@@ -1,0 +1,34 @@
+{
+ "building_key": "103286692S",
+ "description": {
+  "facade_id": "reading-103286692S",
+  "features": [
+   "pilasters",
+   "string_courses",
+   "ornament"
+  ],
+  "ground_floor": "windows",
+  "ground_openings": 1,
+  "material": "plaster",
+  "plinth": false,
+  "problem": "",
+  "roof_line": "cornice",
+  "storeys": 6,
+  "trim_colour": "#4b3429",
+  "wall_colour": "#d8cbb2",
+  "wall_visible": true,
+  "window_columns": 8,
+  "window_height": 0.4286,
+  "window_width": 0.2522
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T11:55:43Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T11:55:43Z",
+  "style": "classicist_apartment",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "width_m": 44.401
+}

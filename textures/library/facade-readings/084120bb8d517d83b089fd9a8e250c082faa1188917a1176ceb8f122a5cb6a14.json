@@ -1,0 +1,34 @@
+{
+ "building_key": "1032866403",
+ "description": {
+  "facade_id": "reading-1032866403",
+  "features": [
+   "pilasters",
+   "string_courses",
+   "ornament"
+  ],
+  "ground_floor": "windows",
+  "ground_openings": 3,
+  "material": "plaster",
+  "plinth": true,
+  "problem": "",
+  "roof_line": "cornice",
+  "storeys": 1,
+  "trim_colour": "#8b8873",
+  "wall_colour": "#e6cd8a",
+  "wall_visible": true,
+  "window_columns": 3,
+  "window_height": 0.375,
+  "window_width": 0.3565
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T07:37:03Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T07:37:03Z",
+  "style": "church",
+  "tier": "observed"
+ },
+ "source": "w2-reading",
+ "width_m": 10.098
+}

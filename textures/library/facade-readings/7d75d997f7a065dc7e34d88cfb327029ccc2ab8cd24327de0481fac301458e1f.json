@@ -1,0 +1,32 @@
+{
+ "building_key": "1033131198",
+ "description": {
+  "facade_id": "reading-1033131198",
+  "features": [
+   "ornament"
+  ],
+  "ground_floor": "shops",
+  "ground_openings": 5,
+  "material": "concrete",
+  "plinth": false,
+  "problem": "",
+  "roof_line": "parapet",
+  "storeys": 5,
+  "trim_colour": "#3a332d",
+  "wall_colour": "#b8b4a9",
+  "wall_visible": true,
+  "window_columns": 9,
+  "window_height": 0.3438,
+  "window_width": 0.801
+ },
+ "engine": "stored",
+ "provenance": {
+  "at": "2026-11-13T07:30:07Z",
+  "by": "w2-observe",
+  "reading": "reading-2026-11-13T07:30:07Z",
+  "style": "office",
+  "tier": "reviewed"
+ },
+ "source": "w2-reading",
+ "width_m": 51.684
+}
