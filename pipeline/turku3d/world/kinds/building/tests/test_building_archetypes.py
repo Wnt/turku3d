@@ -137,3 +137,23 @@ def test_a_mapped_premise_belongs_to_the_building_that_holds_it_or_the_nearest_o
     # mapped at the door outside, the nearest; 3 m out, nobody's.
     assert {k: [list(p) for p in v] for k, v in owners.items()} == {1: [[10.4, 5.0], [10.0, 5.0]], 0: [[5.0, -1.0]]}
     assert building_shell.street_of("Läntinen Rantakatu 27 a") == "Läntinen Rantakatu"
+
+
+def test_a_block_of_flats_carries_balconies_on_every_tall_wall_facing_the_sun_and_newer_blocks_have_single_lights():
+    register = {"use": "1010", "year": 1975, "material": "betoni", "storeys": 6}
+    doc = {**automatic(register, width=40.0, eaves=18.0), "id": "building/x"}
+    # Two parts of one stepped front facing south-west, the back facing north-east, and a gable end.
+    walls = [{"index": 0, "width": 30.0, "rise": 0.0, "apex": 15.0, "height": 18.0, "normal": [-0.5, -0.87]},
+             {"index": 1, "width": 30.0, "rise": 0.0, "apex": 15.0, "height": 18.0, "normal": [-0.42, -0.91]},
+             {"index": 2, "width": 40.0, "rise": 0.0, "apex": 20.0, "height": 18.0, "normal": [0.5, 0.87]},
+             {"index": 3, "width": 12.0, "rise": 0.0, "apex": 6.0, "height": 18.0, "normal": [0.87, -0.5]}]
+    for salt in range(40):  # a block whose draw gives it balconies
+        doc["id"] = f"building/x{salt}"
+        if archetypes.balcony(doc, "slab_block"):
+            break
+    roles = archetypes.wall_roles(doc, "slab_block", walls, 3.6)
+    assert roles[0].get("balconies") and roles[1].get("balconies")
+    assert not roles[2].get("balconies") and not roles[3].get("balconies")
+    assert archetypes.block("eighties")["window"]["lights"]["pattern"] == "single"
+    assert archetypes.block("new")["window"]["lights"]["pattern"] == "single"
+    assert archetypes.block("sixties")["window"]["lights"]["pattern"] == "side_vent"

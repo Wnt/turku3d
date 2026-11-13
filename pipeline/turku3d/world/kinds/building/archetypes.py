@@ -581,15 +581,22 @@ def block_band(year: int) -> str:
 def block(band: str) -> dict:
     """Defaults of a block of flats or offices by the decade it was built in, sizes as the readings have them:
     small two-leaf windows close together after the war, wide windows with a vent leaf in the element blocks of
-    the sixties and seventies, wider bays since."""
+    the sixties and seventies, single-light windows since.
+
+    Blocks since 1980 (w2-rules, 2026-11-13, from 15 full readings of blocks of flats built 1980-2022, in the
+    centre's blocks and in the suburbs alike: Jagellonicankatu, Frantsinkatu, Paavinkatu, Ketarantie, Eerik
+    Pommerilaisen ranta, Rauhankatu, Hämeenkatu, Uudenmaankatu, Ruissalontie): the street wall's commonest window
+    is one light (7 of 15; a vent leaf 3), about 1.4 m wide (median of the read widths) and 1.5 m tall in the
+    eighties, 1.7 m since 2000. Scope: every block of flats of those years in the city, since the evidence holds
+    in the town and outside it."""
     spec = {
         "postwar": dict(w=1.25, h=1.35, pitch=3.2, lights={"pattern": "two_leaf"}, ground=3.0, upper=2.9,
                         recess=0.14, eaves=0.35, gutter=True, plinth=0.6, plinth_colour="#7d7a74"),
         "sixties": dict(w=2.1, h=1.4, pitch=3.6, lights={"pattern": "side_vent", "vent": "left", "vent_share": 0.24},
                         ground=2.9, upper=2.8, recess=0.1, eaves=0.15, gutter=False, plinth=0.5, plinth_colour="#76726c"),
-        "eighties": dict(w=1.9, h=1.45, pitch=4.0, lights={"pattern": "side_vent", "vent": "left", "vent_share": 0.28},
+        "eighties": dict(w=1.4, h=1.5, pitch=4.0, lights={"pattern": "single"},
                          ground=3.0, upper=2.9, recess=0.12, eaves=0.2, gutter=False, plinth=0.5, plinth_colour="#807c75"),
-        "new": dict(w=2.1, h=1.6, pitch=4.4, lights={"pattern": "side_vent", "vent": "right", "vent_share": 0.3},
+        "new": dict(w=1.4, h=1.7, pitch=4.4, lights={"pattern": "single"},
                     ground=3.1, upper=3.0, recess=0.14, eaves=0.15, gutter=False, plinth=0.45, plinth_colour="#6f6f6d"),
     }[band]  # fmt: skip
     return {
@@ -956,14 +963,25 @@ def wall_roles(doc: dict, kind: str, walls: list, pitch: float) -> dict:
         part = balcony(doc, kind)
         tall = [w for w in walls if w["width"] >= max(9.0, 0.6 * longest["width"]) and w.get("height", 0.0) >= 7.5]
         if part and tall:
-            # Balconies look to the sun: the long wall that faces nearest south-west carries them.
-            sunny = max(tall, key=lambda w: -0.5 * w.get("normal", (0.0, 0.0))[0] - 0.87 * w.get("normal", (0.0, 0.0))[1])
-            centres = bay_centres(sunny["width"], pitch)
+            # Balconies look to the sun: the long wall that faces nearest south-west carries them, and so does every
+            # other tall wall of the block that faces the same way (a block in several parts, a stepped front): of
+            # the read walls of blocks facing within 45 degrees of the sunniest one, 22 of 31 have balconies, of
+            # those facing away 9 of 26 (w2-rules, 2026-11-13, 36 full readings in the town and the suburbs).
+            def facing(w):
+                normal = w.get("normal", (0.0, 0.0))
+                return -0.5 * normal[0] - 0.87 * normal[1]
+
+            sunny = max(tall, key=facing)
+            ahead = sunny.get("normal", (0.0, 0.0))
+            sunward = [w for w in tall if w is sunny or (
+                "normal" in w and w["normal"][0] * ahead[0] + w["normal"][1] * ahead[1] >= math.cos(math.radians(45)))]
             every, first = part.pop("every"), part.pop("first")
-            taken = roles[sunny["index"]].get("doors", [])
-            us = [c for k, c in enumerate(centres) if k % every == first % every and all(abs(c - u) > 0.1 for u in taken)]
             width = min(part["w_m"], pitch - 0.3) if every == 1 else part["w_m"]
-            roles[sunny["index"]]["balconies"] = [{**part, "w_m": round(width, 2), "u_m": round(u, 2)} for u in us]
+            for w in sunward:
+                centres = bay_centres(w["width"], pitch)
+                taken = roles[w["index"]].get("doors", [])
+                us = [c for k, c in enumerate(centres) if k % every == first % every and all(abs(c - u) > 0.1 for u in taken)]
+                roles[w["index"]]["balconies"] = [{**part, "w_m": round(width, 2), "u_m": round(u, 2)} for u in us]
     if kind in BLOCKS | OLD_MASONRY | HALLS | OLD_WOODEN:
         town = in_town(doc)
         fronts = shop_walls(doc, kind, walls, longest)
