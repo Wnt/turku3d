@@ -104,6 +104,9 @@ function glass(p: BuildingMaterialParams) {
     const goods = step(at.y, height).mul(step(fract(cell), 0.82));
     const stock = mix(vec3(0.05, 0.045, 0.04), vec3(0.16, 0.1, 0.07), fract(cell.floor().mul(0.37).add(seed)));
     inside = mix(back.add(lights), stock, goods);
+    // Offices and closed shops on a shop floor keep white vertical blinds drawn across the whole pane.
+    const drawn = vec3(0.8, 0.79, 0.75).mul(sin(at.x.mul(seed.mul(120).add(160))).mul(0.1).add(0.9)).mul(0.64);
+    inside = mix(inside, drawn, step(0.62, tone));
   }
   if (p.interior === 'frosted') inside = vec3(0.35, 0.37, 0.38);
   if (p.tint) inside = inside.mul(uniform(new THREE.Color(p.tint)).mul(2).add(0.3));
