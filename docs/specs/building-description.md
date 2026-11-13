@@ -80,7 +80,7 @@ its frame overlaps most (same direction within 15°, within 1.5 m). Planes witho
 | `zones` | Rectangles with their own material and `relief` (banded or ashlar rustication, panelling): a boarded dado under the sills, a brick field in a plastered wall, a rusticated ground floor. |
 | `bands` | Horizontal parts: `cornice`, `eaves_cornice`, `string_course`, `sill_band`, `frieze`, `plinth_cap`, `trim_board`, `fascia_band`, with `height_m`, `projection_m`, `profile`. Placed by `v_m` or by `at` (a storey edge). |
 | `verticals` | `pilaster`, `lesene`, `corner_board`, `quoins`, `trim_board`, `pier`, `downpipe`, placed by `u_m` or `where` (`left`, `right`, `ends`, `between_bays`). |
-| `balconies` | By `type`: `cantilever`, `recessed`, `french`, `continuous`, `corner`, `glazed`, `stacked_frame`; with railing kind and the storeys that have one. |
+| `balconies` | By `type`: `cantilever`, `recessed`, `french`, `continuous`, `corner`, `glazed`, `stacked_frame`; with railing kind and the storeys that have one. A `recessed` balcony is a bay of the wall set back by `depth_m`, floor to the slab above; openings inside it sit on its back wall. `glazing: true` closes the front of any type with panes above the railing. |
 | `bay_windows` | By `type`: `box`, `canted`, `bow`, `corner_turret`, `stair_tower`; from storey to storey. |
 | `attached` | `porch`, `canopy`, `steps`, `downpipe`, `sign`, `lamp`, `flagpole`, `ladder`, `vent_grille`, `hatch`. |
 | `like` | Inherit every field of another wall, then override. |

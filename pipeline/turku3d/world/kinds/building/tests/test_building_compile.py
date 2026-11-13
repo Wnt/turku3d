@@ -167,3 +167,50 @@ def test_roofing_follows_the_orthophoto_colour_until_somebody_describes_the_roof
         eaves["roof"]["eaves"] == {"overhang_m": 0.6}
         and eaves["roof"]["material"]["family"] == "clay_tile"
     )
+
+
+def test_a_recessed_balcony_sets_a_bay_back_and_glazing_closes_its_front():
+    stored = json.loads((FIXTURES / "stone-apartment.json").read_text())
+    frame = stored["walls"][0]["frame"]
+    p0, p1 = np.asarray(frame["p0"][:2], float), np.asarray(frame["p1"][:2], float)
+    along = (p1 - p0) / np.linalg.norm(p1 - p0)
+    inward = np.array([-along[1], along[0]])
+    shell = gabled_shell(frame["p0"], frame["p1"], eaves=18.0, ridge=3.0)
+
+    def compiled(balconies):
+        doc = json.loads(json.dumps(stored))
+        doc["walls"][0]["balconies"] = balconies
+        doc = describe.effective(doc["id"].split("/")[1], shell, doc.get("register", {}), doc)
+        assert description.errors(doc) == []
+        return compile_module.compile(doc)
+
+    def behind(output, name):
+        """How far each vertex of the named parts lies behind the front wall's plane (engine axes: x east, z south)."""
+        at = np.vstack([p.positions for p in output.parts if p.name == name]).astype(float)
+        depth = np.column_stack([at[:, 0], -at[:, 2]]) @ inward
+        return depth - depth.min()
+
+    balcony = {"type": "recessed", "u_m": 4.0, "w_m": 2.4, "depth_m": 1.2, "storeys": [2, 3]}
+    plain, glazed = compiled([balcony]), compiled([{**balcony, "glazing": True}])
+    without = compiled([])
+    # The bay's back wall stands 1.2 m behind the wall face (the depth of the test shell is 9 m, so the other
+    # walls are at 0 and 9 m and nothing else is near 1.2 m).
+    depth = behind(plain, "walls")
+    assert np.isclose(depth, 1.2, atol=1e-3).sum() >= 8
+    assert not np.isclose(behind(without, "walls"), 1.2, atol=1e-3).any()
+    for part in plain.parts:
+        a, b, c = (part.positions[part.triangles[:, k]] for k in range(3))
+        face = np.cross(b - a, c - a)
+        agree = np.einsum("ij,ij->i", face, part.normals[part.triangles[:, 0]])
+        assert (agree[np.linalg.norm(face, axis=1) > 1e-7] > 0).all(), part.name
+
+    def glass_area(output):
+        total = 0.0
+        for part in output.parts:
+            if part.name == "glass":
+                a, b, c = (part.positions[part.triangles[:, k]] for k in range(3))
+                total += np.linalg.norm(np.cross(b - a, c - a), axis=1).sum() / 2
+        return total
+
+    # Two storeys of panes 2.4 m wide from the railing to the slab above.
+    assert glass_area(glazed) - glass_area(plain) > 2 * 2.4 * 1.0

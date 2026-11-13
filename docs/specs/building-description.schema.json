@@ -1277,6 +1277,10 @@
         "side_walls": {
           "type": "boolean"
         },
+        "glazing": {
+          "description": "Glass panes close the front from the railing to the slab above. The glazed type has it unless false.",
+          "type": "boolean"
+        },
         "conf": {
           "$ref": "#/$defs/conf"
         },

@@ -31,6 +31,21 @@ class Placed:
     height: float
     storey: int | None = None
     shape: object = None
+    recess: object = None  # the balcony recess whose back wall holds this opening
+
+
+RECESS_SHADE = (
+    0.6  # wall colour inside a balcony recess, until the renderer's ambient occlusion does it
+)
+
+
+@dataclass
+class Recess:
+    """A bay of the wall set back behind a recessed balcony, one storey of it."""
+
+    shape: object
+    depth: float
+    key: str = ""
 
 
 @dataclass
@@ -375,6 +390,7 @@ def build(
 
     # Openings that fit: inside the wall, clear of a neighbour's party wall and of each other.
     inside = outline.buffer(-0.12)
+    recesses = _recesses(facade, wall, plan, inside, blocked)
     kept, holes, misfits = [], [], []
     for p in plan.placed:
         shape = affinity.translate(openings.outline(p.spec, p.width, p.height), p.u0, p.v0)
@@ -397,13 +413,19 @@ def build(
         if any(shape.intersects(h) for h in holes):
             misfits.append(f"{p.name} at u {p.u0 + p.width / 2:.1f} (overlaps another opening)")
             continue
+        # An opening inside a balcony recess sits on the recess's back wall; one that crosses its edge has no wall.
+        p.recess = next((r for r in recesses if r.shape.buffer(0.03).contains(shape)), None)
+        if p.recess is None and any(shape.intersects(r.shape) for r in recesses):
+            misfits.append(f"{p.name} at u {p.u0 + p.width / 2:.1f} (crosses a balcony recess)")
+            continue
         p.shape = shape
         kept.append(p)
         holes.append(shape)
     if misfits and "frame" in wall:
         more = f" and {len(misfits) - 3} more" if len(misfits) > 3 else ""
         report.append(f"facade {facade.index}: left out {', '.join(misfits[:3])}{more}")
-    cut = unary_union(holes) if holes else None
+    gaps = [r.shape for r in recesses]
+    cut = unary_union(holes + gaps) if holes or gaps else None
 
     # Material regions, later ones over earlier ones.
     plinth = wall.get("plinth", {})
@@ -435,6 +457,16 @@ def build(
         )
         plinth_region = outline.intersection(rectangle(-1.0, -1.0, width + 1.0, plinth_top))
         regions.append((plinth_region, plinth_key, None))
+    for r in recesses:
+        # The bay is lined with the wall round it, darker: little sky reaches into it (as the gateway lining).
+        centre = r.shape.centroid
+        around = next(
+            (key for shape, key, _ in reversed(regions) if shape.contains(centre)), wall_key
+        )
+        lining = palette.records[around]
+        r.key = palette.key(
+            {**lining, "colour": shade(lining.get("colour", "#8a857d"), RECESS_SHADE)}
+        )
     resolved = []
     for k, (shape, key, _record) in enumerate(regions):
         shape = shape.intersection(outline) if k else shape
@@ -455,13 +487,27 @@ def build(
             mesh.face(local, "plinth" if is_plinth else "walls", key, shape)
         soup.place(local, facade)
 
+    # Balcony recesses: the back wall in the material of the wall round it, with cheeks, floor and ceiling.
+    for r in recesses:
+        within = [p.shape for p in kept if p.recess is r]
+        local = mesh.Soup()
+        back = r.shape.difference(unary_union(within)) if within else r.shape
+        mesh.face(local, "walls", r.key, back, -r.depth)
+        ring = np.asarray(mesh.orient(r.shape, 1.0).exterior.coords)[:-1]
+        mesh.ring_walls(local, "walls", r.key, ring, -r.depth, 0.0, outward=False)
+        soup.place(local, facade)
+
     # Opening assemblies, one template per type, size and surrounding wall material.
     rng = np.random.default_rng(zlib.crc32(f"{doc.get('id', '')}/{facade.index}".encode()))
     for p in kept:
         centre = p.shape.representative_point()
-        around = next(
-            (key for shape, key in reversed(resolved) if shape.buffer(0.3).contains(centre)),
-            wall_key,
+        around = (
+            p.recess.key
+            if p.recess
+            else next(
+                (key for shape, key in reversed(resolved) if shape.buffer(0.3).contains(centre)),
+                wall_key,
+            )
         )
         steps = p.spec.get("leaf", {}).get("steps", 0)
         template_key = (p.name, round(p.width, 3), round(p.height, 3), around, steps)
@@ -473,10 +519,23 @@ def build(
         curtain = rng.uniform(0.3, 1.0) if rng.random() < glass.get("curtains", 0.5) else 0.0
         blind = rng.uniform(0.15, 0.95) if rng.random() < glass.get("blinds", 0.15) else 0.0
         extra = np.array([curtain, blind, rng.random(), rng.random()])
-        soup.place(templates[template_key], facade, p.u0, p.v0, extra=extra)
+        set_back = -p.recess.depth if p.recess else 0.0
+        soup.place(templates[template_key], facade, p.u0, p.v0, set_back, extra=extra)
 
-    _bands(soup, facade, wall, plan, kept, doc, palette, wall_record, trim)
-    _verticals(soup, facade, wall, plan, kept, palette, wall_record, trim, plinth_top)
+    # Bands and vertical parts stop at a recess as they do at an opening.
+    solid = kept + [
+        Placed(
+            "recess",
+            {},
+            g.bounds[0],
+            g.bounds[1],
+            g.bounds[2] - g.bounds[0],
+            g.bounds[3] - g.bounds[1],
+        )
+        for g in gaps
+    ]
+    _bands(soup, facade, wall, plan, solid, doc, palette, wall_record, trim)
+    _verticals(soup, facade, wall, plan, solid, palette, wall_record, trim, plinth_top)
     _attached(soup, facade, wall, plan, doc, palette, wall_record, trim, templates)
     return plan
 
@@ -927,9 +986,42 @@ RAILING_FAMILY = {
 }
 
 
+def _balcony_floors(part: dict, plan) -> list:
+    """(floor level, height to the next floor) of each storey a balcony part names."""
+    if "storeys" in part:
+        return [plan.floors[i][:2] for i in part["storeys"] if 0 <= i < len(plan.floors)]
+    if "v_m" in part:
+        v = plan.datum + part["v_m"]
+        return [(v, next((h for f, h, _ in plan.floors if f - 0.5 <= v < f + h - 0.5), 2.8))]
+    return [floor[:2] for floor in plan.floors[1:]]
+
+
+def _recesses(facade, wall, plan, inside, blocked) -> list:
+    """The bays that recessed balconies set back into the wall: per storey, from the floor to the slab above."""
+    to_u = u_mapping(facade, wall)
+    found = []
+    for part in wall.get("balconies", []):
+        if part.get("type") != "recessed":
+            continue
+        u, w = to_u(part.get("u_m", facade.width / 2)), part.get("w_m", 3.0)
+        depth = max(0.3, part.get("depth_m", 1.4))
+        thickness = part.get("slab", {}).get("thickness_m", 0.18)
+        for floor, height in _balcony_floors(part, plan):
+            shape = rectangle(u - w / 2, floor, u + w / 2, floor + height - thickness)
+            if (
+                shape.area > 0.5
+                and inside.contains(shape)
+                and not (blocked is not None and blocked.intersects(shape))
+                and not any(shape.intersects(r.shape) for r in found)
+            ):
+                found.append(Recess(shape, depth))
+    return found
+
+
 def _balconies(local, facade, wall, plan, palette, to_u):
     """Balconies: a slab at each of their storeys' floors with a railing round it. A french balcony is the railing
-    alone in front of its door; a recessed one is drawn as its front at the wall plane (the recess is not cut)."""
+    alone in front of its door; a recessed one is its front at the wall plane before the bay `build` sets back.
+    `glazing` (the `glazed` type has it) closes the front with panes from the railing to the slab above."""
     for part in wall.get("balconies", []):
         kind = part.get("type", "cantilever")
         u, w = to_u(part.get("u_m", facade.width / 2)), part.get("w_m", 3.0)
@@ -956,13 +1048,37 @@ def _balconies(local, facade, wall, plan, palette, to_u):
             },
         )
         thickness = slab.get("thickness_m", 0.18)
-        if "storeys" in part:
-            floors = [plan.floors[i][0] for i in part["storeys"] if 0 <= i < len(plan.floors)]
-        elif "v_m" in part:
-            floors = [plan.datum + part["v_m"]]
-        else:
-            floors = [floor[0] for floor in plan.floors[1:]]
-        for floor in floors:
+        glazing = part.get("glazing", kind == "glazed")
+        pane = palette.key({"family": "glass"})
+        for floor, clear in _balcony_floors(part, plan):
+            top = floor + clear - thickness
+            if glazing and kind != "french" and top - floor - height > 0.4:
+                # Frameless sliding panes behind a head rail, with a slim upright about every 0.8 m.
+                mesh.face(
+                    local,
+                    "glass",
+                    pane,
+                    rectangle(u0, floor + height, u1, top),
+                    depth - 0.03,
+                    uv_origin=(-u0, -floor - height),
+                )
+                mesh.box(
+                    local, "attached", rail, u0, top - 0.05, u1, top, depth - 0.05, depth, back=True
+                )
+                count = max(1, round((u1 - u0) / 0.8))
+                for k in range(count + 1):
+                    x = u0 + (u1 - u0 - 0.025) * k / count
+                    mesh.box(
+                        local,
+                        "attached",
+                        rail,
+                        x,
+                        floor + height,
+                        x + 0.025,
+                        top - 0.05,
+                        depth - 0.04,
+                        depth,
+                    )
             if kind != "french":
                 mesh.box(
                     local, "attached", deck, u0, floor - thickness, u1, floor, 0.0, depth, back=True
