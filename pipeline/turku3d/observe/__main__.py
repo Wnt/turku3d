@@ -103,6 +103,7 @@ def second_look(record: dict, packet: Path, root: Path, reading: dict, meta: dic
 
 
 REVIEW_MAY_DROP = 2  # parts a review may lose more than the first reading: the photographs outweigh the fit
+REVIEW_HIDDEN = 0.7  # a crop hidden this much by trees or vehicles cannot confirm a wall
 
 
 def review(packet: Path, root: Path, effort: str, force: bool = False) -> dict:
@@ -148,6 +149,10 @@ def review(packet: Path, root: Path, effort: str, force: bool = False) -> dict:
                 dropped_reader=f"{before} -> {after}", changed=str(again.get("notes", ""))[:400])
     if problems or after > before + REVIEW_MAY_DROP:
         return {**line, "kept": "the observed description (the review was invalid or lost more parts)"}
+    seen = {v["file"]: v for v in again.get("views", [])}
+    if not any(seen.get(crop, {}).get("usable", True) and seen.get(crop, {}).get("hidden_share", 0.0) < REVIEW_HIDDEN
+               for crop, _ in pairs.values()):
+        return {**line, "kept": "the observed description (no compared crop shows enough of its wall)"}
     (packet / "reading-observed.json").write_text(json.dumps(saved, indent=1, ensure_ascii=False))
     (packet / "reading.json").write_text(json.dumps({"reading": again, "meta": meta_again}, indent=1,
                                                     ensure_ascii=False))
