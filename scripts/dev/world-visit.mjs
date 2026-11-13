@@ -9,6 +9,7 @@
 // the keys and the mouse a visitor uses, takes stills, and checks that the camera moved.
 // play: the game itself (?world=NAME&play=1): waits for the session, walks, enters the car, drives; stills and the
 // player's positions from window.__game.state().
+// page: any page of the site (the start page, the old build): final address, text, links and a still (--wait SECONDS).
 // The browser is the leased one (BROWSER_CDP). Exit 0 when every check held; report.json lists them.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -20,7 +21,7 @@ const { chromium } = createRequire(path.join(repo, 'game/package.json'))('playwr
 const argv = process.argv.slice(2);
 const opt = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
 const url = opt('--url'), out = opt('--out'), mode = opt('--mode', 'look'), timeout = Number(opt('--ready-timeout', 300)) * 1000;
-if (!url || !out || !process.env.BROWSER_CDP) { console.error('usage: BROWSER_CDP=... world-visit.mjs --url URL --out DIR [--mode look|play]'); process.exit(2); }
+if (!url || !out || !process.env.BROWSER_CDP) { console.error('usage: BROWSER_CDP=... world-visit.mjs --url URL --out DIR [--mode look|play|page]'); process.exit(2); }
 fs.mkdirSync(out, { recursive: true });
 
 const report = { url, mode, started: new Date().toISOString(), checks: {}, stills: [], console: [], failed: [], notes: [] };
@@ -45,7 +46,16 @@ const finish = async code => {
 const t0 = Date.now();
 try {
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  if (mode === 'look') {
+  if (mode === 'page') {
+    // Any page of the site (the start page, the old build): where the address led, what it shows.
+    await page.waitForTimeout(Number(opt('--wait', 8)) * 1000);
+    report.finalUrl = page.url();
+    report.title = await page.title();
+    report.text = (await page.evaluate(() => document.body.innerText)).slice(0, 1500);
+    report.links = await page.evaluate(() => [...document.querySelectorAll('a')].map(a => a.href).slice(0, 60));
+    report.checks.loaded = !!report.text;
+    await still('page');
+  } else if (mode === 'look') {
     await page.waitForFunction(() => /entities/.test(document.querySelector('#preview-status')?.textContent ?? '') || !!window.__qaError,
       null, { timeout, polling: 500 });
     report.loadSeconds = (Date.now() - t0) / 1000;
