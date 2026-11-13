@@ -3,12 +3,13 @@
 import json
 import os
 import struct
+import types
 
 import numpy as np
 import pytest
 
 from turku3d.world import driver, store as world_store
-from turku3d.world.api import Heightfield, Instances, Material, Output, Part, Stub, envelope
+from turku3d.world.api import Area, Heightfield, Instances, Material, Output, Part, Stub, envelope
 from turku3d.world.kinds import KINDS, _hashes
 from turku3d.world.store import Store
 
@@ -103,6 +104,32 @@ def test_refresh_rewrites_the_manifest_only_when_an_entity_changed(posts):
     assert driver.refresh("t", store, ["posts/p1"], log=lambda *_: None)["changed"] == ["posts/p1"]
     after = store.location("t")
     assert after["revision"] == 2 and after["entities"][0]["hash"] != row["hash"] and after["entities"][0]["tier"] == "reviewed"
+
+
+def test_a_kind_whose_discover_raises_costs_the_location_one_failure_row(posts, monkeypatch):
+    store, stub = posts
+
+    class Unreadable:
+        name = "unreadable"
+
+        def discover(self, area, sources):
+            raise FileNotFoundError("No lidar tile 1_2")
+
+    class NoSources:
+        """Only what the driver itself reads: the terrain height at the focus; every other source is absent."""
+
+        def __init__(self, log=print):
+            self.timings = {}
+            self.wfs = types.SimpleNamespace(fetched=[])
+            self.terrain = types.SimpleNamespace(heights=lambda e, n: np.array([5.0]))
+
+    monkeypatch.setattr(KINDS["posts"], "discover", lambda area, sources: [stub], raising=False)
+    monkeypatch.setattr(driver, "KINDS", {"unreadable": Unreadable(), "posts": KINDS["posts"]})
+    monkeypatch.setattr(driver, "Sources", NoSources)
+    manifest = driver.build("t", Area(2.0, 2.0, 10.0), 50.0, store, log=lambda *_: None)
+    assert [row["id"] for row in manifest["entities"]] == ["posts/p1"]
+    assert manifest["failures"] == [{"id": "unreadable/*", "error": "discover: FileNotFoundError: No lidar tile 1_2"}]
+    assert store.location("t")["failures"] == manifest["failures"]
 
 
 def test_osm_table_has_one_row_per_point_line_and_area(tmp_path):
