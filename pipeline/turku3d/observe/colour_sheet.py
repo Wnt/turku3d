@@ -12,9 +12,27 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 from . import colour
+
+
+def _font():
+    for path in ("/System/Library/Fonts/Supplemental/Arial.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"):
+        if Path(path).exists():
+            return ImageFont.truetype(path, 11)
+    return ImageFont.load_default()
+
+
+FONT = _font()
+
+
+def _draw(image: Image.Image) -> ImageDraw.ImageDraw:
+    """A pen whose labels use the font that has ö and ä."""
+    draw = ImageDraw.Draw(image)
+    draw.font = FONT
+    return draw
+
 
 ROW_H = 250
 CONTEXT_W = 320
@@ -42,7 +60,7 @@ def row(packet: Path) -> Image.Image | None:
     walls = {w["id"]: w for w in record["walls"]}
     sample = colour.of_packet(packet)
     sheet = Image.new("RGB", (CONTEXT_W + CROPS * CROP_W + SWATCH_W, ROW_H), PAPER)
-    draw = ImageDraw.Draw(sheet)
+    draw = _draw(sheet)
     register = record.get("register", {})
     draw.text((6, 4), f"{register.get('address') or '?'}  ·  {record['building']}  ·  {register.get('year') or '?'}", fill=INK)
     context = packet / "context-1.jpg"
@@ -60,7 +78,7 @@ def row(packet: Path) -> Image.Image | None:
         picture = Image.fromarray(colour.picture_of(path))
         box = colour.strip_box(crop, walls[crop["wall"]]) if crop["wall"] in walls else None
         if box:
-            ImageDraw.Draw(picture).rectangle([box[1].start, box[0].start, box[1].stop, box[0].stop],
+            _draw(picture).rectangle([box[1].start, box[0].start, box[1].stop, box[0].stop],
                                               outline=(255, 0, 255), width=max(2, picture.width // 250))
         small = _fit(picture, CROP_W - 10, ROW_H - 42)
         x = CONTEXT_W + k * CROP_W + 5
@@ -93,7 +111,7 @@ def sheet(packets: list[Path], out: Path, title: str = "") -> dict:
         return {"rows": 0}
     head = 26
     page = Image.new("RGB", (rows[0].width, head + ROW_H * len(rows)), PAPER)
-    ImageDraw.Draw(page).text((6, 6), title + "   house | sampled wall crops (magenta: the sampled stretch) | "
+    _draw(page).text((6, 6), title + "   house | sampled wall crops (magenta: the sampled stretch) | "
                               "pixel colour, calibrated wall colour, per-strip colours", fill=INK)
     for k, r in enumerate(rows):
         page.paste(r, (0, head + k * ROW_H))
@@ -134,7 +152,7 @@ def sketch(parts: dict) -> Image.Image:
     two windows with frames, a door, the roof."""
     w, h = SKETCH
     image = Image.new("RGB", (w, h), (225, 230, 235))
-    draw = ImageDraw.Draw(image)
+    draw = _draw(image)
     get = lambda name, default=None: parts[name]["pixel"] if name in parts else default  # noqa: E731
     wall = get("wall", "#888888")
     left, right, eaves, foot = 22, w - 22, 58, h - 14
@@ -171,7 +189,7 @@ def parts_row(packet: Path, tag: str, overcast: dict | None = None) -> tuple[Ima
         return None
     width = CONTEXT_W + 2 * 400 + 560
     sheet = Image.new("RGB", (width, PART_ROW_H), PAPER)
-    draw = ImageDraw.Draw(sheet)
+    draw = _draw(sheet)
     draw.text((6, 4), f"{result['address'] or '?'}  ·  {result['building']}  ·  {result['year'] or '?'}", fill=INK)
     context = packet / "context-1.jpg"
     if context.exists():
@@ -197,8 +215,11 @@ def parts_row(packet: Path, tag: str, overcast: dict | None = None) -> tuple[Ima
             extra = part.get("zone") or (f"{part['height_m']} m" if "height_m" in part else "")
             draw.text((px, py + 46), f"{name} {extra}", fill=INK)
             draw.text((px, py + 58), f"{part['pixel']} c{part['conf']}", fill=INK)
-        sheet.paste(sketch(result["parts"]), (x + 368, 22))
-        draw.text((x + 368, 22 + SKETCH[1] + 2), "sketch in the measured colours", fill=INK)
+        if "wall" in result["parts"]:
+            sheet.paste(sketch(result["parts"]), (x + 368, 22))
+            draw.text((x + 368, 22 + SKETCH[1] + 2), "sketch in the measured colours", fill=INK)
+        else:
+            draw.text((x, 60), "nothing measured: no panorama shows enough of a wall", fill=INK)
         for k, r in enumerate(rows[:6]):
             p = r["panorama"]
             cloud = "?" if r["overcast"] is None else f"{r['overcast']:.2f}"
@@ -221,7 +242,7 @@ def parts_sheet(packets: list[Path], out: Path, title: str = "", tag: str = "m2f
         return {"rows": 0}
     head = 40
     page = Image.new("RGB", (done[0][0].width, head + PART_ROW_H * len(done)), PAPER)
-    draw = ImageDraw.Draw(page)
+    draw = _draw(page)
     draw.text((6, 4), title, fill=INK)
     draw.text((6, 20), "house | chosen wall crop | parts painted in their measured colours (green-grey: in front of the wall) | "
               "swatches: pixel colour, narrow: calibrated paint colour; c = confidence | candidate panoramas, best first", fill=INK)

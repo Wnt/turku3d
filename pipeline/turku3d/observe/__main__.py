@@ -360,6 +360,8 @@ def main(argv=None) -> int:
     ap.add_argument("--sheet", type=Path, help="colour: write a contact sheet of the named buildings' packets "
                                                "(house, sampled crops, swatches) and measure nothing new")
     ap.add_argument("--title", default="", help="colour --sheet: the sheet's heading")
+    ap.add_argument("--light", action="store_true",
+                    help="colour: measure the light (overcast 0..1) of every panorama the packets use")
     ap.add_argument("--layers", type=int, default=0, metavar="N",
                     help="views: every time layer of the panorama spots is a candidate; a wall gets its best view of "
                          "each visit, up to N (for ranking by weather and for scatter between visits)")
@@ -397,6 +399,13 @@ def main(argv=None) -> int:
         from . import against
 
         print(json.dumps(against.run(a.out), ensure_ascii=False), flush=True)
+        return 0
+    if a.command == "colour" and a.light:
+        from . import colour_light
+
+        light = colour_light.of_root(root)
+        print(json.dumps({"panoramas": len(light), "overcast_0.7_or_more": sum(v["overcast"] >= 0.7 for v in light.values()),
+                          "file": str(root / "panorama-light.json")}), flush=True)
         return 0
     if a.command == "colour" and (a.check or a.apply):
         from turku3d.world.store import data_root
@@ -500,7 +509,9 @@ def main(argv=None) -> int:
         from . import colour_sheet
 
         packets = [root / "buildings" / b.id for b in buildings]
-        print(json.dumps(colour_sheet.parts_sheet(packets, a.sheet, a.title, a.parts) if a.parts
+        light = root / "panorama-light.json"
+        overcast = {k: v["overcast"] for k, v in json.loads(light.read_text()).items()} if light.exists() else None
+        print(json.dumps(colour_sheet.parts_sheet(packets, a.sheet, a.title, a.parts, overcast) if a.parts
                          else colour_sheet.sheet(packets, a.sheet, a.title)), flush=True)
         return 0
     if a.command == "colour":  # wall colours from strips, no reader
