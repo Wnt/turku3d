@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 from . import compile as compile_module
-from . import describe, description, glb, lod2
+from . import describe, description, glb
 
 REPO = Path(__file__).resolve().parents[5]
 
@@ -42,8 +42,17 @@ def shell_for(key: str, near) -> tuple[dict, dict]:
     if cache.exists():
         stored = json.loads(cache.read_text())
         return stored["shell"], stored["register"]
-    rows, others = lod2.building_at(near[0], near[1], key)
-    shell, register = lod2.shell(rows, others), lod2.register(rows.iloc[0])
+    # The shell the build itself discovers: the shared source readers fetch what the raw tree does not hold, so
+    # the workbench works wherever the build does.
+    from ...api import Area
+    from ...sources import Sources
+    from .. import building_shell
+
+    stubs = building_shell.discover(Area(float(near[0]), float(near[1]), 10.0), Sources(log=lambda *_: None))
+    stub = next((s for s in stubs if s.id == f"building/{key}"), None)
+    if stub is None:
+        raise LookupError(f"no building {key} within 10 m of {near[0]:.0f}, {near[1]:.0f}")
+    shell, register = stub.facts["shell"], stub.facts["register"]
     cache.parent.mkdir(parents=True, exist_ok=True)
     cache.write_text(json.dumps({"shell": shell, "register": register}))
     return shell, register
