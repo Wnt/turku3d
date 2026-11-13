@@ -9,7 +9,7 @@ from shapely import affinity
 from shapely.geometry import Point, Polygon
 
 from . import mesh, openings, priors
-from .facade import eaves_height, u_mapping
+from .facade import WALL_GABLE_RISE, eaves_height, u_mapping
 from .materials import Palette
 
 UP = np.array([0.0, 0.0, 1.0])
@@ -344,7 +344,7 @@ def _dormer(
     if setback < 0.3:
         top_of_wall = _outline_top(facade, u)
         if top_of_wall is not None:
-            if top_of_wall - eaves_height(facade.outline, facade.width) > 0.6:
+            if top_of_wall - eaves_height(facade.outline, facade.width) > WALL_GABLE_RISE:
                 return  # the shell's wall already rises into this dormer: the wall gable is built with the wall
             base = float(facade.origin[2]) + top_of_wall
     if base is None:

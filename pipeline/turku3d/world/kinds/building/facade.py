@@ -34,6 +34,9 @@ class Placed:
     recess: object = None  # the balcony recess whose back wall holds this opening
 
 
+WALL_GABLE_RISE = (
+    0.6  # a wall outline this far over the eaves at a wall dormer's place is that dormer
+)
 RECESS_SHADE = 0.6  # the wall's colour inside a balcony recess (Palette.occluded)
 
 
@@ -210,7 +213,49 @@ def layout(facade, wall: dict, doc: dict, report: list) -> Layout:
             opening.get("w_m"),
             opening.get("h_m"),
         )
+    # A wall dormer that the shell has as a gable of this wall is built with the wall (roofs.py leaves it out):
+    # its window goes into that gable, centred on the gable as the shell has it and as large as fits it.
+    inside = None
+    for dormer in doc.get("roof", {}).get("dormers", []):
+        at = dormer.get("anchor", {})
+        if (
+            dormer.get("type") != "wall_dormer"
+            or at.get("wall") != wall.get("id")
+            or "u_m" not in at
+        ):
+            continue
+        name = dormer.get("window") or "@attic"
+        spec = priors.resolve_opening(doc, name)
+        u = to_u(at["u_m"])
+        if spec.get("kind") != "window" or _rise(facade, u, eaves) <= WALL_GABLE_RISE:
+            continue
+        # The gable's apex is the highest corner of the wall outline within the dormer's width of its anchor.
+        reach = dormer.get("w_m", 2.0) / 2 + 1.0
+        corners = [c for c in facade.outline.exterior.coords if abs(c[0] - u) <= reach]
+        centre, top = max(corners, key=lambda c: c[1], default=(u, eaves))[:2]
+        if top - eaves <= WALL_GABLE_RISE:
+            continue
+        count = spec.get("multiple", {}).get("count", 1)
+        gap = spec.get("multiple", {}).get("gap_m", 0.12)
+        width = spec.get("w_m", 0.9)
+        height = min(spec.get("h_m", 1.0), (top - eaves) * 0.6)
+        inside = facade.outline.buffer(-0.15) if inside is None else inside
+        for scale in (1.0, 0.85, 0.7, 0.55, 0.4):
+            half = (count * width * scale + (count - 1) * gap) / 2
+            bottom = eaves + 0.15
+            fits = inside.contains(
+                rectangle(centre - half, bottom, centre + half, bottom + height * scale)
+            )
+            if fits and width * scale > 0.3 and height * scale > 0.3:
+                add(name, centre, bottom, None, None, width * scale, height * scale)
+                break
     return out
+
+
+def _rise(facade, u: float, eaves: float) -> float:
+    """How far the wall's outline rises over the eaves line at u."""
+    column = facade.outline.intersection(LineString([(u, -5.0), (u, 1e4)]))
+    return 0.0 if column.is_empty else column.bounds[3] - eaves
 
 
 def anchor(layout_: Layout, at: dict, doc: dict) -> float:
