@@ -122,15 +122,18 @@ def inset(ring: np.ndarray, distance: np.ndarray) -> np.ndarray:
     return ring + inward * (distance / sharp)[:, None]
 
 
-def mass(ring: np.ndarray, base_y, height: float, rng) -> dict:
+def mass(ring: np.ndarray, base_y, height: float, rng, cut=None) -> dict:
     """A shrub mass over an outline (engine x, z ring; `base_y` the ground under it, one height or one per vertex):
     a closed dome whose sides stand on the outline and lean in towards a flat top, by the same distance all round,
-    so that a long bed is a bank and not a tent."""
+    so that a long bed is a bank and not a tent. `cut` marks the vertices where the outline was cut and the mass
+    goes on in a neighbour: the side stands upright there. Sprays cover the sides and the top."""
     turn = float(np.sum(ring[:, 0] * np.roll(ring[:, 1], -1) - np.roll(ring[:, 0], -1) * ring[:, 1]))
     base = np.broadcast_to(np.asarray(base_y, float), (len(ring),))
-    ring, base = (ring, base) if turn > 0 else (ring[::-1], base[::-1])
+    cut = np.zeros(len(ring)) if cut is None else np.asarray(cut, float)
+    ring, base, cut = (ring, base, cut) if turn > 0 else (ring[::-1], base[::-1], cut[::-1])
     area = 0.5 * abs(turn)
     perimeter = float(np.linalg.norm(ring - np.roll(ring, 1, axis=0), axis=1).sum())
+    closed = densified(ring, cut)[1] < 0.999  # a vertex between two cut ones lies on the cut
     ring, base = densified(ring, base)
     n = len(ring)
     lean = min(0.6, 0.45 * height, 0.5 * area / max(perimeter, 1e-6))  # the top ring's inset: half the narrowest half-width at most
@@ -138,7 +141,7 @@ def mass(ring: np.ndarray, base_y, height: float, rng) -> dict:
     rings = []
     for share, y in levels:
         wobble = rng.normal(0.0, 0.06, n) if y > 0 else 0.0
-        xz = inset(ring, lean * share + wobble)
+        xz = inset(ring, (lean * share + wobble) * closed)
         rings.append(np.stack([xz[:, 0], base + y, xz[:, 1]], axis=1))
     positions = np.concatenate(rings)
     faces = []
@@ -155,13 +158,15 @@ def mass(ring: np.ndarray, base_y, height: float, rng) -> dict:
     uv = positions[:, [0, 2]]
     triangles = np.concatenate([*faces, top[:, ::-1], bottom[:, ::-1]])
     return {"positions": positions, "normals": normals, "uvs": uv, "colors": shade, "triangles": triangles,
-            "surface": {"p": positions, "n": normals, "shade": shade, "grid": (len(levels), n), "closed": True, "area": perimeter * height * 1.15 + 0.3 * area}}
+            "surface": {"p": positions, "n": normals, "shade": shade, "grid": (len(levels), n), "closed": True, "area": perimeter * height * 1.15,
+                        "top": positions[top]}}
 
 
 DENSITY = {"clipped": 26.0, "loose": 20.0}  # leaf sprays a square metre of surface
 SPRAY = {"clipped": (0.26, 0.36), "loose": (0.4, 0.58)}  # metres across a spray
 TILT = {"clipped": (6.0, 20.0), "loose": (14.0, 40.0)}  # degrees a spray on a side is lifted off the surface
 EVERGREEN = 1.6  # times as many sprays on an evergreen: a frond is narrower than a leafy spray
+TOP = 1.4  # times as many on a flat top, which is looked down on
 FAR = (0.15, 2.3)  # the distant level: this share of the sprays, this much larger
 
 
@@ -184,6 +189,19 @@ def shell(surface: dict, form: str, evergreen: bool, rng, far: bool = False) -> 
         return (g[r0, c0] * (1 - fu) * (1 - fv) + g[r0, c1] * (1 - fu) * fv + g[r0 + 1, c0] * fu * (1 - fv) + g[r0 + 1, c1] * fu * fv)
 
     p, normal, shade = at(grid_p), treegen.unit(at(grid_n)), at(grid_s)[:, 0]
+    if "top" in surface and len(surface["top"]):
+        # The flat top of a mass, by area: sprays standing on it.
+        a, b, c = surface["top"][:, 0], surface["top"][:, 1], surface["top"][:, 2]
+        areas = 0.5 * np.linalg.norm(np.cross(b - a, c - a), axis=1)
+        more = int(min(areas.sum() * TOP * DENSITY[form] * (EVERGREEN if evergreen else 1.0) * (FAR[0] if far else 1.0), 24000))
+        if more and areas.sum() > 0:
+            pick = rng.choice(len(areas), more, p=areas / areas.sum())
+            s, t = rng.random(more), rng.random(more)
+            s, t = np.where(s + t > 1, 1 - s, s), np.where(s + t > 1, 1 - t, t)
+            p = np.concatenate([p, a[pick] + (b[pick] - a[pick]) * s[:, None] + (c[pick] - a[pick]) * t[:, None]])
+            normal = np.concatenate([normal, np.broadcast_to(UP, (more, 3))])
+            shade = np.concatenate([shade, np.ones(more)])
+            count += more
     size = rng.uniform(*SPRAY[form], count) * (FAR[1] if far else 1.0)
     # On a side a spray climbs the surface; on the top it has no way up and stands in any direction.
     climb = UP - normal * normal[:, 1:2]
@@ -191,7 +209,7 @@ def shell(surface: dict, form: str, evergreen: bool, rng, far: bool = False) -> 
     around = treegen.any_perp(normal)
     turn = rng.uniform(0, 2 * np.pi, count)[:, None]
     climb = treegen.unit(np.where(top[:, None], around * np.cos(turn) + np.cross(normal, around) * np.sin(turn), climb))
-    tilt = np.radians(np.where(top, rng.uniform(35.0, 80.0, count), rng.uniform(*TILT[form], count)))[:, None]
+    tilt = np.radians(np.where(top, rng.uniform(15.0, 60.0, count), rng.uniform(*TILT[form], count)))[:, None]
     up = treegen.unit(climb * np.cos(tilt) + normal * np.sin(tilt) + rng.normal(0, 0.12, (count, 3)))
     side = treegen.unit(np.cross(up, normal))
     out = rng.uniform(0.0, 0.1 if form == "loose" else 0.03, count)[:, None]

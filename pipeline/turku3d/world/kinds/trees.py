@@ -59,6 +59,10 @@ THUJA_SPREAD = 0.55  # a column is at most this wide for its height
 THUJA_GROUP = 16  # columns one measured crown is split into at most
 # The tree library: family x size class x seed. A tree is an instance of the nearest model, fitted by its row's
 # scale (at most about a quarter either way), so a location draws a few dozen tree meshes however many trees it has.
+# A grown birch, aspen or pine has shed its low branches: what the scan returns under its crown is the undergrowth
+# (dev points: birches 15 m tall measured with a crown base of 1 m stand with 4 m of bare white stem).
+CLEAR_STEM = {"birch": 0.28, "poplar": 0.28, "pine": 0.45}  # crown base / height at least
+CLEAR_FROM = 9.0  # metres of height
 HEIGHTS = (4.0, 6.3, 10.0, 16.0, 25.0)
 SPREADS = (0.18, 0.3, 0.46)  # crown radius / height
 BASES = (0.16, 0.28, 0.45)  # crown base / height
@@ -298,7 +302,8 @@ def tree_row(row: dict, chosen: tuple[str, str] | None = None) -> dict:
         "family": family, "familyFrom": why, "age": "young" if young else "old" if old else "mature", "seed": seed,
         "height": round(height, 2),
         "crown": {"major": round(major, 2), "minor": round(minor, 2), "angle": row["angle"],
-                  "base": round(min(row["base"] * (height / row["height"]), 0.7 * height), 2)},
+                  "base": round(min(max(row["base"] * (height / row["height"]), CLEAR_STEM.get(family, 0.0) * height if height >= CLEAR_FROM else 0.0),
+                                    0.7 * height), 2)},
         "measured": {key: row[key] for key in ("height", "width", "major", "minor", "base", "widestAt", "returns", "through", "green", "top")},
     }
     species = register.get("species") or register.get("genus") or row.get("osm", {}).get("species")

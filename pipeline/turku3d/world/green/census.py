@@ -11,14 +11,16 @@ import os
 from pathlib import Path
 
 from ..frame import cell_box_en, cell_key
-from . import hedges, inventory, lidar, osm
+from . import hedges, inventory, lidar, osm, tufts
 
 # Names the measuring method. Change it when a cell would be measured differently (lidar.py, inventory.py,
 # hedges.py, osm.py or this file): every location then re-measures, 20 to 60 s for a pilot location and minutes a
 # lidar tile on a loaded host, so an edit that measures the same must leave it alone.
-RECIPE = "20261113-mapped-whole"
+RECIPE = "20261113-beds-cover"
 
 
+PAVED = ("asfaltti", "betoni", "kivi", "laatta", "sora", "murske", "kiveys")  # Pintamateriaali of hard ground in both registers
+BEDS = ("kasvillisuus", "istutus")  # GIS:Viheralueet Pintamateriaali: planted shrubs and perennials
 FENCES = ("66636", "66630", "66632", "62534")  # kanta:Rakenne: wooden and stone fences, railings
 
 
@@ -48,9 +50,30 @@ def cell(i: int, j: int, features) -> dict:
               if feature.attrs.get("kplkoodi", "") in FENCES for geom in feature.geoms if geom.type == "LineString"]
     import shapely
 
-    public = shapely.union_all([shapely.make_valid(shapely.force_2d(geom.shape)) for layer in ("GIS:Katualueet", "GIS:Viheralueet")
-                                for feature in features(layer, wide) for geom in feature.geoms if geom.type == "Polygon"])
-    result.update(hedges.measure(box, window, lines, result.pop("window_trees"), fences, public))
+    greens = [(feature, shapely.make_valid(shapely.force_2d(geom.shape))) for feature in features("GIS:Viheralueet", wide)
+              for geom in feature.geoms if geom.type == "Polygon"]
+    streets = [(feature, shapely.make_valid(shapely.force_2d(geom.shape))) for feature in features("GIS:Katualueet", wide)
+               for geom in feature.geoms if geom.type == "Polygon"]
+    public = shapely.union_all([shape for _, shape in greens + streets])
+    paved = shapely.union_all([shape for feature, shape in greens + streets
+                               if any(word in str(feature.attrs.get("Pintamateriaali", "")).lower() for word in PAVED)])
+    beds = [{"shape": part, "key": feature.key[:12], "source": "GIS:Viheralueet"} for feature, shape in greens
+            if any(word in str(feature.attrs.get("Pintamateriaali", "")).lower() for word in BEDS)
+            for part in getattr(shape, "geoms", [shape]) if part.geom_type == "Polygon"]
+    result.update(hedges.measure(box, window, lines, result.pop("window_trees"), fences, public, beds, paved))
+    # Unmown ground: the register's parts first, OpenStreetMap's where the city keeps no ground.
+    massed = {mass.get("bed") for mass in result["masses"]}
+    areas = [("m", bed["shape"]) for bed in beds if bed["key"] not in massed]
+    areas += [(kind, shape) for feature, shape in greens
+             if (kind := tufts.kind_of(str(feature.attrs.get("Viheralueosalaji", "")), str(feature.attrs.get("Kunnossapitoluokka_koodi", "")),
+                                       str(feature.attrs.get("Pintamateriaali", ""))))]
+    for row in mapped.get("rough", []):
+        kind = "f" if any(row["tags"].get(key) in values for key, values in tufts.OSM_FOREST.items()) else "m"
+        areas.append((kind, row["shape"].difference(public)))
+    bare = shapely.union_all([paved.buffer(0.2), *(bed["shape"] for bed in beds if bed["key"] in massed)])
+    found = tufts.cover(box, window, areas, bare)
+    if found:
+        result["cover"] = found
     result["cell"] = [i, j]
     path.parent.mkdir(parents=True, exist_ok=True)
     part = path.with_name(f"{path.name}.{os.getpid()}.part")

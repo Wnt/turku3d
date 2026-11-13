@@ -149,3 +149,53 @@ def test_a_hedge_both_maps_draw_is_built_once_and_whole_though_the_leafless_scan
     assert line[0, 0] < 10.6 and line[-1, 0] > 29.4 and 1.0 < np.median(found[0]["height"]) < 1.6
     young = planting.hedge_row({**found[0], "height": [0.5] * len(line), "garden": True})
     assert min(young["height"]) > 1.2  # a garden hedge low in the scan has grown since
+
+
+def test_a_register_bed_is_a_shrub_mass_and_nothing_grows_on_paving():
+    import shapely
+
+    from turku3d.world.green import hedgegen, hedges
+
+    rng = np.random.default_rng(5)
+    shrub = (rng.uniform(4.0, 9.0, 900), rng.uniform(4.0, 9.0, 900))  # a dense shrub layer on the lawn
+    car = (rng.uniform(22.0, 26.0, 600), rng.uniform(4.0, 6.0, 600))  # and the same on the asphalt: a parked car
+    grown = (rng.uniform(30.0, 50.0, 4000), rng.uniform(20.0, 26.0, 4000))  # a bed the scan shows planted all over
+    window = FakeWindow((0.0, 0.0, 60.0, 40.0), np.concatenate([shrub[0], car[0], grown[0]]), np.concatenate([shrub[1], car[1], grown[1]]),
+                        np.concatenate([rng.uniform(0.5, 1.4, 1500), rng.uniform(0.8, 1.0, 4000)]))
+    beds = [{"shape": shapely.box(30.0, 20.0, 50.0, 26.0), "key": "bed", "source": "GIS:Viheralueet"},
+            {"shape": shapely.box(30.0, 30.0, 39.0, 36.0), "key": "lawn", "source": "GIS:Viheralueet"}]  # nothing of this one in the scan
+    found = hedges.measure((0.0, 0.0, 40.0, 40.0), window, [], beds=beds, paved=shapely.box(20.0, 0.0, 28.0, 40.0))
+    lidar_only = [m for m in found["masses"] if "open" not in m]
+    assert len(lidar_only) == 1 and 4.0 < np.mean(lidar_only[0]["ring"], axis=0)[0] < 9.0 and not found["shrubs"] and not found["hedges"]
+    bed, = [m for m in found["masses"] if "open" in m]  # the bed the scan shows nothing on is no mass
+    ring = np.array(bed["ring"])
+    assert bed["bed"] == "bed" and 0.8 < bed["height"] < 1.0 and ring[:, 0].max() == 40.0  # cut at the cell's edge
+    assert [bool(flag) for flag in bed["open"]] == [bool(e == 40.0) for e in ring[:, 0]]
+    body = hedgegen.mass(ring, np.array(bed["ground"]), bed["height"], np.random.default_rng(1), bed["open"])
+    top = body["positions"][body["positions"][:, 1] > 10.0 + bed["height"] - 0.01]
+    assert abs(top[:, 0].max() - 40.0) < 0.01 and top[:, 0].min() > 30.1  # upright on the cut, leaning in elsewhere
+    assert len(body["surface"]["top"])  # and sprays on its flat top too
+
+
+def test_a_meadow_grows_grass_and_flowers_on_its_ground_but_not_on_the_path_through_it():
+    import shapely
+
+    from turku3d.world.green import tufts
+
+    class Slope(FakeWindow):
+        def ground_height(self, e, n):
+            return 10.0 + 0.1 * np.asarray(e, float)
+
+    box = (0.0, 0.0, 62.5, 62.5)
+    assert tufts.kind_of("Niitty", "A4", "Niitty") == "m" and tufts.kind_of("Viheralue", "M2", "Metsä") == "f" and tufts.kind_of("Viheralue", "R4", "Nurmikko") is None
+    cover = tufts.cover(box, Slope((-16.0, -16.0, 78.5, 78.5), [], [], []), [("m", shapely.box(0, 0, 30, 62.5)), ("f", shapely.box(0, 0, 62.5, 62.5))],
+                        shapely.box(10, 0, 14, 62.5))
+    assert cover["rows"][5][:8] == "mmmmmmmm" and cover["rows"][5][9:11] == ".." and cover["rows"][5][-1] == "f"
+    grown = tufts.cards(cover, 3)
+    east, up = grown["positions"][:, 0], grown["positions"][:, 1]
+    foot = grown["positions"][0::4]
+    assert not ((foot[:, 0] > 10.7) & (foot[:, 0] < 13.3)).any()  # the path is bare
+    assert np.abs(foot[:, 1] - (10.0 + 0.1 * foot[:, 0])).max() < 0.2  # each card stands on the slope
+    meadow, forest = (east < 30).sum() / 30, (east > 30).sum() / 32.5
+    assert meadow > 2.5 * forest and len(tufts.cards(cover, 3, far=True)["triangles"]) < 0.4 * len(grown["triangles"])
+    assert tufts.cover(box, FakeWindow((-16.0, -16.0, 78.5, 78.5), [], [], []), [("m", shapely.box(100, 100, 120, 120))], None) is None

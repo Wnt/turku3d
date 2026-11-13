@@ -73,7 +73,7 @@ FAMILIES: dict[str, dict] = {
                       card=1.25, cards=1150, ref=(11.0, 4.6), leader=0.88),
     "birch": _broadleaf(tone=(1.06, 0.04), shell=0.12, cell="birch", bark="birch", shape=0.6, centre=0.5, lean=0.015, n1=30, elev=(38, 62), ratio=0.42,
                         d2=3.6, a2=42, l2ratio=0.55, l2max=2.4, d3=2.2, droop2=0.55, droop3=0.9, card=1.0, cards=1300,
-                        ref=(10.8, 3.2), leader=0.95, trunk=0.8, card_up=-0.35, card_along=0.9, card_out=0.35),
+                        ref=(10.8, 3.2), leader=0.95, trunk=0.55, card_up=-0.35, card_along=0.9, card_out=0.35),
     "poplar": _broadleaf(tone=(0.98, -0.02), shell=0.2, cell="birch", bark="willow", shape=0.7, centre=0.5, n1=34, elev=(55, 75), ratio=0.4, d2=3.4,
                          l2ratio=0.5, l2max=1.8, card=1.0, cards=1300, ref=(14.0, 2.6), leader=0.97),
     "rowan": _broadleaf(tone=(1.0, 0.03), shell=0.2, cell="rowan", bark="smooth", shape=0.55, centre=0.5, lean=0.03, n1=18, elev=(40, 68), d2=3.2,

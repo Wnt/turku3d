@@ -1,20 +1,25 @@
-"""Planting: the hedges, shrub masses and single shrubs of a 62.5 m cell, as volumes.
+"""Planting: the hedges, shrub masses, single shrubs and unmown ground of a 62.5 m cell.
 
 discover  the cell's census (turku3d.world.green.hedges): hedge lines of the base map and OSM measured in the lidar's
-          shrub layer (line, width and height per metre), hedges and masses only the lidar shows, single shrubs.
+          shrub layer (line, width and height per metre), hedges and masses only the lidar shows, single shrubs;
+          the green register's planting beds as masses (height from the scan where it shows them); meadows and
+          forest floors of the registers and OSM as a raster (turku3d.world.green.tufts).
 describe  per hedge: clipped or loose (from how level and even the lidar found it; a stored description overrides it
           with what a panorama shows), evergreen or not, the summer size. Per shrub: a family and a size.
 compile   a hedge is its line swept by a section of its width and height: a closed solid in the family `hedge` with
           a fringe of leaf cards (turku3d.world.green.hedgegen); a mass is a closed dome over its outline; a shrub is
-          a generated shrub model (turku3d.world.green.treegen) baked into the cell's meshes.
+          a generated shrub model (turku3d.world.green.treegen) baked into the cell's meshes; unmown ground grows
+          grass, flowers and undergrowth as leaf cards.
 
 Description `turku-description/planting/1`:
 
     cell     [i, j]
     hedges   [{id, source, line: [[e, n], ...], ground: [...], width: [...], height: [...], form: clipped | loose,
-               evergreen, seed, genus?, measured: {level, even} | false}]
-    masses   [{id, ring: [[e, n], ...], ground, height, evergreen, seed}]
+               evergreen, seed, genus?, sparse?, measured: {level, even, seen} | false}]
+    masses   [{id, ring: [[e, n], ...], ground (one, or one per vertex), height, evergreen, seed,
+               open?: [per vertex: on the cell's edge, the mass goes on next door], source?, seen?}]
     shrubs   [{id, e, n, ground, family, height, width, seed}]
+    cover?   {step, rows: ["..mmff", ...] from the south (m meadow, f forest floor), reliefStep, relief: [[h, ...]]}
 
 A stored description overrides per id: `{"hedges": {"<id>": {"form": "clipped", "height": 1.2, "remove": true}},
 "masses": {...}, "shrubs": {...}}`; a hedge's `height` or `width` given as one number applies along its whole line.
@@ -31,7 +36,7 @@ import numpy as np
 from ..api import Area, Output, Stub, envelope
 from ..frame import CELL, cell_at, cell_box_en, cell_key, to_engine
 from ..geometry import seed as seed_of
-from ..green import census, hedgegen, treegen
+from ..green import census, hedgegen, treegen, tufts
 
 LEAF_MARGIN = 0.25  # metres a leaf-off hedge or shrub gains in width in leaf (half of it in height)
 # A leafless hedge returns from its twig mass, not from the outline its leaves draw: the summer top stands this far
@@ -122,30 +127,35 @@ class Planting:
                 if not area.touches(cell):
                     continue
                 found = census.cell(i, j, sources.wfs.features)
-                if not (found["hedges"] or found["masses"] or found["shrubs"]):
+                if not (found["hedges"] or found["masses"] or found["shrubs"] or found.get("cover")):
                     continue
                 refs = [{"source": "turku-lidar:pistepilvi", "key": f"{cell_key(i, j)}@{census.RECIPE}"},
                         *({"source": f"turku-wfs:{layer}", "key": cell_key(i, j)} for layer in LAYERS),
                         {"source": "osm:barrier=hedge", "key": cell_key(i, j)}]
                 stubs.append(Stub(f"planting/{cell_key(i, j)}", cell, refs,
-                                  {"cell": [i, j], "hedges": found["hedges"], "masses": found["masses"], "shrubs": found["shrubs"]}))
+                                  {"cell": [i, j], "hedges": found["hedges"], "masses": found["masses"], "shrubs": found["shrubs"],
+                                   **({"cover": found["cover"]} if found.get("cover") else {})}))
         return stubs
 
     def describe(self, stub: Stub, stored: dict | None) -> dict:
         stored = stored or {}
         facts = stub.facts
         hedges = overridden([hedge_row(row) for row in facts["hedges"]], stored.get("hedges", {}))
-        masses = overridden([{"id": f"mass-{row['key']}", "ring": row["ring"], "ground": row["ground"], "height": round(row["height"] + LEAF_MARGIN / 2, 2),
-                              "evergreen": row["evergreen"], "seed": seed_of(row["key"])} for row in facts["masses"]], stored.get("masses", {}))
+        masses = overridden([{"id": f"mass-{row['key']}", "ring": row["ring"], "ground": row["ground"], "height": round(row["height"] + HEDGE_TOP[bool(row["evergreen"])], 2),
+                              "evergreen": row["evergreen"], "seed": seed_of(row["key"]),
+                              **({"open": row["open"], "source": row["source"], "seen": row["seen"]} if "open" in row else {})}
+                             for row in facts["masses"]], stored.get("masses", {}))
         shrubs = overridden([shrub_row(row) for row in facts["shrubs"]], stored.get("shrubs", {}))
         return {**envelope(self.name, 1, stub, stored, "w2-green"), "cell": facts["cell"],
                 "hedges": sorted(hedges, key=lambda h: h["id"]), "masses": sorted(masses, key=lambda m: m["id"]),
-                "shrubs": sorted(shrubs, key=lambda s: s["id"])}
+                "shrubs": sorted(shrubs, key=lambda s: s["id"]), **({"cover": facts["cover"]} if facts.get("cover") else {})}
 
     def compile(self, description: dict) -> Output:
         i, j = description["cell"]
         hedges, masses, shrubs = description["hedges"], description["masses"], description["shrubs"]
-        grounds = [g for h in hedges for g in h["ground"]] + [m["ground"] for m in masses] + [s["ground"] for s in shrubs]
+        cover = description.get("cover")
+        grounds = [g for h in hedges for g in h["ground"]] + [g for m in masses for g in np.atleast_1d(m["ground"])] + [s["ground"] for s in shrubs]
+        grounds += [float(np.min(cover["relief"]))] if cover else []
         if not grounds:
             return Output((i * CELL, 0.0, j * CELL), [])
         origin = (i * CELL, float(math.floor(min(grounds))), j * CELL)
@@ -168,9 +178,9 @@ class Planting:
             emit(hedgegen.sweep(points, width, height, hedge["form"], rng), hedge["form"], hedge["evergreen"], hedge["seed"])
         for mass in masses:
             ring = np.array(mass["ring"], float)
-            x, y, z = to_engine(ring[:, 0], ring[:, 1], mass["ground"])
+            x, y, z = to_engine(ring[:, 0], ring[:, 1], np.broadcast_to(np.asarray(mass["ground"], float), (len(ring),)))
             rng = np.random.default_rng([mass["seed"], 19])
-            body = hedgegen.mass(np.stack([x - origin[0], z - origin[2]], axis=1), float(np.mean(y)) - origin[1], mass["height"], rng)
+            body = hedgegen.mass(np.stack([x - origin[0], z - origin[2]], axis=1), y - origin[1], mass["height"], rng, mass.get("open"))
             emit(body, "loose", mass["evergreen"], mass["seed"])
 
         # Shrubs are scenery nothing collides with: the library models baked into the cell's own leaf and stem meshes.
@@ -182,4 +192,12 @@ class Planting:
             for lod in (0, 1):
                 for part in shrub_parts(shape, lod):
                     meshes.add(f"shrub-{part.material.family}", lod, treegen.shared_material(part.material), treegen.placed(part, row))
+        # Unmown ground: grass, flowers and undergrowth as cards, nothing collides with them.
+        box = cell_box_en(i, j)
+        for lod in (0, 1) if cover else ():
+            grown = tufts.cards(cover, seed_of(f"cover-{cell_key(i, j)}"), far=bool(lod))
+            if grown is not None:
+                x, y, z = to_engine(box[0] + grown["positions"][:, 0], box[1] + grown["positions"][:, 2], grown["positions"][:, 1])
+                grown["positions"] = np.stack([x - origin[0], y - origin[1], z - origin[2]], axis=1)
+                meshes.add("tufts", lod, hedgegen.leaf_material(False), grown)
         return Output(origin, meshes.parts())

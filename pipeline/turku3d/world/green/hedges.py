@@ -41,6 +41,9 @@ MAPPED_SEEN = 0.25  # share of a mapped line's stations the scan must measure, o
 MAPPED_DEFAULT = (0.9, 1.4)  # width and height where the scan measures nothing (the old generator's hedge height)
 MAPPED_LEAST = (0.7, 0.8)  # a hedge somebody mapped is at least this wide and tall
 SAME_HEDGE = 1.5  # metres: a mapped line this near one already built is the same hedge drawn by the other map
+PAVED_EDGE = 0.3  # metres a plant may hang over the edge of paving
+BED_SEEN = 0.4  # share of a bed's cells the scan must show planted for the bed to be one mass
+BED_HEIGHT = (0.5, 2.0)
 ROW_LINK = 1.25  # metres between the single returns of one row
 ROW_LENGTH = 8.0  # metres: the shortest row of single returns that is a hedge
 ROW_HALF = 0.6  # metres to either side of its centre line in which a row's returns lie
@@ -334,12 +337,78 @@ def centre_line(patch: np.ndarray) -> np.ndarray | None:
     return np.stack([rows[path], cols[path]], axis=1).astype(float)
 
 
+def mask_of(shape, grid: dict, box) -> tuple[slice, slice, np.ndarray]:
+    """The grid cells whose centre lies in a polygon: (rows, columns, mask of that window)."""
+    import shapely
+
+    rows, cols = grid["planted"].shape
+    c0, r0 = max(int((shape.bounds[0] - box[0]) / RES), 0), max(int((shape.bounds[1] - box[1]) / RES), 0)
+    c1, r1 = min(int((shape.bounds[2] - box[0]) / RES) + 1, cols), min(int((shape.bounds[3] - box[1]) / RES) + 1, rows)
+    if c1 <= c0 or r1 <= r0:
+        return slice(0, 0), slice(0, 0), np.zeros((0, 0), bool)
+    ee, nn = np.meshgrid(box[0] + (np.arange(c0, c1) + 0.5) * RES, box[1] + (np.arange(r0, r1) + 0.5) * RES)
+    return slice(r0, r1), slice(c0, c1), shapely.contains_xy(shape, ee, nn)
+
+
+def simple(polygon, least: float = 4.0):
+    """The polygon without holes: small holes are filled, a larger one is opened to the outside by a slit."""
+    import shapely
+
+    for hole in list(polygon.interiors):
+        if shapely.Polygon(hole).area >= least and polygon.geom_type == "Polygon":
+            a, b = shapely.ops.nearest_points(shapely.LineString(hole.coords), polygon.exterior)
+            cut = polygon.difference(shapely.LineString([a, b]).buffer(0.06, cap_style="square"))
+            polygon = max(getattr(cut, "geoms", [cut]), key=lambda g: g.area)
+    return shapely.Polygon(polygon.exterior) if polygon.geom_type == "Polygon" and all(shapely.Polygon(h).area < least for h in polygon.interiors) else polygon
+
+
+def bed_masses(beds: list[dict], cell, grid: dict, box, window, hedged, used: np.ndarray) -> list[dict]:
+    """The register's planting beds the scan shows planted over BED_SEEN of their ground, as shrub masses of the
+    bed's outline at the scan's height, cut to the cell (`open` marks the vertices on the cut). A bed the scan shows
+    less of keeps what the scan finds on it (the dev points' photos show lawn or weeds on such beds as often as
+    shrubs); its ground is unmown. What a hedge already built covers is left out."""
+    import shapely
+
+    masses = []
+    border = cell.exterior
+    for bed in beds:
+        shape = bed["shape"] if hedged is None else bed["shape"].difference(hedged)
+        if shape.is_empty or shape.area < 0.5 * bed["shape"].area:
+            continue  # a hedge's own strip
+        rs, cs, inside = mask_of(shape, grid, box)
+        if not inside.any():
+            continue
+        planted = grid["planted"][rs, cs] & inside
+        seen = float(planted.sum()) / max(int(inside.sum()), 1)
+        if seen < BED_SEEN:
+            continue
+        used[rs, cs] |= inside
+        height = float(np.clip(np.median(grid["top"][rs, cs][planted]), *BED_HEIGHT))
+        green = float(grid["green"][rs, cs][planted].mean())
+        for k, piece in enumerate(getattr(shape.intersection(cell), "geoms", [shape.intersection(cell)])):
+            if piece.geom_type != "Polygon" or piece.area < 1.5:
+                continue
+            piece = simple(shapely.segmentize(shapely.simplify(piece, 0.15), 2.0))
+            if piece.geom_type != "Polygon" or len(piece.interiors):
+                continue
+            ring = np.array(piece.exterior.coords[:-1])
+            centre = piece.representative_point()
+            masses.append({"ring": [[round(float(e), 2), round(float(n), 2)] for e, n in ring], "height": round(height, 2),
+                           "evergreen": green >= 0.055, "key": f"b-{bed['key']}-{round(centre.x * 10)}-{round(centre.y * 10)}-{k}",
+                           "ground": [round(float(v), 2) for v in window.ground_height(ring[:, 0], ring[:, 1])],
+                           "open": [bool(border.distance(shapely.Point(e, n)) < 0.02) for e, n in ring], "source": bed["source"], "bed": bed["key"],
+                           "seen": round(seen, 2)})
+    return masses
+
+
 def measure(cell_box, window: lidar.Window, mapped: list[dict], crowns: list[dict] | None = None, fences: list | None = None,
-            public=None) -> dict:
+            public=None, beds: list[dict] | None = None, paved=None) -> dict:
     """{"hedges": [...], "masses": [...], "shrubs": [...]} of a cell. `mapped` rows are {"line": [[e, n], ...],
     "source": layer, "key": id, "genus"?, "surveyed"?}, the better map first; `fences` are the base map's fence and
     railing lines [[e, n], ...]; `public` is the ground the city keeps (streets and green areas): a hedge off it is
-    a `garden` hedge. Hedges are cut to the cell box."""
+    a `garden` hedge; `beds` are the register's planting beds [{"shape": polygon, "key", "source"}]; `paved` is
+    the ground the registers give a hard surface: what stands in the shrub layer there is a parked car, a market
+    stall or a terrace, and only a mapped hedge is built on it. Hedges and beds are cut to the cell box."""
     import shapely
     from scipy import ndimage
 
@@ -348,6 +417,13 @@ def measure(cell_box, window: lidar.Window, mapped: list[dict], crowns: list[dic
     low = Low(window)
     cell = shapely.box(*cell_box)
     used = np.zeros_like(grid["planted"])
+    hard = np.zeros_like(grid["planted"])
+    for part in shapely.get_parts(paved.buffer(-PAVED_EDGE)) if paved is not None and not paved.is_empty else []:
+        if part.is_empty or part.geom_type != "Polygon":
+            continue
+        rs, cs, inside = mask_of(part, grid, box)
+        hard[rs, cs] |= inside
+    grid["planted"] = grid["planted"] & ~hard
     hedges = []
     built = []  # the mapped lines already built, as drawn
 
@@ -392,6 +468,8 @@ def measure(cell_box, window: lidar.Window, mapped: list[dict], crowns: list[dic
                 add(row, {"points": line, "normal": np.zeros_like(line), "centre": np.zeros(len(line)), "width": np.array(row["width"])})
                 built.append(piece)
 
+    hedged = shapely.union_all([shapely.LineString(h["line"]).buffer(max(float(np.median(h["width"])) / 2, 0.4) + 0.3) for h in hedges]) if hedges else None
+    masses = bed_masses(beds or [], cell, grid, box, window, hedged, used)
     # The low part of a tree is the tree: its trunk, and the whole footprint of a crown that reaches the ground.
     for tree in crowns or []:
         radius = tree["width"] / 2 if tree["base"] <= 2.0 else 0.8
@@ -399,8 +477,8 @@ def measure(cell_box, window: lidar.Window, mapped: list[dict], crowns: list[dic
         used |= rasterise(np.array([centre], float), np.array([radius]), grid, box)
     rest = grid["planted"] & ~used
     labels, count = ndimage.label(rest, structure=np.ones((3, 3)))
-    masses, shrubs = [], []
-    made = used.copy()  # cells of what was built: a patch that made nothing leaves its returns to the rows
+    shrubs = []
+    made = used | hard  # cells of what was built: a patch that made nothing leaves its returns to the rows
     if count:
         areas = ndimage.sum_labels(rest, labels, range(1, count + 1)) * RES * RES
         slices = ndimage.find_objects(labels)
