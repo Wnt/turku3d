@@ -363,3 +363,32 @@ def test_stop_signs_have_two_faces_the_diamond_hangs_under_a_prohibition_and_a_m
                    "support": {"type": "host", "host": None, "radius": 0.08, "height": 10.1}}
     post = signpost.SignPost().compile(description).instances[0]
     assert post.ids == ["signpost/t#post"] and post.behaviour == "fixed" and post.collision["size"] == [0.08, 10.0]
+
+
+def test_an_area_profile_gives_the_fence_most_of_its_read_fences_are():
+    from turku3d.world.kinds import fence
+
+    yard = {"id": "location/yard", "at": [100.0, 100.0], "profile": {"fence": {"count": 2, "families": [
+        {"family": "mesh", "height_m": 1.8, "colour": "#8f9390", "share": 0.5}, {"family": "mesh", "height_m": 2.0, "colour": "#9a9d9c", "share": 0.5}]}}}
+    mixed = {"id": "location/mixed", "at": [2000.0, 100.0], "profile": {"fence": {"count": 4, "families": [
+        {"family": family, "height_m": 1.0, "colour": "#777777", "share": 0.25} for family in ("board", "picket", "railing", "mesh")]}}}
+    typical = fence._typical([yard, mixed], 150.0, 120.0)
+    assert typical == {"family": "mesh", "height": 1.9, "colour": "#8f9390", "location": "location/yard"}
+    assert fence._typical([yard, mixed], 2010.0, 100.0) is None  # no family holds more than half of the fences read there
+    tie = {"id": "location/tie", "at": [4000.0, 100.0], "profile": {"fence": {"count": 2, "families": [
+        {"family": family, "height_m": 1.2, "colour": "#777777", "share": 0.5} for family in ("board", "railing")]}}}
+    assert fence._typical([tie], 4010.0, 100.0) is None
+    assert fence._typical([yard, mixed], 900.0, 100.0) is None and fence._typical([], 100.0, 100.0) is None  # no location near
+
+
+def test_contact_line_supports_fill_the_gaps_between_measured_masts():
+    from turku3d.world.kinds import wire
+
+    chain = wire.supports(400.0, [89.4, 147.2, 262.0])
+    assert [round(s, 1) for s, measured in chain if measured] == [89.4, 147.2, 262.0]
+    assert [round(s, 1) for s, measured in chain if not measured] == [31.4, 204.6, 320.0, 378.0]  # one filled in the 115 m gap
+    assert wire.supports(400.0, []) == []
+    columns = [[3.0 + 0.01 * k, 10.0, 0.4 * k + 0.6, 1] for k in range(22)] + [[30.0, 60.0, 0.5 * k + 1.0, 5] for k in range(4)]
+    import shapely
+    masts = wire.mast_columns(np.array(columns), [shapely.LineString([(0.6, 0.0), (0.6, 100.0)])])
+    assert len(masts) == 1 and masts[0]["top"] == pytest.approx(9.0) and masts[0]["e"] == pytest.approx(3.1, abs=0.1)

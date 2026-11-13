@@ -144,6 +144,26 @@ followed up to 14 m along the line to the building that carries it (`ends`: `fac
 the line is its luminaire; a span without one gets the centreline rule above (`guessed: ["lamps"]`). Stored per
 500 m survey tile in `sources/object-spans/1`; `measured.lidar.returns` and `found` mark these wires.
 
+### The contact line of an electrified railway (since 2026-11-13 12:30Z)
+
+Along every track that `rail.tracks` gives as `electrified` (OSM `electrified=contact_line`) the wire kind draws the
+contact line; what the wire stage finds within 3.75 m of such a track at both ends is that line and is dropped.
+- **Masts** (`wire/m<E>_<N>`, `type: "mast"`, `height`, fixed, cylinder collision): the tall columns the lidar shows
+  2.0 to 6.5 m from a centre line (`wire.mast_columns`: a half-metre cell with 8 returns or more that rise from under
+  2 m to a top at 6 to 12 m, 60 % of the half-metre levels up to 6 m filled). At dev_08 three stand in 320 m of
+  track, 58 and 60 m apart, 2.1 to 2.6 m from the centre line, tops at 9.1 m; the scan misses the others, so
+  `wire.supports` divides the gap between two measured masts into spans near 58 m and adds up to six filled masts
+  past the outermost ones, each on the side and at the distance of the nearest measured mast (`guessed: ["position",
+  "height"]`; two filled masts at dev_08 fall 0.3 and 2 m from knots of the wires the wire stage had found there).
+  A track with no measured mast within 135 m of the area gets no contact line.
+- **Spans** (`wire/c<E>_<N>`, `type: "catenary"`): per support of a track `line` (the track every 10 m or less as
+  far as the next support, heights = rail head from `rail.level` + `rail.RAIL_TOP`) and `mast` (the mast's foot).
+  Drawn: a two-tube arm from the mast to over the track, the contact wire 6.0 m over the rail, the messenger wire
+  1.4 m over it at the supports and 0.5 m at mid span, droppers every 10 m. `guessed: ["height"]`: the wire heights
+  are nominal, not measured.
+- Not yet: portals over several tracks (each track within 7.5 m of a mast gets its own arm from it), tensioning
+  weights, a contact line where the scan shows no mast at all.
+
 ## `turku-description/fence/1`
 
 | Field | Meaning |
@@ -184,6 +204,22 @@ warm; every other line is a low grey `mesh` fence: the scan height when it is at
 else 1.0 m marked guessed, because a taller scan height there is the planting. Basis: 14 panorama readings at two
 house points (railing 0.7 m, stone edging 0.4 m, mesh 1.2 m, grey boards 1.0 to 1.5 m, no fence) where the old
 rule drew cream board walls 1.5 to 2.6 m. A mapped `fence_type` still decides before this rule.
+
+### Walls only OpenStreetMap knows, the area profile, low bar fences (since 2026-11-13 12:30Z)
+
+- An OSM `barrier=wall` way with no register line within 1.5 m at 20, 50 and 80 % of its length is a fence entity
+  `fence/o<way id>` (`type: "wall"`, `osm` = its `wall`, `material`, `height` tags): boards with the face to the
+  street when `material=wood` (dev_08: the cream panelled fence between the street and the railway, mapped as a
+  wooden noise barrier), else a wall in the material's colour. Height: the mapped one, else the median of what the
+  lidar shows standing within 1 m of the line (when a third of it shows anything), else 2.2 m for a noise barrier
+  and 1.2 m for another wall (`guessed: ["height"]`).
+- **Area profile**: where a light reading characterised a location within 400 m (`turku3d.world.profile.near`), a
+  garden-setting line whose family is a guess takes the family that holds more than half of the fences read there
+  (`fence._typical`), with its colour, and its median height when the scan gave none or the family stands taller
+  than a garden fence (dev_10, dev_11: 1.8 and 2.0 m chain link round works yards, drawn as 1.0 m before);
+  `profile` names the location. A screen between terraces keeps its own rule.
+- A see-through bar fence of 1.3 m or less is grey (`#5a6066`: three of three such fences read grey in
+  `observe against`, drawn black before); taller iron stays black.
 
 ### Gates and mapped fence types
 

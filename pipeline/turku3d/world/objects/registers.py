@@ -104,6 +104,21 @@ def barriers(sources, box: Box) -> tuple[list[dict], list[dict]]:
     return lines, posts
 
 
+def mapped_walls(sources, box: Box) -> list[dict]:
+    """OpenStreetMap `barrier=wall` lines (a boundary wall, a noise barrier): {id, line, tags, source}, whole ways."""
+    frame = sources.osm.features(box)
+    walls = []
+    if not len(frame):
+        return walls
+    for kind, ident, tags, barrier, geometry in zip(frame.osm_type, frame.osm_id, frame.tags, frame.barrier, frame.geometry):
+        if barrier == "wall" and geometry.geom_type == "LineString" and geometry.length > 1.0:
+            tags = json.loads(tags) if isinstance(tags, str) else dict(tags or {})
+            walls.append({"id": f"o{ident}", "line": shapely.force_2d(geometry), "tags": {k: v for k, v in tags.items() if k in ("wall", "material", "height")},
+                          "source": {"source": "osm", "key": f"{kind}/{ident}"}})
+    walls.sort(key=lambda row: row["id"])
+    return walls
+
+
 SHELTER = "66606"  # kanta:Rakennus canopy outline
 SHELTER_DEPTH, SHELTER_LENGTH, SHELTER_REACH = (1.1, 2.2), (3.0, 8.0), 1.5
 

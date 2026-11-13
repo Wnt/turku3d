@@ -20,6 +20,7 @@ from pathlib import Path
 import numpy as np
 import shapely
 
+from .. import profile as area_profile
 from ..api import Area, Instances, Material, Output, Stub
 from ..frame import to_engine
 from ..objects import registers
@@ -63,6 +64,11 @@ GREY_WOOD = "#b4b8b4"
 WHITE_WOOD = "#dcdcd4"
 UNDER_SHADE = 0.86  # the paint of the under boards of a board-on-board fence against the upper boards
 MESH_GREY = "#8f9492"
+BAR_GREY = "#5a6066"
+TYPICAL_LIMITS = {"mesh": (0.8, 2.4), "board": (1.0, 2.0), "picket": (0.6, 1.2), "railing": (0.5, 1.2), "iron": (0.8, 1.6)}  # m, per family of an area profile
+WALL_LIMITS = (0.5, 4.0)  # m: heights of a mapped wall
+WALL_DEFAULT = {"noise_barrier": 2.2, "wall": 1.2}  # m, when neither the mapper nor the scan gives a height
+WALL_COLOURS = {"concrete": "#a9a59c", "brick": "#8c4a3a", "weathering_steel": "#6b4a36", "plaster": "#cfc8b4"}
 PANEL_MASS = {"board": 18.0, "picket": 10.0, "iron": 22.0, "mesh": 6.0, "railing": 9.0}  # kg per metre of height of one panel
 POST_MASS = 6.0  # kg per metre of a fence post
 
@@ -93,6 +99,28 @@ def setting(path, tree, shapes, years) -> tuple[str, float]:
     gap = min(float(shapes[tree.nearest(end)].distance(end)) for end in ends)
     old = len(dated) and float(np.mean(dated < OLD_TOWN)) > 0.5
     return ("old-town" if old and built >= BLOCK else "old-garden" if old else "garden"), gap
+
+
+def _typical(profiles: list, e: float, n: float) -> dict | None:
+    """The fence most of an area's read fences are, from the profile of the nearest characterised location: a family
+    this kind draws that holds more than half of them, with its median height and its colour. A tie is no rule: at
+    dev_01 two of four read fences were boards and the six lines read one by one were none of them boards."""
+    near = area_profile.near(e, n, known=profiles) if profiles else None
+    rows = [row for row in ((near or {}).get("fence") or {}).get("families") or [] if row.get("family") in TYPICAL_LIMITS]
+    share: dict[str, float] = {}
+    for row in rows:
+        share[row["family"]] = share.get(row["family"], 0.0) + float(row.get("share") or 0.0)
+    if not share:
+        return None
+    family = max(sorted(share), key=share.get)
+    if share[family] <= 0.5:
+        return None
+    mine = [row for row in rows if row["family"] == family]
+    heights = [float(row["height_m"]) for row in mine if row.get("height_m")]
+    if not heights:
+        return None
+    return {"family": family, "height": round(float(np.clip(np.median(heights), *TYPICAL_LIMITS[family])), 2),
+            "colour": next((row["colour"] for row in mine if row.get("colour")), None), "location": near["location"]}
 
 
 def _paint(rgb: np.ndarray | None) -> tuple[str, bool]:
@@ -266,6 +294,7 @@ class Fence:
         gates, mapped = registers.mapped_barriers(sources, area.bbox(GATE_REACH + 2.0))
         tree, shapes, years = _buildings(sources, area.bbox(2.0 + AROUND))
         streets = registers.Streets(sources, area.bbox(2.0))
+        profiles = area_profile.locations()
         stubs = []
         built = []  # (line, facts) of the fences a gate can stand in
         for row in lines:
@@ -298,6 +327,7 @@ class Fence:
             path = shapely.LineString(line)
             samples = [path.interpolate(t, normalized=True) for t in (0.25, 0.5, 0.75)]
             tags = next((row["tags"] for row in mapped if all(row["line"].distance(point) <= MAPPED for point in samples)), {})
+            typical = None
             if kind == "wood-fence":
                 points = lidar.box(box[0] - 0.4, box[1] - 0.4, box[2] + 0.4, box[3] + 0.4, rgb=True)
                 points = points[(points[:, 2] > 0.3) & (points[:, 2] < 3.0) & (points[:, 3] != 5)]
@@ -331,6 +361,15 @@ class Fence:
                         family = "picket" if where == "old-garden" else "mesh"
                         height = float(np.clip(scan, *LOW["limits"])) if scan and scan <= LOW["reliable"] else LOW["default"]
                         guessed += [] if scan and scan <= LOW["reliable"] else ["height"]
+                        # Where a light reading characterised the area, its commonest fence replaces that guess (a
+                        # works yard's 1.8 m chain link, a housing court's dark railing): family, colour, and the
+                        # height when the scan gave none or the family stands taller than a garden fence.
+                        typical = _typical(profiles, *path.interpolate(0.5, normalized=True).coords[0])
+                        if typical:
+                            family = typical["family"]
+                            if "height" in guessed or typical["height"] > LOW["limits"][1]:
+                                low_limit, high_limit = TYPICAL_LIMITS[family]
+                                height = float(np.clip(scan, low_limit, high_limit)) if scan and abs(scan - typical["height"]) <= 0.4 else typical["height"]
             faces = None
             if family in ("board", "picket"):
                 # Boards are nailed on the public side and the rails and posts stand in the yard: the panel's face
@@ -362,8 +401,11 @@ class Fence:
             if kind == "wood-fence":
                 facts["measured"]["lidar"]["returns_per_m"] = round(float(density), 1)
                 facts["setting"] = where
-                if family == "iron":
-                    facts["colour"] = IRON
+                if typical and family == typical["family"]:
+                    facts["colour"], facts["profile"] = typical["colour"] or {"iron": IRON, "mesh": MESH_GREY}.get(family, GREY_WOOD), typical["location"]
+                elif family == "iron":
+                    # A low bar fence is galvanised or painted grey (three of three read so); tall wrought iron is black.
+                    facts["colour"] = BAR_GREY if height <= LOW["reliable"] else IRON
                 elif family == "mesh":
                     facts["colour"] = MESH_GREY
                 elif where != "old-town":
@@ -383,6 +425,54 @@ class Fence:
             stubs.append(Stub(f"fence/{row['id']}", tuple(float(v) for v in box), [row["source"]], facts))
             if family in ("board", "picket", "iron"):
                 built.append((shapely.LineString(np.array(facts["line"])[:, :2]), facts))
+        known = shapely.STRtree([shapely.LineString(np.array(row["line"])) for row in lines]) if lines else None
+        for row in registers.mapped_walls(sources, area.bbox(2.0)):
+            # A wall only OpenStreetMap knows (the register has no line along it): a boundary wall or noise barrier,
+            # of boards when mapped as wood (dev_08: the cream panelled fence between street and railway), else a
+            # rendered wall. As tall as the mapper says, else as the scan shows on its line, else a default.
+            path = row["line"]
+            samples = [path.interpolate(t, normalized=True) for t in (0.2, 0.5, 0.8)]
+            if not area.touches(path.bounds) or (known is not None and all(len(known.query(point, predicate="dwithin", distance=MAPPED)) for point in samples)):
+                continue
+            tags = row["tags"]
+            wooden = tags.get("material") == "wood"
+            family = "board" if wooden else "stone-wall"
+            line = np.asarray(path.coords)[:, :2]
+            profile = lidar.profile(line, step=1.0, reach=1.0, top=WALL_LIMITS[1] + 0.5)
+            standing = profile[np.isfinite(profile) & (profile > 0.6)]
+            guessed = []
+            try:
+                height = float(np.clip(float(str(tags.get("height", "")).replace("m", "").strip()), *WALL_LIMITS))
+                basis = "OSM wall with a mapped height"
+            except ValueError:
+                seen = len(standing) >= max(3, 0.3 * len(profile))
+                height = float(np.clip(np.percentile(standing, 50), *WALL_LIMITS)) if seen else WALL_DEFAULT["noise_barrier" if tags.get("wall") == "noise_barrier" else "wall"]
+                basis = "OSM wall; height " + ("from the lidar on its line" if seen else "a default")
+                guessed += [] if seen else ["height"]
+            if wooden:
+                street = streets.towards_street(samples[1].x, samples[1].y, reach=25.0)
+                ahead = path.interpolate(min(path.length * 0.5 + 0.5, path.length))
+                if street and (ahead.y - samples[1].y) * math.sin(math.radians(street["bearing"])) - (ahead.x - samples[1].x) * math.cos(math.radians(street["bearing"])) > 0:
+                    line = line[::-1]
+            joints = _joints(line, PANEL[family])
+            ground = np.array([registers.ground_height(sources, e, n) for e, n in joints])
+            if not np.isfinite(ground).all():
+                continue
+            facts = {
+                "at": [round(float(joints[0, 0]), 2), round(float(joints[0, 1]), 2), round(float(ground[0]), 2)],
+                "type": "wall", "family": family, "height": round(height, 2),
+                "line": [[round(float(e), 2), round(float(n), 2), round(float(h), 2)] for (e, n), h in zip(joints, ground)],
+                "measured": {"lidar": {"coverage": round(len(standing) / max(len(profile), 1), 2), "steps": int(len(profile)),
+                                       "height_p60": round(float(np.percentile(standing, 60)), 2) if len(standing) else None}},
+                "osm": tags, "basis": basis, "guessed": guessed + ["colour"], "break": "panel",
+            }
+            if wooden:
+                facts["colour"], facts["faces"] = DEFAULT_WOOD, "street"
+            elif tags.get("material") in WALL_COLOURS:
+                facts["colour"] = WALL_COLOURS[tags["material"]]
+            facts["interaction"] = interaction("breakable" if wooden else "fixed", "box", [PANEL[family], height, 0.1 if wooden else 0.4],
+                                               PANEL_MASS["board"] * height if wooden else None, per="panel")
+            stubs.append(Stub(f"fence/{row['id']}", tuple(float(v) for v in path.bounds), [row["source"]], facts))
         for row in gates:
             # A mapped gate stands in the fence line it is on, as tall and of the same paint; one that is on no
             # fence (a gateway through a building, a boom) is not drawn.
