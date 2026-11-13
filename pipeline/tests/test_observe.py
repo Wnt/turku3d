@@ -2,7 +2,6 @@
 
 import numpy as np
 from shapely.geometry import Polygon
-
 from turku3d.observe import crops, lod2, reader, views
 from turku3d.observe.panoramas import Pano
 
