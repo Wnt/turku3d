@@ -254,6 +254,9 @@ its reference views) or `at-<E>-<N>-r<R>` for a free query.
 - `sources` says what exists around the query in the sources that kinds and the observation chain read besides
   the registers: `build` fetches them for the area even when no registered kind uses them yet, and a source that
   fails is reported there (`{"error": …}`) without stopping the build.
+- `failures` (`[{ "id", "error" }]`) names the entities whose generator raised: they are left out of `entities`,
+  `build` prints `FAILED <id>: <error>` for each, and the rest of the location is built. An empty list is the
+  normal case; a kind fixes its failures, the client never draws a half entity.
 - Every entity row has `bounds` and a stable `id`; every instance list has the asset's `bounds` and, for objects
   the game addresses, one id per row. A city-wide hierarchy can cull and stream both without opening a mesh.
 - The manifest holds everything the client needs to draw the location: no second request per entity besides its GLB
@@ -389,13 +392,25 @@ node scripts/dev/scene-capture.mjs --mode render --world humalistonkatu --area h
   NAME` derives the query from the cameras of that area's reference views (`qa/views/views.jsonl`) and what they
   look at; `--at` works anywhere in built-up Turku and fetches missing source data. `--background M` (default 400)
   is how far the cheap surroundings reach.
+- `build` discovers and describes in one process and compiles the entities that have no stored build in
+  `TURKU3D_JOBS` processes (the sandbox sets it; one process below eight entities per process). `compile` must
+  therefore depend on its description alone: no module state filled by `discover`.
 - `entity`, `refresh` and `watch` rebuild from the saved facts (section 3.2) and rewrite the manifest only when
   something a client draws changed.
 - The game draws a location at `/?world=<name>&cam=E,N,H,yaw,pitch,fov` (render mode): the same client and
   renderer, with the location loader (`game/src/world/location/`) in place of the prepared scene. Play in a
   location waits for collision. `scene-capture.mjs --world NAME` adds the parameter and records the manifest
   revision, the build timings and the drawn entities per kind in the capture manifest; `--area NAME` keeps only
-  the views of that area; the comparison sheet shows the reference photo beside the still.
+  the views of that area; the comparison sheet shows the reference photo beside the still, and with `--baseline
+  DIR` (an earlier capture of the same views, for example the frozen game's) that render between them.
+  `--ready-timeout SECONDS` (default 240) is how long the capture waits for the location to finish loading.
+- Client materials: a kind's families are registered with `registerFamily(name, fn, kind?)`
+  (`game/src/world/location/materials.ts`). Give the kind when the family name is not yours alone (`metal`,
+  `stone`): a family registered for a kind draws only that kind's entities. A family nobody registered goes to
+  the game's own material pass under its name (`asphalt`, `granite`, `grass`, `water`, …).
+- The loader draws entities in chunks: the entities of one renderer layer (ground, buildings, everything else)
+  whose origins fall in the same 250 m square are styled, batched and compiled as one model, as a tile is in the
+  game. One model per entity did not finish loading 1,952 entities in ten minutes on the M1 Max.
 - In-process, for a workbench: `turku3d.world.driver.compile_entity(store, kind, description)` returns the
   record's origin, bounds, output and hash.
 
@@ -433,8 +448,8 @@ Measured 2026-11-12 with the same code at two suburban points (radius 150 m, bac
 3. The dev server watches `locations/` and sends `{ name, revision }` to the pages that listen on the
    server-sent event stream `/world/events/<name>` (the repository runs Vite without its hot-update socket).
 4. The client's location loader re-fetches the manifest and diffs it against what is drawn, by entity `id` and
-   `hash`: it loads the new files of changed entities first, then swaps them in one frame, adds new entities and
-   removes missing ones. Camera, lighting, time and every unchanged entity stay as they are. No page reload.
+   `hash`: it loads the files of every chunk that holds a changed, added or removed entity, then takes the old
+   chunk out and draws the new one. Camera, lighting, time and every other chunk stay as they are. No page reload.
 5. The same refresh is callable: `await __dev.world.refresh()` resolves `{ revision, changed, added, removed, ms }`
    once the swapped entities are drawn. `scene-capture.mjs` calls it before a capture, so a still never races an
    update.

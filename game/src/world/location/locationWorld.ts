@@ -2,11 +2,16 @@
 //
 // Entities are drawn in chunks: the entities of one renderer layer whose origins fall in the same 250 m square are
 // styled, prepared and drawn as one model, as the game does with a tile, so the cost of a location follows its
-// content and not its entity count (2,000 entities as 2,000 models did not finish loading in ten minutes). A changed
-// entity redraws its chunk in the running client while the camera, the lighting and every other chunk stay. Stills
-// only for now: a location has no collision, so it draws in the QA camera mode (?world=NAME&cam=...), not in play.
+// content and not its entity count (2,000 entities as 2,000 models did not finish loading in ten minutes). Instance
+// rows are drawn as merged geometry per chunk and material: an InstancedMesh per entity and asset mesh cost about
+// twenty shader builds each (3,000 of them at one location), while merged meshes share the builds of their material.
+// A changed entity redraws its chunk in the running client while the camera, the lighting and every other chunk
+// stay. Stills only for now: a location has no collision, so it draws in the QA camera mode (?world=NAME&cam=...),
+// not in play; an object the player moves will leave the merged mesh as its own object then (the manifest row has
+// its id, behaviour, collision and mass).
 import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { disposeDraw } from '../../render/sharedMaterials';
 import { releaseGeometry } from '../modelGeometry';
 import { modelGpuBytes, rendererResidency } from '../gpuBytes';
@@ -29,7 +34,9 @@ const LOADS = 8;
 /** The side of the square whose entities are prepared as one model, in metres. */
 const CHUNK = 250;
 
-interface Drawn { row: LocationEntity; root: THREE.Group; heights: { x0: number; z0: number; nx: number; nz: number; y: Float32Array } | null }
+/** One asset mesh at one instance row, in world space. */
+interface Placed { geometry: THREE.BufferGeometry; material: THREE.Material; matrix: THREE.Matrix4 }
+interface Drawn { row: LocationEntity; root: THREE.Group; placed: Placed[]; heights: { x0: number; z0: number; nx: number; nz: number; y: Float32Array } | null }
 interface Chunk { id: string; root: THREE.Group; members: Drawn[] }
 const layerOf = (row: LocationEntity) => LAYERS[row.kind] ?? 'structures';
 const chunkOf = (row: LocationEntity) => `${layerOf(row)}:${Math.floor(row.origin[0] / CHUNK)}_${Math.floor(row.origin[2] / CHUNK)}`;
@@ -127,23 +134,16 @@ export class LocationWorld implements WorldSurface {
     root.name = `entity:${row.id}`; root.position.fromArray(row.origin);
     root.userData = { entityId: row.id, kind: row.kind, role: row.role, hash: row.hash, layer };
     if (row.url) root.add((await this.loader.loadAsync(this.storeUrl(row.url))).scene);
+    const placed: Placed[] = [], [ox, oy, oz] = row.origin;
+    const turn = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
     for (const item of row.instances) {
       const asset = await this.asset(item.asset);
-      const matrix = new THREE.Matrix4(), turn = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
       asset.traverse(node => {
         const source = node as THREE.Mesh;
         if (!source.isMesh) return;
-        // The asset's geometry is shared by every entity that places it and is never disposed with one of them.
-        const mesh = new THREE.InstancedMesh(source.geometry, source.material, item.transforms.length);
-        mesh.name = `instances:${item.asset.split('/').pop()}:${source.name}`;
-        mesh.userData = { sharedGeometry: true, instanceIds: item.ids, behaviour: item.behaviour, collision: item.collision };
-        item.transforms.forEach(([x, y, z, yaw, sx, sy, sz], i) => {
-          matrix.compose(new THREE.Vector3(x, y, z), turn.setFromAxisAngle(up, yaw), new THREE.Vector3(sx, sy, sz)).multiply(source.matrixWorld);
-          mesh.setMatrixAt(i, matrix);
-        });
-        mesh.instanceMatrix.needsUpdate = true;
-        mesh.computeBoundingBox(); mesh.computeBoundingSphere();
-        root.add(mesh);
+        const material = familyMaterial(Array.isArray(source.material) ? source.material[0] : source.material, this.materials, row.kind);
+        for (const [x, y, z, yaw, sx, sy, sz] of item.transforms) placed.push({ geometry: source.geometry, material,
+          matrix: new THREE.Matrix4().compose(new THREE.Vector3(ox + x, oy + y, oz + z), turn.setFromAxisAngle(up, yaw), new THREE.Vector3(sx, sy, sz)).multiply(source.matrixWorld) });
       });
     }
     root.traverse(node => {
@@ -153,7 +153,7 @@ export class LocationWorld implements WorldSurface {
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(m => familyMaterial(m, this.materials, row.kind)) : familyMaterial(mesh.material, this.materials, row.kind);
     });
     root.updateMatrixWorld(true);
-    return { row, root, heights: row.kind === 'ground' ? groundHeights(root, row) : null };
+    return { row, root, placed, heights: row.kind === 'ground' ? groundHeights(root, row) : null };
   }
 
   /** Loads the rows of one chunk, a few at a time; a row that fails is named in `failures` and left out. */
@@ -170,9 +170,26 @@ export class LocationWorld implements WorldSurface {
 
   /** Styles, prepares and draws the entities of one chunk as one model, as the tile streamer does with a tile. */
   private async show(id: string, members: Drawn[]) {
-    const host = this.host, root = new THREE.Group();
-    root.name = `chunk:${id}`; root.userData = { layer: id.split(':')[0] };
+    const host = this.host, root = new THREE.Group(), layer = id.split(':')[0];
+    root.name = `chunk:${id}`; root.userData = { layer };
     for (const drawn of members) root.add(drawn.root);
+    // Instance rows of every member, merged by material and vertex layout.
+    const merges = new Map<string, { material: THREE.Material; geometries: THREE.BufferGeometry[] }>();
+    for (const drawn of members) for (const item of drawn.placed) {
+      const layout = Object.entries(item.geometry.attributes).map(([name, a]) => `${name}:${a.itemSize}:${a.normalized}:${a.array.constructor.name}`).sort();
+      const key = `${item.material.uuid}|${!!item.geometry.index}|${layout}`;
+      const merge = merges.get(key) ?? { material: item.material, geometries: [] };
+      merge.geometries.push(item.geometry.clone().applyMatrix4(item.matrix));
+      merges.set(key, merge);
+    }
+    for (const { material, geometries } of merges.values()) {
+      const geometry = mergeGeometries(geometries, false);
+      for (const part of geometries) part.dispose();
+      if (!geometry) throw new Error(`instance meshes of ${material.name || material.uuid} do not merge`);
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.name = `placed:${material.name || material.uuid}`; mesh.userData = { layer, placed: geometries.length };
+      root.add(mesh);
+    }
     root.updateMatrixWorld(true);
     await host.style?.(root);
     await host.prepareGraphics?.(root);
@@ -193,7 +210,7 @@ export class LocationWorld implements WorldSurface {
       const mesh = node as THREE.Mesh;
       if (!mesh.isMesh) return;
       disposeDraw(mesh);
-      if (!mesh.userData.sharedGeometry) releaseGeometry(mesh.geometry);
+      releaseGeometry(mesh.geometry);
     });
     if (host.retire) host.retire(release); else release();
   }
@@ -260,15 +277,15 @@ export class LocationWorld implements WorldSurface {
   /** Drawn content by kind: entities, mesh and instance triangles, bytes of mesh files. */
   census() {
     const kinds: Record<string, { entities: number; triangles: number; instances: number; bytes: number }> = {};
-    for (const { row, root } of this.shown.values()) {
+    const triangles = (geometry: THREE.BufferGeometry) => (geometry.index?.count ?? geometry.attributes.position.count) / 3;
+    for (const { row, root, placed } of this.shown.values()) {
       const kind = kinds[row.kind] ??= { entities: 0, triangles: 0, instances: 0, bytes: 0 };
       kind.entities++; kind.bytes += row.bytes ?? 0;
+      kind.instances += row.instances.reduce((sum, item) => sum + item.transforms.length, 0);
+      for (const item of placed) kind.triangles += triangles(item.geometry);
       root.traverse(node => {
-        const mesh = node as THREE.InstancedMesh;
-        if (!mesh.isMesh || mesh.userData.shadowBatch) return;
-        const triangles = (mesh.geometry.index?.count ?? mesh.geometry.attributes.position.count) / 3;
-        kind.triangles += triangles * (mesh.isInstancedMesh ? mesh.count : 1);
-        if (mesh.isInstancedMesh) kind.instances += mesh.count;
+        const mesh = node as THREE.Mesh;
+        if (mesh.isMesh && !mesh.userData.shadowBatch) kind.triangles += triangles(mesh.geometry);
       });
     }
     return { name: this.manifest.name, revision: this.manifest.revision, entities: this.shown.size, kinds };
