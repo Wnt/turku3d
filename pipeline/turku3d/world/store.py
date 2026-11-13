@@ -135,6 +135,7 @@ class Store:
         for path in (self.root / "locations").glob("*.json"):
             manifest = json.loads(path.read_bytes())
             urls.update(cell["url"] for cell in manifest.get("collision", {}).values())
+            urls.update(tile["url"] for tile in manifest.get("roads", {}).values())
             for row in manifest["entities"]:
                 # The level a row draws and the ones it lists for a client that chooses by distance.
                 for level in (row, *row.get("levels", [])):

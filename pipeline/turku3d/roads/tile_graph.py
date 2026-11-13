@@ -203,31 +203,37 @@ def read_osm(path, bbox):
     """(ways, points, crossing lines) of the OSM clip at ``path`` around ``bbox`` (BBoxLocal)."""
     from turku3d.spatial import frame as spatial_frame
 
-    ways, points, crossings = [], [], []
     rows = spatial_frame(path, bbox.buffered(POINT_CONTEXT))
+    # Clips without osm_type/osm_id (synthetic fixtures) still build; ids then use way 0.
+    return graph_inputs(
+        (r.geometry_local, json.loads(r.tags) if r.tags else {}, r.highway, getattr(r, "osm_type", "way"), getattr(r, "osm_id", None))
+        for r in rows.itertuples()
+    )
+
+
+def graph_inputs(features):
+    """(ways, points, crossing lines) of OSM features given as (geometry in engine x/z, tags, highway or None,
+    osm type, osm id or None): what ``build_tile_graph`` reads, whatever table the features come from."""
     from .access import private_areas
     import shapely
 
-    private = private_areas([(r.geometry_local, json.loads(r.tags or "{}"))
-                             for r in rows.itertuples() if r.geometry_local is not None]).buffer(1.0)
-    for row in rows.itertuples():
-        tags = json.loads(row.tags) if row.tags else {}
-        geom = row.geometry_local
+    features = list(features)
+    ways, points, crossings = [], [], []
+    private = private_areas([(geom, tags) for geom, tags, *_ in features if geom is not None]).buffer(1.0)
+    for geom, tags, highway, osm_type, osm_id in features:
         if geom is None or geom.is_empty:
             continue
         if geom.geom_type == "Point":
             points.append((geom.x, geom.y, tags))
             continue
-        if geom.geom_type != "LineString" or row.highway is None:
+        if geom.geom_type != "LineString" or highway is None:
             continue
         if "crossing" in (tags.get("footway"), tags.get("cycleway"), tags.get("path")):
             crossings.append((geom, tags))
-        flags = way_flags(row.highway, tags)
+        flags = way_flags(highway, tags)
         if not flags:
             continue
-        # Clips without osm_type/osm_id (synthetic fixtures) still build; ids then use way 0.
-        osm_id = getattr(row, "osm_id", None)
-        way = int(osm_id) if getattr(row, "osm_type", "way") == "way" and osm_id is not None else 0
+        way = int(osm_id) if osm_type == "way" and osm_id is not None else 0
         # NPC walkers use FOOT-only ways. Leave vehicle graph geometry intact;
         # players can enter private yards freely through their physical gates.
         # One metre includes the walkers' 0.7 m keep-right offset and body width.
@@ -238,7 +244,7 @@ def read_osm(path, bbox):
             coords = [(x, z) for x, z, *_ in piece.coords]
             if tags.get("oneway") == "-1":
                 coords = coords[::-1]
-            ways.append(Way(coords, flags, way, row.highway, tags))
+            ways.append(Way(coords, flags, way, highway, tags))
     return ways, points, crossings
 
 

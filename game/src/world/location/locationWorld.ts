@@ -107,6 +107,7 @@ export class LocationWorld implements WorldSurface {
   readonly lighting: PreparedLighting;
   onMapChange: (() => void) | null = null;
   retainedStarts: readonly { x: number; z: number }[] = [];
+  private roads: RoadGraphJson[] = [];
   scheduling = true;
   readonly visualPass = 'full';
   readonly comparisonStatus = 'Location manifest';
@@ -156,7 +157,7 @@ export class LocationWorld implements WorldSurface {
     host.scene.add(world.group);
     host.manifest.code = world.data.release;
     // Play needs the collision before the drawing is worth waiting for: both load at once.
-    const [, collision] = await Promise.all([world.install(manifest.entities).then(() => world.pool()), world.loadCollision()]);
+    const [, collision] = await Promise.all([world.install(manifest.entities).then(() => world.pool()), world.loadCollision(), world.loadRoads()]);
     // One entry stands for the location where the tile streamer's consumers look for loaded tiles.
     const [x, , z] = manifest.focus;
     world.entries.set(`t0_${Math.floor(x / 250)}_${Math.floor(z / 250)}`,
@@ -196,6 +197,24 @@ export class LocationWorld implements WorldSurface {
       }
     }));
     return cells;
+  }
+
+  /** The location's street graphs (manifest `roads`): where the start pose puts the car, where walkers walk. A graph
+   *  that fails to load costs the location its streets, never its loading. */
+  private async loadRoads() {
+    const tiles = Object.entries(this.manifest.roads ?? {});
+    const graphs = await Promise.all(tiles.map(async ([id, tile]) => {
+      try {
+        const response = await (this.host.fetch ?? fetch)(this.storeUrl(tile.url), { signal: AbortSignal.timeout(30000) });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return await response.json() as RoadGraphJson;
+      } catch (error) {
+        console.warn(`Location ${this.manifest.name}: road graph ${id} not loaded`, error);
+        return null;
+      }
+    }));
+    this.roads = graphs.filter((g): g is RoadGraphJson => !!g);
+    if (this.roads.length) this.onMapChange?.();
   }
 
   private describe() {
@@ -567,7 +586,7 @@ export class LocationWorld implements WorldSurface {
   collisionComing(_id: string) { return false; }
   loadedTiles() { return [...this.entries.keys()]; }
   drawn() { return this.loadedTiles(); }
-  roadGraphs(): RoadGraphJson[] { return []; }
+  roadGraphs(): RoadGraphJson[] { return this.roads; }
   manifestUrl(_id: string) { return this.url; }
   /** The ground cell's surface height near a point (binned mesh heights: stills need it for shadows and placement). */
   groundBelow(x: number, z: number, _referenceY?: number) {

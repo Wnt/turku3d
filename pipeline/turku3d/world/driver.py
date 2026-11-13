@@ -16,6 +16,7 @@ import numpy as np
 
 from .api import BEHAVIOURS, SHAPES, Area, Instances, Output, Stub
 from .collision import collision_cells, street_start
+from .roads import location_roads
 from .frame import ORIGIN, to_engine
 from .glb import pack
 from .kinds import KINDS, code_hash
@@ -330,6 +331,17 @@ def build(name: str, area: Area, background: float, store: Store, log=print) -> 
         failures.append({"id": "collision/*", "error": f"{type(error).__name__}: {error}"[:300]})
         log(f"  FAILED collision/*: {type(error).__name__}: {error}")
     manifest["timings"]["collisionMs"] = round((time.perf_counter() - began) * 1000)
+    # Street graphs per 250 m tile (roads.py): the car's start on a street, walkers, the map. A failure costs the
+    # location its streets, never its build.
+    began = time.perf_counter()
+    try:
+        roads = location_roads(store, rows, sources, log)
+        if roads:
+            manifest["roads"] = roads
+    except Exception as error:  # noqa: BLE001
+        failures.append({"id": "roads/*", "error": f"{type(error).__name__}: {error}"[:300]})
+        log(f"  FAILED roads/*: {type(error).__name__}: {error}")
+    manifest["timings"]["roadsMs"] = round((time.perf_counter() - began) * 1000)
     manifest["timings"]["totalMs"] = round((time.perf_counter() - started) * 1000)
     store.put_location(manifest)
     log(f"location {name}: E {area.e} N {area.n} radius {area.radius:g} m, background {wide.radius:g} m, revision {manifest['revision']}")

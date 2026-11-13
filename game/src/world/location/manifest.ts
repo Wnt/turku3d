@@ -66,6 +66,9 @@ export interface LocationManifest {
   collision?: Record<string, { url: string; sha256: string; bytes: number; tris: number; h: [number, number] }>;
   /** Where a player starts: a point of a street for cars and the street's direction (EPSG:3877, grid bearing). */
   start?: { E: number; N: number; headingDeg: number };
+  /** Street graphs (`turku3d-roadgraph` v1 revision 2, docs/specs/roads-json-v2.md) per 250 m tile `t0_i_j` of the
+   *  game's grid, cut to the location's ground: the start pose, walkers and the map read them as they read a tile's. */
+  roads?: Record<string, { url: string; sha256: string; bytes: number; nodes: number; edges: number; carEdges: number }>;
   stats: { entities: number; triangles: number; bytes: number; instances: number; byKind: Record<string, number> };
   timings: Record<string, number>;
 }
@@ -96,6 +99,9 @@ export function readLocation(value: unknown): LocationManifest {
   }
   for (const [id, cell] of Object.entries(data.collision ?? {})) {
     if (!/^c_-?\d+_-?\d+$/.test(id) || !/^objects\/[a-f0-9]{2}\/[a-f0-9]{64}\.col$/.test(cell.url ?? '') || !numbers(cell.h, 2)) fail(`bad collision cell ${id}`);
+  }
+  for (const [id, tile] of Object.entries(data.roads ?? {})) {
+    if (!/^t0_-?\d+_-?\d+$/.test(id) || !/^objects\/[a-f0-9]{2}\/[a-f0-9]{64}\.json$/.test(tile.url ?? '')) fail(`bad road graph ${id}`);
   }
   if (data.start !== undefined && !numbers([data.start.E, data.start.N, data.start.headingDeg], 3)) fail('bad start');
   return data;

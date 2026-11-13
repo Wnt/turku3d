@@ -86,6 +86,8 @@ def main() -> None:
         if name == "entity":
             command.add_argument("ids", nargs="+", metavar="ID")
         command.add_argument("--location", required=True)
+    roads = commands.add_parser("roads", help="give a built location its street graphs (manifest `roads`) without building it again")
+    roads.add_argument("--location", required=True)
     describe = commands.add_parser("describe", help="print the effective description of an entity of a built location")
     describe.add_argument("id")
     commands.add_parser("gc", help="delete objects that no location manifest of this store references")
@@ -102,6 +104,16 @@ def main() -> None:
 
         with store.building(args.location):
             refresh(args.location, store, getattr(args, "ids", None))
+    elif args.command == "roads":
+        from .roads import location_roads
+        from .sources import Sources
+
+        with store.building(args.location):
+            manifest = store.location(args.location)
+            if manifest is None:
+                raise SystemExit(f"no location {args.location} in {store.root}")
+            manifest["roads"] = location_roads(store, manifest["entities"], Sources())
+            store.put_location(manifest)
     elif args.command == "watch":
         watch(args.location, store)
     elif args.command == "describe":
