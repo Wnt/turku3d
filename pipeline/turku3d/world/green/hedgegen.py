@@ -158,8 +158,11 @@ def shell(surface: dict, form: str, evergreen: bool, rng, far: bool = False) -> 
     cell = "juniper" if evergreen else "hedge"
     u0, u1, v0, v1 = treegen.cell_uv(cell)
     uv = np.tile(np.stack([u0 + (u1 - u0) * (grid[:, 0] + 0.5), v1 + (v0 - v1) * grid[:, 1]], axis=1), (count, 1))
-    tint = np.array([0.8, 1.0, 0.8]) if evergreen else np.array([1.0, 1.0, 1.0])
-    colors = np.repeat((0.35 + 0.65 * shade)[:, None] * tint[None, :], 4, axis=0)
+    # COLOR_0 of the foliage family: ambient occlusion, leaf brightness, leaf warmth (treegen's convention).
+    vary = rng.uniform(-1.0, 1.0, (count, 2))
+    tone = (0.85, -0.03) if evergreen else (0.95, 0.0)
+    colors = np.repeat(np.stack([0.35 + 0.65 * shade, tone[0] * (1 + treegen.CARD_TONE[0] * vary[:, 0]),
+                                 1 + tone[1] + treegen.CARD_TONE[1] * vary[:, 1]], axis=1), 4, axis=0)
     wind = np.stack([np.full(count * 4, 0.04), np.tile(grid[:, 1] * 0.5, count), np.repeat(rng.random(count), 4), np.ones(count * 4)], axis=1)
     faces = (np.array([[0, 1, 2], [1, 3, 2]])[None] + (np.arange(count) * 4)[:, None, None]).reshape(-1, 3)
     return {"positions": positions.reshape(-1, 3), "normals": np.repeat(treegen.unit(normal * 0.8 + UP * 0.2), 4, axis=0), "uvs": uv,

@@ -2,8 +2,7 @@ import * as THREE from 'three/webgpu';
 import {
   attribute, bool, cameraPosition, clamp, diffuseColor, dot, float, floor, Fn, fract, fwidth, instanceColor, log2, max, mod, modelWorldMatrix,
   normalize, normalViewGeometry, positionLocal, positionPrevious, positionWorld, pow, select, sin, smoothstep,
-  renderGroup, texture, uniform, uv, vec2, vec3, vec4, vertexColor, mix, luminance,
-} from 'three/tsl';
+  renderGroup, texture, uniform, uv, vec2, vec3, vec4, vertexColor, mix, luminance, normalWorldGeometry } from 'three/tsl';
 import { cloneNodeMaterial, ditherThreshold } from '../../render/lodFade';
 import { FoliageMaterial } from '../../render/foliageMaterial';
 import { viewClearance } from '../../render/viewClearance';
@@ -254,7 +253,7 @@ export class NatureMaterials {
       const lift = max(attribute('position', 'vec3').y, 0).mul(attribute('grassInstance', 'vec4').w);
       return vec3(0, lift.mul(shown.oneMinus()).negate(), 0);
     });
-    let transmitted: THREE.Node<'vec3'> | null = null;
+    let transmitted: THREE.Node<'vec3'> | null = null, sunSide: THREE.Node<'float'> | null = null;
     if (lighting) {
       // Sunlight through thin leaves when looking towards the sun.
       // Scene-wide values in the shared render group: the per-object default rewrote each tree pool's buffer per pass.
@@ -263,6 +262,7 @@ export class NatureMaterials {
       const back = pow(max(dot(normalize(positionWorld.sub(cameraPosition)), sunDir), 0), 2);
       transmitted = diffuseColor.rgb.mul(sunColor).mul(sunIntensity).mul(back).mul(0.4);
       this.leaves.emissiveNode = transmitted.mul(pow(crownAo, this.crownLight.w));
+      sunSide = dot(normalWorldGeometry, sunDir);
       this.grass.emissiveNode = transmitted;
       this.grassBlade.emissiveNode = transmitted;
     }
@@ -288,6 +288,10 @@ export class NatureMaterials {
     this.standingLeaves = cloneNodeMaterial(this.leaves);
     this.standingLeaves.name = 'nature-leaves@standing';
     this.standingLeaves.colorNode = vec4(leafRgb, leafAlpha);
+    // Sun comes through the leaves it reaches: the crown's sunward side and its rim. The side of a closed crown
+    // turned away from the sun (its radial normal points from the sun) is lit by the sky alone, so a tree seen
+    // against the sun is a dark mass with a bright edge, as in the street photos, not a glowing one.
+    if (transmitted && sunSide) this.standingLeaves.emissiveNode = transmitted.mul(pow(crownAo, this.crownLight.w)).mul(smoothstep(-0.45, 0.15, sunSide));
 
     // Hemi-octahedral impostors (nature/impostor.ts): one camera-facing quad per tree blending the three baked views
     // nearest the view direction, each reprojected with its depth.

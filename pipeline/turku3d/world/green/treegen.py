@@ -11,7 +11,9 @@ Output conventions (units metres, +Y up, trunk base at the origin):
 - bark: one closed tube per branch (capped at both ends), material family `bark`, TEXCOORD_0 in the nature
   library's bark column atlas (u around the branch inside the species' slot, v in metres along it);
 - leaves: cards on the nature library's foliage atlas, material family `foliage`, double sided, normals bent to
-  the crown's radial direction so the canopy shades as a volume, COLOR_0 = crown-depth ambient occlusion;
+  the crown's radial direction so the canopy shades as a volume, COLOR_0 = (crown-depth ambient occlusion, leaf
+  brightness, leaf warmth): the last two multiply the leaf albedo (1 = the atlas colour; warmth above 1 is
+  yellower, below 1 bluer) and carry the family's tone and a variation from card to card;
 - `_WIND` (sway, flutter, phase, is-leaf) per vertex, as the library's materials expect.
 """
 
@@ -44,62 +46,65 @@ def bark_u(slot: str) -> tuple[float, float]:
 
 
 # Families. `ref` is the crown (height above the crown base, radius) the scaffold and card counts were tuned at;
-# both scale with the measured crown. Angles in degrees. `tint` multiplies the leaf albedo per family (linear).
+# both scale with the measured crown. Angles in degrees. `tone` = (brightness, warmth) of the family's summer leaf
+# against its atlas cell: limes, elms, oaks and spruces are deep greens, birches and willows light ones.
+# `shell` is the share of a broadleaf crown's cards that stand on its outline instead of along its branchlets: a
+# lime or a maple in leaf is a closed mass, a birch or a willow shows its boughs.
 def _broadleaf(**over) -> dict:
     base = dict(kind="broadleaf", centre=0.45, shape=0.55, lean=0.012, n1=30, elev=(28, 58), ratio=0.5, d2=3.2, a2=40,
                 l2ratio=0.5, l2max=2.6, d3=2.0, up1=0.05, droop1=0.05, up2=0.08, droop2=0.12, droop3=0.2, noise=0.12,
                 card=1.2, spacing=0.26, cards=1500, ref=(12.5, 4.6), leader=0.9, trunk=1.0, card_up=0.2, card_along=0.6,
-                card_out=0.6, card_roll=0.9, card_sky=1.2, aspect=1.0, tint=(1.0, 1.0, 1.0))
+                card_out=0.6, card_roll=0.9, card_sky=1.2, aspect=1.0, tone=(1.0, 0.0), shell=0.3)
     base.update(over)
     return base
 
 
 FAMILIES: dict[str, dict] = {
-    "lime": _broadleaf(cell="linden", bark="linden"),
-    "maple": _broadleaf(cell="maple", bark="maple", shape=0.45, centre=0.46, lean=0.02, n1=26, elev=(30, 55), ratio=0.55,
+    "lime": _broadleaf(tone=(0.9, -0.02), cell="linden", bark="linden", centre=0.38, shape=0.6, taper=0.95, shell=0.42, leader=0.94),
+    "maple": _broadleaf(tone=(1.0, 0.02), shell=0.4, cell="maple", bark="maple", shape=0.45, centre=0.46, lean=0.02, n1=26, elev=(30, 55), ratio=0.55,
                         d2=3.0, a2=42, l2ratio=0.55, droop2=0.1, card=1.25, cards=1400, ref=(11.0, 4.8), leader=0.82),
-    "elm": _broadleaf(cell="linden", bark="oak", shape=0.5, centre=0.55, n1=24, elev=(40, 68), ratio=0.58, droop2=0.25,
-                      card=1.1, ref=(12.0, 5.0), leader=0.78, tint=(0.92, 0.97, 0.9)),
-    "oak": _broadleaf(cell="oak", bark="oak", shape=0.4, centre=0.42, lean=0.03, n1=22, elev=(12, 42), ratio=0.62, d2=3.0,
+    "elm": _broadleaf(tone=(0.88, 0.0), shell=0.35, cell="linden", bark="oak", shape=0.5, centre=0.55, n1=24, elev=(40, 68), ratio=0.58, droop2=0.25,
+                      card=1.1, ref=(12.0, 5.0), leader=0.78),
+    "oak": _broadleaf(tone=(0.88, 0.02), shell=0.35, cell="oak", bark="oak", shape=0.4, centre=0.42, lean=0.03, n1=22, elev=(12, 42), ratio=0.62, d2=3.0,
                       a2=50, l2ratio=0.55, l2max=2.8, d3=2.2, noise=0.35, droop1=0.06, droop2=0.08, cards=1500,
                       ref=(10.5, 5.6), leader=0.72, trunk=1.25),
-    "ash": _broadleaf(cell="linden", bark="maple", shape=0.5, centre=0.5, n1=22, elev=(35, 62), ratio=0.5, d2=2.8,
-                      card=1.25, cards=1150, ref=(11.0, 4.6), leader=0.88, tint=(0.95, 1.0, 0.9)),
-    "birch": _broadleaf(cell="birch", bark="birch", shape=0.6, centre=0.5, lean=0.015, n1=30, elev=(38, 62), ratio=0.42,
+    "ash": _broadleaf(tone=(0.97, 0.0), cell="linden", bark="maple", shape=0.5, centre=0.5, n1=22, elev=(35, 62), ratio=0.5, d2=2.8,
+                      card=1.25, cards=1150, ref=(11.0, 4.6), leader=0.88),
+    "birch": _broadleaf(tone=(1.06, 0.04), shell=0.12, cell="birch", bark="birch", shape=0.6, centre=0.5, lean=0.015, n1=30, elev=(38, 62), ratio=0.42,
                         d2=3.6, a2=42, l2ratio=0.55, l2max=2.4, d3=2.2, droop2=0.55, droop3=0.9, card=1.0, cards=1300,
                         ref=(10.8, 3.2), leader=0.95, trunk=0.8, card_up=-0.35, card_along=0.9, card_out=0.35),
-    "poplar": _broadleaf(cell="birch", bark="willow", shape=0.7, centre=0.5, n1=34, elev=(55, 75), ratio=0.4, d2=3.4,
-                         l2ratio=0.5, l2max=1.8, card=1.0, cards=1300, ref=(14.0, 2.6), leader=0.97, tint=(0.9, 1.0, 0.85)),
-    "rowan": _broadleaf(cell="rowan", bark="smooth", shape=0.55, centre=0.5, lean=0.03, n1=18, elev=(40, 68), d2=3.2,
+    "poplar": _broadleaf(tone=(0.98, -0.02), shell=0.2, cell="birch", bark="willow", shape=0.7, centre=0.5, n1=34, elev=(55, 75), ratio=0.4, d2=3.4,
+                         l2ratio=0.5, l2max=1.8, card=1.0, cards=1300, ref=(14.0, 2.6), leader=0.97),
+    "rowan": _broadleaf(tone=(1.0, 0.03), shell=0.2, cell="rowan", bark="smooth", shape=0.55, centre=0.5, lean=0.03, n1=18, elev=(40, 68), d2=3.2,
                         l2max=1.6, d3=1.5, droop2=0.15, card=1.0, cards=800, ref=(5.6, 2.6), leader=0.88, trunk=0.85),
-    "fruit": _broadleaf(cell="lilac", bark="smooth", shape=0.4, centre=0.42, lean=0.05, n1=14, elev=(15, 50), ratio=0.65,
+    "fruit": _broadleaf(tone=(0.97, 0.03), cell="lilac", bark="smooth", shape=0.4, centre=0.42, lean=0.05, n1=14, elev=(15, 50), ratio=0.65,
                         d2=3.4, a2=48, l2max=1.5, d3=2.2, noise=0.3, droop2=0.2, card=0.8, spacing=0.2, cards=900,
-                        ref=(3.6, 2.6), leader=0.7, trunk=1.1, tint=(0.95, 1.0, 0.85)),
-    "willow": _broadleaf(cell="willow", bark="willow", shape=0.5, centre=0.5, lean=0.04, n1=22, elev=(45, 70), ratio=0.55,
+                        ref=(3.6, 2.6), leader=0.7, trunk=1.1),
+    "willow": _broadleaf(tone=(1.05, -0.04), shell=0.08, cell="willow", bark="willow", shape=0.5, centre=0.5, lean=0.04, n1=22, elev=(45, 70), ratio=0.55,
                          d2=2.6, a2=25, l2ratio=0.85, l2max=4.5, d3=1.2, up1=0.04, droop1=0.22, droop2=1.6, droop3=1.4,
                          card=1.3, spacing=0.24, cards=1250, ref=(9.4, 5.0), leader=0.7, trunk=1.3, card_up=-1.4,
                          card_along=1.0, card_out=0.15, aspect=0.95, card_roll=1.3),
-    "pine": dict(kind="pine", cell="pine", bark="pine", whorl=0.75, per_whorl=(3, 5), elev=(8, 38), ratio=0.4, up1=0.12,
+    "pine": dict(tone=(0.92, -0.04), kind="pine", cell="pine", bark="pine", whorl=0.75, per_whorl=(3, 5), elev=(8, 38), ratio=0.4, up1=0.12,
                  droop1=0.04, noise=0.18, d2=2.6, l2ratio=0.45, hang=0.0, droop2=0.05, card=1.35, spacing=0.3, cards=750,
                  ref=(7.1, 3.6), trunk=0.85, card_up=0.2, card_along=0.6, card_out=0.6, card_roll=0.9, card_sky=1.2,
-                 aspect=1.0, flat=0.0, tint=(1.0, 1.0, 1.0)),
-    "spruce": dict(kind="spruce", cell="spruce", bark="spruce", whorl=0.55, per_whorl=(4, 5), elev=(-22, 32), ratio=0.35,
+                 aspect=1.0, flat=0.0),
+    "spruce": dict(tone=(0.85, -0.03), kind="spruce", cell="spruce", bark="spruce", whorl=0.55, per_whorl=(4, 5), elev=(-22, 32), ratio=0.35,
                    up1=0.18, droop1=0.12, noise=0.06, d2=3.2, l2ratio=0.45, hang=0.55, droop2=0.6, card=1.3, spacing=0.3,
                    cards=1250, ref=(16.5, 3.0), trunk=0.9, card_up=-0.15, card_along=1.0, card_out=0.35, card_roll=0.5,
-                   card_sky=1.2, aspect=1.0, flat=0.55, tint=(1.0, 1.0, 1.0)),
-    "thuja": dict(kind="spruce", cell="juniper", bark="spruce", whorl=0.35, per_whorl=(4, 6), elev=(35, 70), ratio=0.3,
+                   card_sky=1.2, aspect=1.0, flat=0.55),
+    "thuja": dict(tone=(0.9, 0.03), kind="spruce", cell="juniper", bark="spruce", whorl=0.35, per_whorl=(4, 6), elev=(35, 70), ratio=0.3,
                   up1=0.3, droop1=0.0, noise=0.05, d2=4.0, l2ratio=0.5, hang=-0.3, droop2=0.0, card=0.7, spacing=0.2,
                   cards=1100, ref=(5.0, 0.9), trunk=0.7, card_up=0.9, card_along=0.3, card_out=0.5, card_roll=0.6,
-                  card_sky=0.4, aspect=1.0, flat=0.0, tint=(0.85, 1.0, 0.8)),
-    "lilac": dict(kind="shrub", cell="lilac", bark="smooth", stems=8, spread=0.09, elev=(55, 82), stem=0.035, up=0.0,
+                  card_sky=0.4, aspect=1.0, flat=0.0),
+    "lilac": dict(tone=(0.95, 0.0), kind="shrub", cell="lilac", bark="smooth", stems=8, spread=0.09, elev=(55, 82), stem=0.035, up=0.0,
                   droop=0.12, d2=3.6, l2=1.0, start=0.3, card=0.6, spacing=0.17, cards=700, ref=(3.4, 1.8),
-                  card_up=0.2, card_along=0.6, card_out=0.6, card_roll=0.9, card_sky=1.2, aspect=1.0, tint=(1.0, 1.0, 1.0)),
-    "rose": dict(kind="shrub", cell="rose", bark="smooth", stems=13, spread=0.15, elev=(45, 80), stem=0.012, up=0.0,
+                  card_up=0.2, card_along=0.6, card_out=0.6, card_roll=0.9, card_sky=1.2, aspect=1.0),
+    "rose": dict(tone=(0.95, 0.02), kind="shrub", cell="rose", bark="smooth", stems=13, spread=0.15, elev=(45, 80), stem=0.012, up=0.0,
                  droop=0.55, d2=2.0, l2=0.6, start=0.2, card=0.42, spacing=0.16, cards=400, ref=(1.3, 0.9),
-                 card_up=0.2, card_along=0.6, card_out=0.6, card_roll=0.9, card_sky=1.2, aspect=1.0, tint=(1.0, 1.0, 1.0)),
-    "juniper": dict(kind="shrub", cell="juniper", bark="spruce", stems=5, spread=0.03, elev=(80, 88), stem=0.05, up=0.02,
+                 card_up=0.2, card_along=0.6, card_out=0.6, card_roll=0.9, card_sky=1.2, aspect=1.0),
+    "juniper": dict(tone=(0.85, -0.04), kind="shrub", cell="juniper", bark="spruce", stems=5, spread=0.03, elev=(80, 88), stem=0.05, up=0.02,
                     droop=0.0, d2=7.0, l2=0.9, start=0.05, card=0.5, spacing=0.18, cards=560, ref=(3.0, 0.6),
-                    card_up=0.9, card_along=0.3, card_out=0.5, card_roll=0.9, card_sky=0.6, aspect=1.0, tint=(1.0, 1.0, 1.0)),
+                    card_up=0.9, card_along=0.3, card_out=0.5, card_roll=0.9, card_sky=0.6, aspect=1.0),
 }
 FALLBACK_LEAF = {"birch": (0.09, 0.16, 0.04), "pine": (0.05, 0.1, 0.04), "spruce": (0.04, 0.08, 0.04)}
 
@@ -179,13 +184,27 @@ def child_dir(parent: np.ndarray, angle: np.ndarray, roll: np.ndarray, outward: 
 # relative to its cards. The old game widened every card by about 1.3 to fill the lidar crown (nature/crowns.ts).
 CARD_DENSITY = 1.4
 CARD_GROWTH = 1.3
+CARD_SPAN = (0.34, 0.2)  # a card is at most this share of the crown radius plus this many metres: a small crown has small sprays
+CARD_TONE = (0.1, 0.035)  # brightness and warmth vary this much from card to card
 FAR_SHARE = 0.06  # the far level keeps this share of the cards (a prefix of the shuffled list), grown to cover
+
+
+def card_size(sp: dict, radius: float) -> float:
+    """The side of a leaf card in metres for a crown of this radius."""
+    return min(sp["card"] * CARD_GROWTH, CARD_SPAN[0] * radius + CARD_SPAN[1])
+
+
+def card_budget(sp: dict, shape: Shape, density: float, low: int, high: int) -> int:
+    """The number of leaf cards of a crown: the family's count at its reference crown, scaled by the crown's surface,
+    and by more where the cards are smaller than the family's own (not by their whole area: a small crown is thin)."""
+    smaller = (sp["card"] * CARD_GROWTH / card_size(sp, shape.radius)) ** 1.2
+    return int(np.clip(sp["cards"] * crown_scale(shape, sp) * density * min(smaller, 2.5), low, high))
 
 
 def trunk_radius(shape: Shape, sp: dict) -> float:
     """Trunk radius at the ground from height and crown, an allometry for open-grown urban trees."""
     radius = (0.008 * shape.height + 0.024 * shape.radius) * sp.get("trunk", 1.0)
-    radius *= {"young": 0.8, "old": 1.25}.get(shape.age, 1.0)
+    radius *= {"young": 0.7, "old": 1.25}.get(shape.age, 1.0)
     return float(np.clip(radius, 0.03, 0.75))
 
 
@@ -206,7 +225,8 @@ def broadleaf(shape: Shape, sp: dict, rng) -> dict:
     yc = y0 + (H - y0) * centre
     hc = max(yc - y0, H - yc) * 1.02
     power = sp["shape"] * (0.85 if old else 1.0)
-    env = lambda y: R * np.maximum(0.0, 1 - ((y - yc) / hc) ** 2) ** power  # noqa: E731
+    # `taper` is the same power above the widest point: near 1 the crown narrows to its top as a lime's does.
+    env = lambda y: R * np.maximum(0.0, 1 - ((y - yc) / hc) ** 2) ** np.where(y > yc, sp.get("taper", power), power)  # noqa: E731
     t = np.linspace(0.0, 1.0, 11)
     lean = (rng.random(2) * 2 - 1) * sp["lean"] * H * (0.3 if young else 1.0)
     wobble = 0.012 * H * t * (0.3 if young else 1.0)
@@ -215,7 +235,6 @@ def broadleaf(shape: Shape, sp: dict, rng) -> dict:
                        lean[1] * t * t + np.cos(t * 4 + shape.seed) * wobble], axis=1)
     radius = r_ground * (1 - 0.82 * t ** 1.15) * (1 + 0.45 * np.exp(-t * top / 0.35))
     trunk = Branches(0, points[None], radius[None], (0.25 * t * t)[None], np.array([top]), rng.random(1))
-    scale = crown_scale(shape, sp)
     small = R < 2.2  # a small crown needs more branchlets per metre to close
     dense = 1.6 if small else 1.0
     n1 = int(np.clip(round(sp["n1"] * (H - y0) / sp["ref"][0]), 9, 44))
@@ -253,9 +272,29 @@ def broadleaf(shape: Shape, sp: dict, rng) -> dict:
                  0.05, sp["droop3"], 0.2, sway, 0.2, two.phase[parent])
 
     anchors = [along(two, 0.3, sp["spacing"] / dense), along(three, 0.35, sp["spacing"] * 1.2 / dense)]
-    budget = int(np.clip(sp["cards"] * scale * CARD_DENSITY, 200, 3200))
-    return {"branches": [trunk, one, two, three], "anchors": thin(merge(anchors), budget, rng),
+    budget = card_budget(sp, shape, CARD_DENSITY, 200, 3200)
+    outline = int(budget * sp["shell"] * (0.6 if young else 1.0))
+    inner = thin(merge(anchors), budget - outline, rng)
+    return {"branches": [trunk, one, two, three], "anchors": merge([inner, shell(env, max(y0, shape.base + 0.4 * card_size(sp, R)), top, outline, rng)]),
             "crown": (y0, yc, hc, R), "conifer": False, "trunk": r_ground}
+
+
+def shell(env, y0: float, top: float, count: int, rng) -> dict:
+    """Card anchors on a crown's outline: sprays at the ends of twigs too fine to model, which close the crown where
+    no bough happens to reach. The outline bulges and dents by a fifth of its radius so that it does not read as a
+    turned solid."""
+    y = np.sort(rng.uniform(y0, top, count * 4))
+    # Evenly over the outline's area: more where the crown is wide.
+    weight = np.maximum(env(y), 0.0) + 1e-6
+    y = rng.choice(y, count, replace=False, p=weight / weight.sum()) if count else y[:0]
+    az = np.arange(count) * GOLDEN + rng.uniform(-0.4, 0.4, count)
+    waves = rng.uniform(0, 2 * np.pi, 4)
+    lump = 0.5 + 0.25 * np.sin(2 * az + waves[0] + 1.7 * np.sin(y * 0.9 + waves[1])) + 0.25 * np.sin(3 * az + waves[2] + y * 1.3 + waves[3])
+    r = env(y) * (0.76 + 0.24 * lump) * rng.uniform(0.9, 1.0, count)
+    p = np.stack([r * np.cos(az), y, r * np.sin(az)], axis=1)
+    out = unit(np.stack([np.cos(az), np.full(count, 0.35), np.sin(az)], axis=1))
+    height = np.clip(y / max(top, 1e-6), 0.0, 1.0)
+    return {"p": p, "dir": out, "sway": 0.25 * height * height + 0.1, "phase": rng.random(count), "tuft": np.zeros(count, bool)}
 
 
 def conifer(shape: Shape, sp: dict, rng) -> dict:
@@ -298,7 +337,7 @@ def conifer(shape: Shape, sp: dict, rng) -> dict:
         anchors = [tips(one, (0.55, 0.7, 0.85, 1.0), rng), tips(two, (0.35, 0.55, 0.8, 1.0), rng)]
     else:
         anchors = [along(one, 0.25, sp["spacing"]), along(two, 0.1, sp["spacing"])]
-    budget = int(np.clip(sp["cards"] * crown_scale(shape, sp) * CARD_DENSITY, 160, 2400))
+    budget = card_budget(sp, shape, CARD_DENSITY, 160, 2400)
     return {"branches": [trunk, one, two], "anchors": thin(merge(anchors), budget, rng),
             "crown": (y0, (y0 + H) / 2, (H - y0) / 2, R), "conifer": True, "trunk": r_ground}
 
@@ -328,7 +367,7 @@ def shrub(shape: Shape, sp: dict, rng) -> dict:
     two = grow(rng, 2, p, direction, rng.uniform(0.25, 0.7, len(k)) * sp["l2"], np.maximum(0.005, r * 0.6), np.full(len(k), 0.003), 3,
                0.05, 0.2, 0.2, sway, 0.3, one.phase[parent])
     anchors = [along(one, sp["start"], sp["spacing"]), along(two, sp["start"], sp["spacing"])]
-    budget = int(np.clip(sp["cards"] * crown_scale(shape, sp) * 1.2, 60, 2400))
+    budget = card_budget(sp, shape, 1.2, 60, 2400)
     return {"branches": [None, one, two], "anchors": thin(merge(anchors), budget, rng),
             "crown": (0.0, H * 0.55, H * 0.55, R), "conifer": False, "trunk": stem * 2.5}
 
@@ -382,10 +421,10 @@ def fit(sk: dict, shape: Shape, sp: dict) -> dict:
     p = sk["anchors"]["p"]
     if not len(p):
         return sk
-    card = sp["card"]
+    card = card_size(sp, shape.radius)
     y0 = sk["crown"][0]
-    top = float(p[:, 1].max()) + 0.6 * min(card, 0.45 * shape.radius + 0.45)
-    reach = float(np.percentile(np.hypot(p[:, 0], p[:, 2]), 97)) + 0.3 * card
+    top = float(p[:, 1].max()) + 0.5 * card
+    reach = float(np.percentile(np.hypot(p[:, 0], p[:, 2]), 97)) + 0.25 * card
     sy = (shape.height - y0) / max(top - y0, 0.3)
     sr = shape.radius / max(reach, 0.2)
 
@@ -469,7 +508,7 @@ def tubes(b: Branches, segs: int, rings: int, slot: str, tint, ao, v0: float, ca
             "wind": np.concatenate([wind.reshape(-1, 4), cap_wind]), "triangles": np.concatenate([faces, caps])}
 
 
-def cards(anchors: dict, sp: dict, crown, conifer_crown: bool, rng, fold: bool, grow_by: float) -> dict:
+def cards(anchors: dict, sp: dict, crown, conifer_crown: bool, rng, fold: bool, grow_by: float, seed: int = 0) -> dict:
     y0, yc, hc, R = crown
     n = len(anchors["p"])
     p, direction, tuft = anchors["p"], anchors["dir"], anchors["tuft"]
@@ -500,7 +539,7 @@ def cards(anchors: dict, sp: dict, crown, conifer_crown: bool, rng, fold: bool, 
     facing = rotate(unit(facing), up, rng.uniform(-1, 1, n) * sp["card_roll"])
     if flat:
         facing = unit(facing + (UP - facing) * flat)
-    size = min(sp["card"], 0.45 * R + 0.45) * CARD_GROWTH * rng.uniform(0.8, 1.15, n) * grow_by
+    size = card_size(sp, R) * rng.uniform(0.8, 1.15, n) * grow_by
     side = unit(np.cross(up, facing))
     normal = unit(np.cross(side, up))
     w, h = size * sp["aspect"], size
@@ -518,9 +557,12 @@ def cards(anchors: dict, sp: dict, crown, conifer_crown: bool, rng, fold: bool, 
                      np.repeat(anchors["phase"], k), np.ones(n * k)], axis=1)
     quad = np.array([[0, 1, 3], [1, 4, 3], [1, 2, 4], [2, 5, 4]] if fold else [[0, 1, 2], [1, 3, 2]])
     faces = (quad[None] + (np.arange(n) * k)[:, None, None]).reshape(-1, 3)
-    tint = np.asarray(sp["tint"])
-    return {"positions": flat_positions, "normals": normals, "uvs": uv, "colors": shade[:, None] * tint[None, :],
-            "wind": wind, "triangles": faces}
+    # Leaves of one spray share their light and age: each card is a little lighter or darker, yellower or bluer.
+    # Drawn per anchor from the anchors' own order, so a card keeps its colour at every level of detail.
+    vary = np.random.default_rng([seed, 2750159]).uniform(-1.0, 1.0, (n, 2))
+    brightness, warmth = sp["tone"][0] * (1 + CARD_TONE[0] * vary[:, 0]), 1 + sp["tone"][1] + CARD_TONE[1] * vary[:, 1]
+    colors = np.stack([shade, np.repeat(brightness, k), np.repeat(warmth, k)], axis=1)
+    return {"positions": flat_positions, "normals": normals, "uvs": uv, "colors": colors, "wind": wind, "triangles": faces}
 
 
 def join(groups: list[dict]) -> dict | None:
@@ -586,7 +628,7 @@ def build(shape: Shape, lod: int = 0) -> list[Part]:
         share = FAR_SHARE
         anchors = {key: value[:max(int(np.ceil(share * len(order))), min(len(order), 10))] for key, value in anchors.items()}
         grow_by = 1 / np.sqrt(share) * 0.8
-    leaves = cards(anchors, sp, sk["crown"], sk["conifer"], rng, fold=lod == 0, grow_by=grow_by)
+    leaves = cards(anchors, sp, sk["crown"], sk["conifer"], rng, fold=lod == 0, grow_by=grow_by, seed=shape.seed)
     bark_material, leaf_material = materials(shape)
     out = []
     bark = join(solids)
