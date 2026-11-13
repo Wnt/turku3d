@@ -88,6 +88,22 @@ def test_entity_compiles_to_content_addressed_output_and_a_manifest_row(posts):
         world_store.write_description({"schema": "turku-description/posts/1", "id": "posts/p1", "tier": "auto", "provenance": []}, by="test")
 
 
+def test_a_manifest_row_lists_the_levels_it_does_not_draw():
+    """Trees: instance rows near (lod 0), one mesh per cell far (lod 1). Either role's row names the other level."""
+    far = {"lod": 1, "url": "objects/aa/far.glb", "sha256": "far", "bytes": 10, "triangles": 4, "error_m": 0.5}
+    near = {"lod": 0, "asset": "objects/bb/tree.glb", "triangles": 9, "transforms": [[0, 0, 0, 0, 1, 1, 1]]}
+    record = {"id": "trees/c_0_0", "kind": "trees", "description": {"tier": "auto"}, "hash": "h", "origin": [0, 0, 0], "bounds": [0] * 6,
+              "output": {"lods": [far], "instances": [near]}}
+    scene, background = driver.manifest_row(record, "scene"), driver.manifest_row(record, "background")
+    assert "url" not in scene and scene["instances"][0]["asset"] == near["asset"]
+    assert scene["levels"] == [{"lod": 1, "url": far["url"], "bytes": 10, "triangles": 4, "error_m": 0.5, "instances": []}]
+    assert background["url"] == far["url"] and background["instances"] == []
+    assert background["levels"] == [{"lod": 0, "instances": [{k: v for k, v in near.items() if k != "lod"}]}]
+    # One level only: nothing else to choose.
+    record["output"]["instances"] = []
+    assert "levels" not in driver.manifest_row(record, "scene")
+
+
 def test_refresh_rewrites_the_manifest_only_when_an_entity_changed(posts):
     store, stub = posts
     store.put_facts(stub.id, {"id": stub.id, "box": list(stub.box), "sources": stub.sources, "facts": stub.facts})

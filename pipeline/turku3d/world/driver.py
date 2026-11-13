@@ -195,6 +195,21 @@ def manifest_row(record: dict, role: str) -> dict:
     if "heightfield" in record["output"]:
         row["heightfield"] = {k: v for k, v in record["output"]["heightfield"].items() if k not in ("sha256", "bytes")}
     row["instances"] = [{k: v for k, v in item.items() if k != "lod"} for item in instances if item["lod"] == level]
+    # The record's other levels, for a client that chooses by distance (play draws a cell's trees as instance rows
+    # near the player and as the cell's one far mesh beyond): each with its mesh, its instance rows or both.
+    drawn = {level} if row["instances"] else set()
+    if mesh:
+        drawn.add(mesh["lod"])
+    others = []
+    for lod in sorted(({entry["lod"] for entry in lods} | levels) - drawn):
+        other = {"lod": lod}
+        entry = next((entry for entry in lods if entry["lod"] == lod), None)
+        if entry:
+            other.update(url=entry["url"], bytes=entry["bytes"], triangles=entry["triangles"], error_m=entry["error_m"])
+        other["instances"] = [{k: v for k, v in item.items() if k != "lod"} for item in instances if item["lod"] == lod]
+        others.append(other)
+    if others:
+        row["levels"] = others
     if record["output"].get("images"):
         row["images"] = [image["url"] for image in record["output"]["images"]]
     return row

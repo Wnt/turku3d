@@ -136,9 +136,11 @@ class Store:
             manifest = json.loads(path.read_bytes())
             urls.update(cell["url"] for cell in manifest.get("collision", {}).values())
             for row in manifest["entities"]:
-                if row.get("url"):
-                    urls.add(row["url"])
-                urls.update(i["asset"] for i in row.get("instances", []))
+                # The level a row draws and the ones it lists for a client that chooses by distance.
+                for level in (row, *row.get("levels", [])):
+                    if level.get("url"):
+                        urls.add(level["url"])
+                    urls.update(i["asset"] for i in level.get("instances", []))
                 urls.update(row.get("images", []))
         return urls
 
