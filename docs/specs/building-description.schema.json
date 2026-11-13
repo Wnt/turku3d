@@ -2111,6 +2111,59 @@
               }
             }
           }
+        },
+        "passages": {
+          "description": "Where a way at ground level runs through or along the ground storey (building passages, arcades): the open area inside the footprint, from the open map's covered ways and the street register's part under the building. Only present where there is one.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "polygons",
+              "use"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "polygons": {
+                "description": "Polygons of [E, N]: outer ring, then holes; counter-clockwise; not closed.",
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "array",
+                    "minItems": 3,
+                    "items": {
+                      "type": "array",
+                      "minItems": 2,
+                      "maxItems": 2,
+                      "items": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                }
+              },
+              "clear_m": {
+                "description": "Clear height under the soffit from the map (maxheight); null: the generator's default.",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "use": {
+                "enum": [
+                  "foot",
+                  "road"
+                ]
+              },
+              "refs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
         }
       }
     },

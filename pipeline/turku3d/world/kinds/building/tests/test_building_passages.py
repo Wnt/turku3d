@@ -4,7 +4,7 @@ import numpy as np
 import shapely
 from test_building_compile import gabled_shell
 from turku3d.world.kinds.building import compile as compile_module
-from turku3d.world.kinds.building import describe, passages
+from turku3d.world.kinds.building import describe, description, passages
 
 
 def test_a_covered_footway_along_the_front_is_an_arcade_with_piers_soffit_and_open_ends():
@@ -17,6 +17,7 @@ def test_a_covered_footway_along_the_front_is_an_arcade_with_piers_soffit_and_op
     shell["passages"] = passages.facts(outline, [(footway, tags, "osm:way/1"), (beside, tags, "osm:way/2")], [])
     assert [p["refs"] for p in shell["passages"]] == [["osm:way/1"]]
     doc = describe.effective("test", shell, {"year": 1961, "storeys": 6, "use": "1050"}, None)
+    assert description.errors(doc) == []
     output = compile_module.compile(doc)
 
     def survey(part):

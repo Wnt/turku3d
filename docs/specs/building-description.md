@@ -23,6 +23,17 @@ bash pipeline/env/run.sh python -m turku3d.world.kinds.building.description FILE
   - Every other top-level field of the stored description replaces the automatic one.
 - `shell` holds the LoD2 surfaces as rings of `[E, N, H]`, the terrain line around the footprint and the footprints
   and heights of touching neighbours, so that `compile` needs nothing but the description.
+- `shell.passages` (only where there are any) is the open part of the ground storey: where the open map runs a way
+  at ground level under a roof through or along the building (`tunnel=building_passage|covered`, `covered=yes|arcade|
+  colonnade`, layer 0, at least 1 m of it inside the footprint), its corridor (width and height from `width`,
+  `lanes`, `maxheight`, else 3 m / 2 lanes) widened by the street register's part (Katualueet) that the way runs in
+  where that part reaches under the footprint. `polygons` of `[E, N]`, `clear_m` (from `maxheight`, else null),
+  `use` `foot` or `road`, `refs`. LoD2 closes the ground storey; `compile` opens it (`passages.py`): where a
+  facade's base line runs in a passage the wall is open up to the soffit (3.0 m over the floor on foot, 4.2 m on a
+  road, kept under the first floor). An open stretch whose far side lies inside the building is an **arcade**: a
+  recess of the ground storey whose openings stand on its back wall, with 0.5 m square piers on the facade line at
+  most 4 m apart (in the plinth's material); one whose far side is the outline again is a **through mouth**. A
+  soffit covers the passage and lining walls close it where no facade's back wall does. Collision is the drawn mesh.
 
 ### The automatic tier
 
@@ -308,6 +319,7 @@ tell become `observed.hidden_m`. Nothing else reads the old format.
 
 A change that readers must follow gets a line on the campaign board. Additive fields keep version 1.
 
+- 2026-11-13: `shell.passages` (building passages and arcades from the open map and the street register).
 - 2026-11-13: `observed.hidden_m` is drawn with the automatic tier's openings; a guessed wall colour (confidence
   <= 0.2) gives way to `measured.wall`.
 - 2026-11-13: `measured.<part>` may carry `from`, `visible`, `agreement` and `n` (the panorama batch).
