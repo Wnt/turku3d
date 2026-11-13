@@ -20,11 +20,11 @@ from pathlib import Path
 import numpy as np
 import shapely
 
-from ..api import Area, Instances, Output, Stub
+from ..api import Area, Instances, Material, Output, Stub
 from ..frame import to_engine
 from ..objects import registers
 from ..objects.common import GALVANISED, GRANITE, describe, interaction, painted_metal, painted_wood, yaw_of_run, unique
-from ..objects.mesh import Mesh
+from ..objects.mesh import Mesh, rgb_hex
 
 VERSION = 1
 PANEL = {"board": 2.4, "picket": 2.4, "iron": 2.0, "mesh": 2.0, "stone-wall": 2.0, "railing": 2.0}
@@ -150,11 +150,13 @@ def picket_panel(height: float, colour: str) -> Mesh:
     return mesh
 
 
-def wall_panel(height: float) -> Mesh:
+def wall_panel(height: float, colour: str | None = None) -> Mesh:
+    """A stone or rendered fence wall, 2 m long, in the stone colour read for it when there is one."""
+    stone = Material("stone", {"colour": colour, "finish": "rock_faced"}, rgb_hex(colour), 0.9, 0.0) if colour else GRANITE
     mesh = Mesh()
     length = PANEL["stone-wall"]
-    mesh.box("wall", GRANITE, [0, (height - 0.06 - BURY) / 2, 0], [length, height - 0.06 + BURY, 0.4])
-    mesh.box("cap", GRANITE, [0, height - 0.03, 0], [length, 0.06, 0.46])
+    mesh.box("wall", stone, [0, (height - 0.06 - BURY) / 2, 0], [length, height - 0.06 + BURY, 0.4])
+    mesh.box("cap", stone, [0, height - 0.03, 0], [length, 0.06, 0.46])
     return mesh
 
 
@@ -172,18 +174,20 @@ def mesh_panel(height: float, colour: str) -> Mesh:
     return mesh
 
 
-def railing_panel(height: float) -> Mesh:
+def railing_panel(height: float, colour: str | None = None) -> Mesh:
+    """Two tube rails, 2 m long, galvanised unless a paint was read for them."""
+    steel = painted_metal(colour) if colour else GALVANISED
     mesh = Mesh()
     length = PANEL["railing"]
     for y in (height, height * 0.5):
-        mesh.tube("rails", GALVANISED, [[-length / 2, y, 0], [length / 2, y, 0]], 0.024, sides=8)
+        mesh.tube("rails", steel, [[-length / 2, y, 0], [length / 2, y, 0]], 0.024, sides=8)
     return mesh
 
 
 def post(family: str, height: float, colour: str) -> Mesh:
     mesh = Mesh()
     if family == "railing":
-        mesh.tube("post", GALVANISED, [[0, -BURY, 0], [0, height + 0.02, 0]], 0.024, sides=8)
+        mesh.tube("post", painted_metal(colour) if colour else GALVANISED, [[0, -BURY, 0], [0, height + 0.02, 0]], 0.024, sides=8)
     elif family == "mesh":
         mesh.tube("post", painted_metal(colour), [[0, -BURY, 0], [0, height + 0.02, 0]], 0.025, sides=8)
     elif family == "iron":
@@ -387,7 +391,8 @@ class Fence:
     def compile(self, description: dict) -> Output:
         family = description.get("family", "board")
         height = round(float(description.get("height", 1.6)) * 10) / 10
-        colour = description.get("colour", IRON if family == "iron" else DEFAULT_WOOD)
+        # A railing or a stone wall has a colour only when one was read for it; the wood and iron fences always.
+        colour = description.get("colour", IRON if family == "iron" else None if family in ("railing", "stone-wall") else DEFAULT_WOOD)
         block = description.get("interaction") or {}
         entity = description["id"]
         if family == "none":  # a reader saw no fence on the register's line
@@ -423,7 +428,7 @@ class Fence:
         last = points[-1]
         posts.append([last[0], last[1], last[2], posts[-1][3], 1.0, 1.0, 1.0])
         asset = {"board": lambda: board_panel(height, colour), "picket": lambda: picket_panel(height, colour),
-                 "iron": lambda: iron_panel(height, colour), "mesh": lambda: mesh_panel(height, colour), "stone-wall": lambda: wall_panel(height), "railing": lambda: railing_panel(height)}.get(family, lambda: board_panel(height, colour))()
+                 "iron": lambda: iron_panel(height, colour), "mesh": lambda: mesh_panel(height, colour), "stone-wall": lambda: wall_panel(height, colour), "railing": lambda: railing_panel(height, colour)}.get(family, lambda: board_panel(height, colour))()
         items = [Instances(asset.parts(), np.round(np.array(panels), 4), ids=[f"{entity}#p{k}" for k in range(len(panels))],
                            behaviour=block.get("behaviour"), collision=block.get("collision"))]
         if family != "stone-wall":
