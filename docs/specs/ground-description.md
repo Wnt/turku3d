@@ -55,10 +55,19 @@ A stored description (`descriptions/ground/c_<i>_<j>.json`) replaces what the re
   rough`, key `...:verge`) beside it wherever nothing else is mapped.
 - **Verges and woodland.** The green register's `Kasvillisuus` and `Metsä` and OpenStreetMap woods and scrub are
   unmown grass (`mown` 0.2 and 0), not bare soil; soil stays for planting beds.
-- **Bridges over water** (`kinds/ground/decks.py`, field `decks`: `key` and `rings` of each deck outline in the
-  cell). A way with a `bridge` tag that crosses mapped water is a deck: its outline is the register's `Silta`
-  polygons around the way (the one a street's centre line runs along is carriageway level, the others footway
-  level), or a strip as wide as the way's class with the surface `osm:way/<id>:deck` where the register has none.
-  Relief nodes on it take the straight line between the ground just beyond its two ends, so the street crosses at
-  the banks' level instead of dipping to the water the scan saw. The deck is still part of the single-valued skin:
-  its sides fall to the river bed as a bank and nothing passes under it. Bridges over land stay as scanned.
+- **Bridges over water** (`kinds/ground/decks.py`, field `decks`: `key`, `rings` of the deck's whole outline,
+  `axis` (the way, drawn on to both abutments) and `ends` (the level at the axis's two ends) of every deck that
+  touches the cell). A way with a `bridge` tag that crosses mapped water is a deck: its outline is the register's
+  `Silta` polygons around the way (the one a street's centre line runs along is carriageway level, the others
+  footway level), or a strip as wide as the way's class with the surface `osm:way/<id>:deck` where the register
+  has none. The mapped bridge ends over the bank, where the scan's ground still climbs from the water: the deck
+  goes on to the abutment, where that climb is over (at most 24 m), as wide as it is on the mapped part. The
+  relief stays the scan's. The compiler draws the triangles inside the outline twice: at the deck's level (the
+  carriageway on the straight line between the abutments' levels, everything else 0.12 m above it, never under
+  the scanned ground) with their covers, kerbs and paint, and at the scan's level as the bed or bank under the
+  deck (cover `water`). Part `deck-slab` is a closed concrete solid from the deck's sheet to 0.9 m under the
+  carriageway. Railings are `instances` of the cell (the fence kind's iron panel and post, `behaviour: fixed`,
+  box collision; ids `<deck key>/railing-...`) along the outline wherever the scan lies more than a metre under
+  the deck. The height raster and the far level carry the deck's level (the raster 1.5 m beyond the outline too,
+  because collision samples it every 2.5 m). `decks.lifted(heights, east, north, decks.spans(box))` gives other
+  kinds the level to stand on. No piers, one railing type, no lamp pylons yet. Bridges over land stay as scanned.
