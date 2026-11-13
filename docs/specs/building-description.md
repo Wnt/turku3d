@@ -33,14 +33,19 @@ What a building looks like when nobody has read it (`describe.automatic`, rules 
   `outbuilding` (ancillary functions and unclassified pieces under 70 m²: a garage from 15 m² and 2.8 m wide),
   `industrial`, `commercial`, `office`, old `wooden_house`, and blocks of flats by decade. A building the
   register has not dated takes the year of its dated neighbours within 60 m (`register.year_near`), else it is
-  drawn as new.
+  drawn as new. `register.old_share` is the share of the dated neighbours within 60 m built before 1940, by
+  count (none under three dated neighbours): how old the street round the building is. From 0.5 an office,
+  public building or business block built since 1960 of "other material" is clad like the stone town (stone slab,
+  facing tile, render; upright windows since 2000), not in metal cassettes. Metal fronts since 2005 include
+  terracotta and red-brown panels.
 - **Wall** in the register's facade material, in a colour such a building usually has by type and decade (brick
   houses since 1975 are mostly buff or white, older ones red; post-war houses of "other material" are rendered).
   The palettes are populations: one colour is picked per building by its id.
 - **`measured`**, when stored, replaces the palette pick: `measured.wall.colour` is a robust sample of the wall in
   a street photograph, taken without reading the building (`spread`: CIELAB dE of the sample, `share`: how much
   of the strip was used, `conf`). The generator keeps its hue and chroma and holds its lightness inside the
-  family's range, because a photograph's pixels carry its exposure; under confidence 0.4 it is ignored.
+  family's range, because a photograph's pixels carry its exposure. It counts by its confidence against the
+  palette pick: not under 0.2, half at 0.2, all of it from 0.5 (blended in CIELAB).
   `measured.roof.colour` takes the place of the orthophoto's roof colour. `measured.trim` and `measured.plinth`
   are stored for later use. A stored description may consist of `measured` alone, with tier `auto`. A material
   somebody described always wins over a measurement. A colour measured by the panorama batch
@@ -108,7 +113,9 @@ A wall is a street-facing or yard-facing facade plane of the shell. Its `frame` 
 
 The generator groups coplanar LoD2 wall polygons into facade planes and matches each described wall to the plane
 its frame overlaps most (same direction within 15°, within 1.5 m). Planes without a described wall use
-`wall_defaults`, which has no frame and places bays by a grid.
+`wall_defaults`, which has no frame and places bays by a grid. A plane of 8 m or less that meets the end of a
+described wall (a rounded or cut corner, a step in the front), or chains on from one within 14 m, takes that wall's
+material and plinth instead of the default's.
 
 **Fit against the shell.** The shell decides the real width and height.
 - Width: a difference under 3 % rescales `u_m`; a larger one keeps metric positions measured from the wall's centre.

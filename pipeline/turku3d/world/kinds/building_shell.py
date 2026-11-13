@@ -237,6 +237,13 @@ def discover(area: Area, sources) -> list[Stub]:
                     if run >= half:
                         year_near = int(year)
                         break
+        # How old the street round it is: the share of its dated neighbours within 60 m that were built before
+        # 1940, by count (a few large post-war blocks do not outweigh the old houses round them, and a building at
+        # the rim of the area read, which misses some neighbours, keeps about the same share). A new building in
+        # the stone town is clad to fit it (stone, tile, render), not in metal.
+        dated = [found[other]["year"] for other in tree.query(outline, predicate="dwithin", distance=60.0)
+                 if other != index and found[other]["year"]]
+        old_share = round(sum(year < 1940 for year in dated) / len(dated), 2) if len(dated) >= 3 else None
         facts = {
             "shell": {"source": building["source"], "surfaces": building["surfaces"], "terrain": terrain,
                       "neighbours": sorted(neighbours, key=lambda n: n["id"])},
@@ -247,6 +254,7 @@ def discover(area: Area, sources) -> list[Stub]:
                 "height_m": height if height and height > 0 else None,
                 "roof_colour": roof_colour(outline, aerial) if aerial is not None else None,
                 "year_near": year_near,
+                "old_share": old_share,
                 "premises": inside(premises, outline),
             }.items() if value not in (None, "", [])},
         }

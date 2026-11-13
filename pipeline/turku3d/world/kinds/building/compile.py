@@ -113,6 +113,35 @@ def wall_roles(doc: dict, shell) -> dict:
     return archetypes.wall_roles(doc, priors.style_type(doc), free, priors.group(doc)["pitch"])
 
 
+CORNER_M = 8.0  # the longest undescribed wall that takes its described neighbour's cladding
+CORNER_RUN_M = 14.0  # how far such walls chain away from the described wall
+
+
+def _corner_walls(shell, described: dict) -> dict:
+    """{facade index: index of the described facade it continues}: undescribed grounded walls up to CORNER_M long
+    whose end meets (within 0.6 m) the end of a described wall, or of such a wall, at most CORNER_RUN_M away."""
+    if not described:
+        return {}
+    ends = {f.index: (np.asarray(f.p0[:2], float), np.asarray(f.p1[:2], float)) for f in shell.facades}
+    reached = {index: (index, 0.0) for index in described}
+    frontier = list(described)
+    while frontier:
+        nxt = []
+        for index in frontier:
+            source, run = reached[index]
+            for facade in shell.facades:
+                if facade.index in reached or not facade.grounded or facade.width > CORNER_M:
+                    continue
+                if run + facade.width > CORNER_RUN_M:
+                    continue
+                gap = min(float(np.linalg.norm(a - b)) for a in ends[facade.index] for b in ends[index])
+                if gap <= 0.6:
+                    reached[facade.index] = (source, run + facade.width)
+                    nxt.append(facade.index)
+        frontier = nxt
+    return {index: source for index, (source, _run) in reached.items() if index not in described}
+
+
 def compile(description: dict) -> Output:  # noqa: A001 - the contract's name
     origin = building_origin(description["shell"])
     doc = _localise(description, origin)
@@ -153,6 +182,7 @@ def compile(description: dict) -> Output:  # noqa: A001 - the contract's name
             if other.index not in described and overlap >= max(1.5, 0.6 * other.width):
                 described[other.index] = wall
                 shared.update((other.index, facade_by_wall[wall["id"]].index))
+    corners = _corner_walls(shell, described)
     templates = {}
     neighbours = doc["shell"].get("neighbours", [])
     wall_family = "plaster"
@@ -161,6 +191,11 @@ def compile(description: dict) -> Output:  # noqa: A001 - the contract's name
     roles = {} if described else wall_roles(doc, shell)
     for facade in shell.facades:
         wall = priors.resolve_wall(doc, described.get(facade.index))
+        if facade.index in corners:
+            # A short wall nobody described between or beside described ones (a rounded or cut corner, a step in
+            # the front) is clad like the described wall it continues, not in the reader's default for the rest.
+            like = priors.resolve_wall(doc, described[corners[facade.index]])
+            wall = {**wall, "material": like["material"], "plinth": like["plinth"]}
         if not facade.grounded:
             wall = priors.raised_wall(wall, facade.index in described)
         elif facade.index not in described:

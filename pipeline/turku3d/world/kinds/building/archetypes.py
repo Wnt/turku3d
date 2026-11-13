@@ -189,6 +189,10 @@ SHEET_HALL = [
 # Offices and public buildings: metal cassettes are pale grey, white or silver, a few dark; facing tile and
 # concrete elements pale warm greys (as read at Kupittaa and in the centre).
 OFFICE_SHEET = ["#c6c9ca", "#d8d8d6", "#b9bbb8", "#a4a9a9", "#e2e2e0", "#cfd2d0", "#8e9498", "#b3b7bb", "#5a5c61", "#3a3b40"]
+# Since about 2005 a share of the panel fronts are terracotta and red-brown (Kupittaa, as read and photographed).
+OFFICE_SHEET_NEW = OFFICE_SHEET + ["#b47a64", "#9a5a48", "#c48a76", "#8a4e3e"]
+# Stone slab fronts of new buildings in the stone town: pale limestone and sandstone, a grey granite.
+STONE_SLAB = ["#cfc8ba", "#d6d0c2", "#c9c1b0", "#ddd7ca", "#b8b4a9", "#9c9e9d"]
 OFFICE_TILE = ["#cbc4b6", "#b8b4a9", "#d3cdbf", "#c2b8a6", "#dad6ca"]
 OFFICE_RENDER = ["#e6e4dc", "#e3dcc4", "#dddddb", "#e8e6df", "#d6d0c2", "#dcc79a", "#e9e9e6"]
 
@@ -202,6 +206,13 @@ SHEET = {"family": "sheet_metal", "profile": "standing_seam", "scale_m": 0.3}
 CASSETTE = {"family": "sheet_metal", "profile": "cassette", "orientation": "horizontal", "scale_m": 0.9, "finish": "matt"}
 ELEMENTS = {"family": "concrete", "finish": "panel", "scale_m": 3.0}
 TILED = {"family": "ceramic_tile", "scale_m": 0.2}
+STONE = {"family": "stone", "finish": "slab", "scale_m": 0.6, "colour2": "#b9b2a4"}
+
+
+def old_town(doc: dict) -> bool:
+    """Whether the street round a building is mostly older than 1940 (`register.old_share`): the stone town and
+    the old wooden quarters, where a new building is clad to fit in."""
+    return (doc.get("register", {}).get("old_share") or 0.0) >= 0.5
 
 
 def pick(doc: dict, salt: str, options: list):
@@ -222,8 +233,14 @@ def wall(doc: dict, kind: str) -> dict | None:
             return {**PANELS, "colour": pick(doc, "wall", CONCRETE_PANEL)}
         return {**BOARDS_UPRIGHT, "colour": pick(doc, "wall", WOOD_SHED)}
     if workplace(doc, kind):
+        if material in ("muu materiaali", None, "") and year >= 1960 and old_town(doc):
+            # As read in the centre: stone slabs, facing tile and render on the business blocks among the stone
+            # houses (Kauppiaskatu 6, Eerikinkatu 11, Humalistonkatu 11), never metal cassettes.
+            clad = pick(doc, "clad", [STONE, STONE, TILED, PLASTER] if year >= 1980 else [TILED, TILED, STONE, PLASTER])
+            colours = {"stone": STONE_SLAB, "ceramic_tile": OFFICE_TILE, "plaster": OFFICE_RENDER}[clad["family"]]
+            return {**clad, "colour": pick(doc, "wall", colours)}
         if material == "metallilevy":
-            return {**CASSETTE, "colour": pick(doc, "wall", OFFICE_SHEET)}
+            return {**CASSETTE, "colour": pick(doc, "wall", OFFICE_SHEET_NEW if year >= 2005 else OFFICE_SHEET)}
         if material == "lasi":
             return {**CASSETTE, "colour": pick(doc, "wall", ["#5c6a70", "#6f7f88", "#8fa0aa", "#3a3b40"])}
         if material == "betoni":
@@ -249,7 +266,8 @@ def wall(doc: dict, kind: str) -> dict | None:
             clad = pick(doc, "clad", [BRICK, BRICK, TILED, CASSETTE, PLASTER, PLASTER])
         else:
             clad = pick(doc, "clad", [CASSETTE, CASSETTE, CASSETTE, PLASTER, PLASTER, ELEMENTS])
-        colours = {"brick": BRICK_RED + BRICK_BROWN, "ceramic_tile": OFFICE_TILE, "sheet_metal": OFFICE_SHEET,
+        colours = {"brick": BRICK_RED + BRICK_BROWN, "ceramic_tile": OFFICE_TILE,
+                   "sheet_metal": OFFICE_SHEET_NEW if year >= 2005 else OFFICE_SHEET,
                    "plaster": OFFICE_RENDER, "concrete": CONCRETE_PANEL if year < 1980 else CONCRETE_LATE}[clad["family"]]  # fmt: skip
         return {**clad, "colour": pick(doc, "wall", colours)}
     if kind in HALLS:
@@ -638,6 +656,8 @@ def group(doc: dict, kind: str) -> dict | None:
         scheme = zlib.crc32(f"{doc.get('id', '')}/face".encode()) % 3
         if office_band(year) == "new" and material == "lasi":
             scheme = 2
+        elif office_band(year) == "new" and old_town(doc):
+            scheme = 0  # upright windows in a clad front, like the stone houses round it
         return office(office_band(year), scheme)
     if kind in WORKPLACES and (kind != "commercial" or (doc.get("register", {}).get("storeys") or 1) >= 3):
         return None

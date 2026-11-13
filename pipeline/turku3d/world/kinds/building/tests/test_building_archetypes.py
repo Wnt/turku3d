@@ -75,3 +75,13 @@ def test_a_measured_wall_colour_replaces_the_palette_pick_within_the_familys_lig
     # A described material wins over a measurement.
     stored = {"measured": {"wall": {"colour": "#7a4234"}}, "materials": {"wall": {"family": "plaster", "colour": "#e0e0e0"}}}
     assert automatic(register, stored=stored)["materials"]["wall"]["colour"] == "#e0e0e0"
+
+
+def test_a_new_business_block_in_the_stone_town_is_clad_to_fit_and_one_elsewhere_may_be_metal():
+    register = {"use": "1050", "year": 2021, "storeys": 8, "material": "muu materiaali", "height_m": 28.0}
+    old = automatic({**register, "old_share": 0.65}, width=40.0, depth=20.0, eaves=26.0, ridge=0.5)
+    assert old["style"]["type"] == "commercial"
+    assert old["materials"]["wall"]["family"] in ("stone", "ceramic_tile", "plaster")
+    new_town = automatic({**register, "old_share": 0.1}, width=40.0, depth=20.0, eaves=26.0, ridge=0.5)
+    assert new_town["materials"]["wall"]["family"] in ("sheet_metal", "plaster", "concrete")
+    assert "#c48a76" in archetypes.OFFICE_SHEET_NEW
