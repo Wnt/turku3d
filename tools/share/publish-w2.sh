@@ -87,6 +87,11 @@ PY
   rsync -a --delete --exclude '*.map' --exclude '*.br' --link-dest="../../../current/dist/" "$BUILD/dist/" "$SSH_HOST:$C/releases/w2-$SHA/dist/"
   rsync -a "$BUILD/city-web.service" "$SSH_HOST:$C/releases/w2-$SHA/city-web.service"
   phase 'uploaded the client'
+  # The Mac's disk is short: of the client builds kept here (0.3 GiB each) only the two newest stay.
+  ls -1dt "$WORK"/builds/*/ | tail -n +3 | while read -r old; do
+    name=$(basename "$old")
+    if [[ "$name" =~ ^[a-f0-9]{40}$ ]] && [ "$name" != "$SHA" ]; then rm -rf "$WORK/builds/$name"; fi
+  done
 fi
 
 say "publishing on $SSH_HOST"
