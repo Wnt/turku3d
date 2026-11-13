@@ -7,11 +7,11 @@ strip as wide as its class where the register has none. The mapped bridge usuall
 scan's ground still climbs from the water to the street: the deck goes on to the abutment, the first place beyond
 the way's end where that climb is over, and its top is the straight line between the two abutments' levels.
 
-The ground kind draws the deck as a second sheet over its skin (`mesh.py`), with the slab's faces and railings; the
-height raster carries the deck's level, so the deck is what is walked and driven on. The answer depends on the place
-alone (every end reads its own piece of the scan), so neighbouring cells and locations agree.
+The ground kind draws the deck as a second sheet over its skin (`mesh.py`) with the slab's faces, and the `bridge`
+kind the structure, parapets and pylons around it (`kinds/bridge`); the height raster carries the deck's level, so the
+deck is what is walked and driven on. The answer depends on the place alone (every end reads its own piece of the
+scan), so neighbouring cells and locations agree.
 
-UNFINISHED (2026-11-13): no piers or arches under a long deck, one railing type for every bridge, no lamp pylons.
 Bridges over land stay as the scan has them (the street dips to the level below, both stay passable).
 """
 

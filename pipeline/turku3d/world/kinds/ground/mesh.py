@@ -9,8 +9,9 @@ region of the skin with the paint cover (F4).
 
 A bridge deck (`decks`) is the one place with two sheets: the triangles inside a deck's outline are drawn at the
 deck's level with their own vertices (covers, kerbs and paint as anywhere), and once more at the scan's level as the
-bank or the river bed under the deck. A closed slab hangs under the deck's sheet and railings stand on its open
-sides. The height raster is single-valued and carries the deck, the level that is walked and driven on.
+bank or the river bed under the deck. A closed slab hangs under the deck's sheet; the `bridge` kind draws the
+structure under it and the parapets on its sides. The height raster is single-valued and carries the deck, the level
+that is walked and driven on.
 """
 from __future__ import annotations
 
@@ -21,7 +22,7 @@ import shapely
 from scipy.ndimage import distance_transform_edt, gaussian_filter
 from shapely.ops import substring
 
-from ...api import Heightfield, Instances, Material, Part, Output
+from ...api import Heightfield, Material, Part, Output
 from ...frame import CELL
 from . import decks
 from .covers import NAMED
@@ -41,10 +42,6 @@ BED_DEPTH = 1.0         # how far under the water level the bed lies, until soun
 SLIVER = 0.0005        # a triangle lower than this over its longest side is a vertex on an edge
 UNDER_CLEAR = 0.3       # m: where the scan's ground is this near the deck's top there is no sheet under the deck
 SLAB_COVER = {'family': 'concrete', 'params': {'colour': '#8d8a84', 'finish': 'cast', 'scale_m': 1.2}, 'color': (0.27, 0.25, 0.23), 'roughness': 0.85}
-RAILING = 1.2           # m: height of a deck's railing panel from the carriageway level (1.08 m over a footway)
-RAILING_PANEL = 2.0     # m: length of a railing panel (the fence kind's iron panel)
-RAILING_INSET = 0.12    # m from the deck's edge to the railing's line
-RAILING_DROP = 1.0      # m of fall beside the deck from which a railing stands
 
 
 def polygons(shape) -> list:
@@ -380,45 +377,6 @@ def solid(points, triangles, top, bottom, origin_xz, along) -> tuple[np.ndarray,
     return np.concatenate(positions), np.concatenate(faces), np.concatenate(normals), np.concatenate(uvs), np.concatenate(station)
 
 
-def railings(spans, ground_at, base: float) -> list[Instances]:
-    """Railing panels and posts along the sides of the decks where the ground beside the deck lies well under it,
-    for the panels whose middle is in this cell. Panels are counted along each deck's whole outline, so the cells a
-    deck crosses place the same panels."""
-    from ..fence import IRON, iron_panel, post
-    from ...objects.common import yaw_of_run
-
-    panels, posts, panel_ids, post_ids = [], [], [], []
-    for key, shape, axis, ends in spans:
-        for n, ring in enumerate(polygon.exterior for polygon in polygons(shape)):
-            count = max(int(ring.length // RAILING_PANEL), 1)
-            at = np.arange(count + 1) * (ring.length / count)
-            joints = shapely.get_coordinates(shapely.line_interpolate_point(ring, at))
-            for k, (a, b) in enumerate(zip(joints[:-1], joints[1:])):
-                middle = (a + b) / 2
-                run = b - a
-                length = float(np.hypot(*run))
-                if length < 0.5 or not (0.0 <= middle[0] < CELL and 0.0 <= middle[1] < CELL):
-                    continue
-                side = np.array([-run[1], run[0]]) / length
-                inward = side if shape.contains(shapely.Point(middle + side * RAILING_INSET)) else -side
-                outside = middle - inward * 1.0
-                top = float(decks.level(axis, ends, middle[:1], middle[1:])[0])
-                if top - float(ground_at(outside[:1], outside[1:])[0]) < RAILING_DROP:
-                    continue
-                yaw = yaw_of_run(float(np.degrees(np.arctan2(run[0], -run[1]))))
-                a, b, middle = a + inward * RAILING_INSET, b + inward * RAILING_INSET, middle + inward * RAILING_INSET
-                panels.append([middle[0], top - base, middle[1], yaw, length / RAILING_PANEL, 1.0, 1.0])
-                panel_ids.append(f'{key}/railing-{n}-{k}')
-                posts.append([a[0], top - base, a[1], yaw, 1.0, 1.0, 1.0])
-                post_ids.append(f'{key}/railing-post-{n}-{k}')
-    if not panels:
-        return []
-    return [Instances(iron_panel(RAILING, IRON).parts(), np.round(np.array(panels), 4), ids=panel_ids, behaviour='fixed',
-                      collision={'shape': 'box', 'size': [RAILING_PANEL, RAILING, 0.06]}),
-            Instances(post('iron', RAILING, IRON).parts(), np.round(np.array(posts), 4), ids=post_ids, behaviour='fixed',
-                      collision={'shape': 'box', 'size': [0.1, RAILING, 0.1]})]
-
-
 def compile_cell(description: dict) -> Output:
     i, j = description['cell']
     from ...frame import ORIGIN_E, ORIGIN_N
@@ -574,5 +532,4 @@ def compile_cell(description: dict) -> Output:
             top = decks.level(axis, ends, rx, rz).reshape(side, side) + np.where(inside_low, 0.0, decks.KERB)
             raster = np.where(inside, np.maximum(raster, top), raster)
     field = Heightfield((i * CELL, j * CELL), relief.step, raster)
-    rails = railings(spans, lambda x, z: relief.sample(relief.height, x, z), base)
-    return Output((i * CELL, base, j * CELL), parts, instances=rails, heightfield=field, error_m={0: 0.01, 1: 0.15})
+    return Output((i * CELL, base, j * CELL), parts, heightfield=field, error_m={0: 0.01, 1: 0.15})

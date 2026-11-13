@@ -7,9 +7,9 @@ import sys
 from pathlib import Path
 
 from ..api import Kind
-from . import building, fence, furniture, ground, lamp, planting, rail, signal, signpost, trees, wall, water, wire
+from . import bridge, building, fence, furniture, ground, lamp, planting, rail, signal, signpost, trees, wall, water, wire
 
-KINDS: dict[str, Kind] = {kind.name: kind for kind in (ground.Ground(), water.Water(), wall.Wall(), rail.Rail(), building.Building(), trees.Trees(), planting.Planting(), signpost.SignPost(), lamp.Lamp(), fence.Fence(), wire.Wire(), furniture.Furniture(), signal.Signal())}
+KINDS: dict[str, Kind] = {kind.name: kind for kind in (ground.Ground(), water.Water(), wall.Wall(), rail.Rail(), building.Building(), trees.Trees(), planting.Planting(), signpost.SignPost(), lamp.Lamp(), fence.Fence(), wire.Wire(), furniture.Furniture(), signal.Signal(), bridge.Bridge())}
 
 HERE = Path(__file__).parent
 SHARED = (HERE.parent / "api.py", HERE.parent / "geometry.py", HERE.parent / "glb.py", HERE.parent / "frame.py")

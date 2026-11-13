@@ -1,0 +1,68 @@
+{
+  "schema": "turku-bridge-profiles/1",
+  "about": "What the map does not say about a named bridge, keyed by its Wikidata id (OSM wikidata of the bridge outline or way). Every key is optional and overrides the type rules of kinds/bridge (support, body, structure, parapets, piers, pylons, arches). Carried over from the old generator's per-bridge PROFILES in coarse/bridge_details.py (photo-supported there) and extended from the reference photos named in `evidence`. Dimensions are estimates from photos unless `evidence` says measured.",
+  "bridges": {
+    "Q11853512": {
+      "name": "Auransilta",
+      "evidence": "old generator PROFILES (steel body on stone supports, heritage railing, four 4.8 m end pylons); photos review_08 (west abutment from the bank: granite ashlar, arched gated passage in the downstream face, pylon at the river corner, stone balustrade), sv_10 (from the deck: white lattice railing on the span, granite obelisk with bronze lantern, balustrade on the abutment)",
+      "body": "steel",
+      "support": "stone",
+      "parapets": {
+        "approach": "balustrade",
+        "span": "lattice"
+      },
+      "rail_colour": "#e4e4dc",
+      "body_colour": "#8e959a",
+      "pylons": {
+        "height": 5.6,
+        "width": 1.15,
+        "lantern": true
+      },
+      "arches": [
+        {
+          "end": 0,
+          "facing": 235,
+          "from_face": 3.0,
+          "width": 2.3,
+          "height": 3.1,
+          "grille": true
+        }
+      ]
+    },
+    "Q6947737": {
+      "name": "Myllysilta",
+      "evidence": "old generator PROFILES: photo-supported span count, rounded piers at a third and two thirds",
+      "piers": {
+        "fractions": [
+          0.3333,
+          0.6667
+        ],
+        "rounded": true,
+        "thickness": 1.6
+      }
+    },
+    "Q11898665": {
+      "name": "Tuomiokirkkosilta",
+      "evidence": "old generator PROFILES: concrete arch with its ribs at the deck edges on stone supports",
+      "body": "concrete",
+      "support": "stone",
+      "structure": "arch"
+    },
+    "Q5408563": {
+      "name": "Teatterisilta",
+      "evidence": "old generator PROFILES: cable-stayed foot bridge, 0.32 m deck, 5.6 m masts at a fifth and four fifths, masonry cutwaters 1 m above the water",
+      "body": "steel",
+      "support": "stone",
+      "structure": "cable-stayed",
+      "slab": 0.32,
+      "masts": {
+        "height": 5.6,
+        "radius": 0.17,
+        "fractions": [
+          0.2,
+          0.8
+        ]
+      }
+    }
+  }
+}

@@ -6,8 +6,8 @@ such cells is playable with the old game's whole collision path. One cell per gr
 grid already):
 
 - ground: a 2.5 m grid over the entity's height raster (every fifth sample), so the floor has no holes;
-- buildings: the triangles of the drawn mesh with vertices snapped to a coarse grid and collapsed triangles
-  dropped: walls, roofs and panes stay closed, frames and sills go;
+- buildings and bridges (`MESH_KINDS`): the triangles of the drawn mesh with vertices snapped to a coarse grid and
+  collapsed triangles dropped: walls, roofs, panes, abutments and parapets stay closed, frames and sills go;
 - objects with a collision shape (fences, lamps, posts, furniture, signals, tree trunks): one fixed primitive per
   instance. Knock-over and breakable objects are fixed too until the game moves them.
 
@@ -31,7 +31,9 @@ CELL = 62.5
 GROUND_STEP = 5
 #: Vertex grids tried for a cell's building triangles, finest first, until the cell fits the format's byte budget.
 SNAPS = (0.2, 0.35, 0.6, 1.0)
-MATERIAL = {"fence": "fence", "lamp": "pole", "signpost": "pole", "signal": "pole", "trees": "tree_trunk", "furniture": "street_furniture"}
+MATERIAL = {"bridge": "fence", "fence": "fence", "lamp": "pole", "signpost": "pole", "signal": "pole", "trees": "tree_trunk", "furniture": "street_furniture"}
+#: Kinds whose drawn mesh is solid to the player.
+MESH_KINDS = ("building", "bridge")
 DRIVABLE = ("residential", "tertiary", "secondary", "primary", "unclassified", "living_street", "service")
 
 
@@ -110,7 +112,7 @@ def collision_cells(store, rows: list[dict], log=print) -> dict:
     solid: dict[tuple[int, int], list[np.ndarray]] = {}
     prims: dict[tuple[int, int], list[Primitive]] = {}
     for row in rows:
-        if row["kind"] == "building" and row.get("url"):
+        if row["kind"] in MESH_KINDS and row.get("url"):
             try:
                 corners = mesh_triangles(store, row)
             except Exception as error:  # noqa: BLE001 - one unreadable mesh must not cost the location its collision

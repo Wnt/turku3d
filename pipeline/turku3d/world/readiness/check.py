@@ -15,6 +15,7 @@ REPO = Path(__file__).resolve().parents[4]
 REGISTRY = Path(__file__).resolve().parents[1] / "families.json"
 OWNERS = {
     "building": "w2-buildings",
+    "bridge": "w2-bridges",
     "ground": "w2-street",
     "terrain": "w2-street",
     "wall": "w2-street",
