@@ -26,6 +26,7 @@ TARGET_PX_PER_M = 40.0  # enough to read glazing bars; beyond it more resolution
 VIEWS_PER_WALL = 3
 SECOND_OPINION_APART_M = 6.0
 CROPS_PER_BUILDING = 10  # wall crops in one reading
+PER_PROVIDER = 3  # spots of each provider resolved per wall beyond the best ones overall
 SAME_PATH_M = 2.5  # panoramas of one provider and year this alike in distance from a wall share a path along it
 
 
@@ -237,8 +238,14 @@ def building_views(scene: Scene, building: Building, panos: Panoramas, *, per_wa
             if v is not None:
                 rough.append((v.quality * (v.x1 - v.x0), key, spot))
         rough.sort(key=lambda r: -r[0])
+        # A spot's date is unknown until it is resolved, and one provider's dense run can fill the whole limit:
+        # each provider's best spots are resolved too, so other imagery (another year, before a hoarding went up)
+        # can be chosen as the second opinion.
+        take = rough[:resolve_limit]
+        for provider in sorted({key[0] for _, key, _ in rough}):
+            take += [r for r in rough[resolve_limit:] if r[1][0] == provider][:PER_PROVIDER]
         found = []
-        for _, key, spot in rough[:resolve_limit]:
+        for _, key, spot in take:
             if key not in resolved:
                 resolved[key] = panos.resolve(spot, wall.base)
             pano = resolved[key]

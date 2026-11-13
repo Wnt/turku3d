@@ -124,12 +124,13 @@ def second_look(record: dict, packet: Path, root: Path, reading: dict, meta: dic
     return again, {**meta_again, **total}, {**second, "second_look": note}
 
 
-def unblock(scene, building, record: dict, reading: dict, meta: dict, packet: Path, effort: str, panos):
+def unblock(scene, building, record: dict, reading: dict, meta: dict, packet: Path, effort: str, panos,
+            again: bool = False):
     """Walls none of whose crops showed them (the reader's report: a quay wall, a fence, trees in the way) get
-    crops from panoramas on other paths, once, and the reader reads those walls from them.
+    crops from panoramas on other paths, once (`again`: once more), and the reader reads those walls from them.
     Returns (reading, meta, note); the record gains the new crops."""
     blocked = {wall: views for wall, views in blocked_walls(record, reading, REVIEW_HIDDEN).items()
-               if wall not in record.get("blocked", {})}
+               if again or wall not in record.get("blocked", {})}
     if not blocked:
         return reading, meta, None
     walls = ", ".join(sorted(w.split(":")[-1] for w in blocked))
@@ -432,7 +433,7 @@ def main(argv=None) -> int:
             record = json.loads((packet / "views.json").read_text())
             saved = json.loads((packet / "reading.json").read_text())
             reading, meta, note = unblock(scene, b, record, saved["reading"], saved["meta"], packet, a.effort,
-                                          panoramas())
+                                          panoramas(), again=a.force)
             line = {"building": b.id, "other_views": note}
             if reading is not saved["reading"]:
                 (packet / "reading.json").write_text(json.dumps({"reading": reading, "meta": meta}, indent=1,
