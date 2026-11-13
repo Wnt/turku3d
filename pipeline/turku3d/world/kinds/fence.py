@@ -56,6 +56,7 @@ SCREEN = (1.0, 8.0)  # m from a building to the line's end, and the longest line
 SCREEN_HEIGHT = (1.0, 1.5)  # m: a screen's limits (three read 1.0 to 1.5 m where the scan measured 1.6 to 2.6 m)
 LOW = {"limits": (0.6, 1.2), "reliable": 1.3, "default": 1.0}  # m: a garden fence; a taller scan height is planting
 GREY_WOOD = "#b4b8b4"
+UNDER_SHADE = 0.86  # the paint of the under boards of a board-on-board fence against the upper boards
 MESH_GREY = "#8f9492"
 
 
@@ -95,6 +96,10 @@ def _paint(rgb: np.ndarray | None) -> tuple[str, bool]:
     return (PAINTS["red"] if v >= 0.45 else PAINTS["brown"]), True
 
 
+def _shade(colour: str, factor: float) -> str:
+    return "#" + "".join(f"{round(int(colour[k:k + 2], 16) * factor):02x}" for k in (1, 3, 5))
+
+
 def _joints(line: np.ndarray, panel: float) -> np.ndarray:
     """The line's vertices with each straight piece divided into equal panels of about the nominal length."""
     out = [line[0]]
@@ -108,14 +113,20 @@ def _joints(line: np.ndarray, panel: float) -> np.ndarray:
 
 
 def board_panel(height: float, colour: str) -> Mesh:
-    """Closed vertical boards on two rails, 2.4 m long, centred, the boards' face towards +Z."""
-    wood = painted_wood(colour)
+    """Closed vertical boards on two rails, 2.4 m long, centred, the boards' face towards +Z: board on board, as
+    the yard fences of the wooden-house blocks are built. Every second board lies over the joints of the boards
+    under it, so the fence shows a shadow line every 0.2 m at street distance instead of a flat wall; the under
+    boards carry the paint a shade darker (they weather in the lee of the upper ones)."""
+    wood, under = painted_wood(colour), painted_wood(_shade(colour, UNDER_SHADE))
     mesh = Mesh()
-    length, pitch, board = PANEL["board"], 0.1, 0.095
+    length, pitch = PANEL["board"], 0.1
     count = round(length / pitch)
     for k in range(count):
         x = -length / 2 + pitch * (k + 0.5)
-        mesh.box("boards", wood, [x, (height - BURY) / 2, 0.011], [board, height + BURY, 0.022])
+        if k % 2:
+            mesh.box("boards", wood, [x, (height - BURY) / 2, 0.033], [0.12, height + BURY, 0.022])
+        else:
+            mesh.box("under-boards", under, [x, (height - 0.02 - BURY) / 2, 0.011], [0.095, height - 0.02 + BURY, 0.022])
     for y in (0.3, height - 0.25):
         mesh.box("rails", wood, [0, y, -0.035], [length, 0.095, 0.045])
     mesh.box("cap", wood, [0, height + 0.014, -0.012], [length, 0.028, 0.12])
@@ -242,6 +253,7 @@ class Fence:
         lidar = registers.lidar_of(sources)
         gates, mapped = registers.mapped_barriers(sources, area.bbox(GATE_REACH + 2.0))
         tree, shapes, years = _buildings(sources, area.bbox(2.0 + AROUND))
+        streets = registers.Streets(sources, area.bbox(2.0))
         stubs = []
         built = []  # (line, facts) of the fences a gate can stand in
         for row in lines:
@@ -305,6 +317,18 @@ class Fence:
                         family = "mesh"
                         height = float(np.clip(scan, *LOW["limits"])) if scan and scan <= LOW["reliable"] else LOW["default"]
                         guessed += [] if scan and scan <= LOW["reliable"] else ["height"]
+            faces = None
+            if family in ("board", "picket"):
+                # Boards are nailed on the public side and the rails and posts stand in the yard: the panel's face
+                # (seen in a still: the left-hand side of the run) is turned to the nearest street within 25 m.
+                middle, ahead = path.interpolate(0.5, normalized=True), path.interpolate(min(path.length * 0.5 + 0.5, path.length))
+                street = streets.towards_street(middle.x, middle.y, reach=25.0)
+                if street:
+                    run = (ahead.x - middle.x, ahead.y - middle.y)
+                    aim = math.radians(street["bearing"])
+                    if run[1] * math.sin(aim) - run[0] * math.cos(aim) > 0:
+                        line = line[::-1]
+                    faces = "street"
             joints = _joints(line, PANEL[family])
             ground = np.array([registers.ground_height(sources, e, n) for e, n in joints])
             if not np.isfinite(ground).all():
@@ -319,6 +343,8 @@ class Fence:
             }
             if tags:
                 facts["osm"] = tags
+            if faces:
+                facts["faces"] = faces
             if kind == "wood-fence":
                 facts["measured"]["lidar"]["returns_per_m"] = round(float(density), 1)
                 facts["setting"] = where

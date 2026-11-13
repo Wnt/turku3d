@@ -118,6 +118,13 @@ line is the planting behind it.
 A register line that the lidar does not confirm (coverage under the family's threshold) and that was surveyed
 before the scan is left out: an object in the wrong place is worse than a missing one.
 
+### Board fences: board on board, face to the street
+
+A board panel is built board on board (upper boards 0.12 m over the joints of 0.095 m under boards, the under boards
+a shade darker), so it shows a shadow line every 0.2 m at street distance instead of a flat wall. The line of a board
+or picket fence is ordered so that the boards face the nearest street centreline within 25 m and the rails and posts
+stand in the yard (`faces: "street"`); without a street in reach the register's order stays.
+
 ### What a wood-fence line means: `setting`
 
 `setting` is `old-town` when most dated register buildings (`kottovuosi`) within 50 m of the line are older than
