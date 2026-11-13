@@ -91,7 +91,8 @@ def test_assembled_description_is_valid_and_framed():
                        "storeys": [{"kind": "upper", "count": 3, "height_m": 3.1, "window": "w", "src": "invented"}],
                        "conf": {"*": 0.7}},
                       {"id": "w77", "like": "w00"}],
-            "roof": {"material": {"family": "sheet_metal", "colour": "#444444"}},
+            "roof": {"material": {"family": "sheet_metal", "colour": "#444444"},
+                     "chimneys": [{"anchor": {"wall": "w00", "u_m": 9.0, "setback_m": 3.0}}]},
         },
         # The picture lies a metre to the left of the wall on the ruler: the facade is seen from u -1 to 19.
         "views": [{"file": "w00-1.jpg", "usable": True, "hidden_share": 0.25, "facade_u_m": [-1.0, 19.0],
@@ -107,6 +108,7 @@ def test_assembled_description_is_valid_and_framed():
     assert only["observed"]["visible_share"] == 0.75
     assert only["bays"]["conf"] == {"first_m": 0.4}  # a confidence keyed by a position's name is left alone
     assert only["bays"]["first_m"] == 3.0 and only["observed"]["hidden_m"] == [[4.0, 0.0, 6.0, 2.0]]
+    assert doc["roof"]["chimneys"][0]["anchor"]["u_m"] == 10.0  # roof parts follow their wall
     assert "measured_on" not in only and "w00 +1.00 m" in doc["provenance"][0]["note"]
     assert doc["wall_defaults"]["bays"] == {"pitch_m": 3.6}  # a default grid fits walls of any length
     assert "google:abc" in only["src"] and "src" not in only["storeys"][0]

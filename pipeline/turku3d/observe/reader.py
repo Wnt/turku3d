@@ -217,6 +217,18 @@ def _register(node, offset: float, scale: float):
     return node
 
 
+def _anchors(node, moved: dict):
+    """Roof parts anchored along a wall, moved as that wall's positions were."""
+    if isinstance(node, dict):
+        if node.get("wall") in moved and isinstance(node.get("u_m"), (int, float)):
+            offset, scale = moved[node["wall"]]
+            node = {**node, "u_m": round((node["u_m"] - offset) * scale, 2)}
+        return {k: _anchors(v, moved) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_anchors(v, moved) for v in node]
+    return node
+
+
 def assemble(record: dict, reading: dict, meta: dict) -> dict:
     """The stored description: the reading in its envelope, with frames, what was seen and where it came from."""
     key = record["building"]
@@ -235,7 +247,7 @@ def assemble(record: dict, reading: dict, meta: dict) -> dict:
             pano_key[k] = True
             provenance.append({"source": "panorama", "key": k, "at": p["date"], "by": p["provider"]})
     by_id = {w["id"].split(":")[-1]: w for w in record["walls"]}
-    walls, registered = [], []
+    walls, registered, moved = [], [], {}
     for wall in body.get("walls", []):
         geometry = by_id.get(wall.get("id"))
         if geometry is None:
@@ -248,6 +260,7 @@ def assemble(record: dict, reading: dict, meta: dict) -> dict:
             if ruler else (0.0, 1.0)
         if (offset, scale) != (0.0, 1.0):
             registered.append(f"{wall['id']} {-offset:+.2f} m x{scale:.3f}")
+            moved[wall["id"]] = (offset, scale)
         free = max((c["x1_m"] - c["x0_m"] for c in usable), default=0.0) / max(length, 1e-6)
         hidden_share = min((report.get(Path(c["file"]).name, {}).get("hidden_share", 0.0) for c in usable), default=0.0)
         best = min(usable, key=lambda c: report.get(Path(c["file"]).name, {}).get("hidden_share", 0.0), default=None)
@@ -271,6 +284,8 @@ def assemble(record: dict, reading: dict, meta: dict) -> dict:
         if wall.get("like") not in ids:
             wall.pop("like", None)
     body["walls"] = walls
+    if "roof" in body:  # chimneys and dormers are placed along a wall, on that wall's ruler
+        body["roof"] = _anchors(body["roof"], moved)
     body.get("wall_defaults", {}).pop("measured_on", None)
     grid = body.get("wall_defaults", {}).get("bays")
     if isinstance(grid, dict):  # a default grid has to fit walls of any length: its pitch alone
