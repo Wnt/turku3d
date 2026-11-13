@@ -208,7 +208,8 @@ def registration(length: float, crop: dict, facade) -> tuple[float, float]:
 def _register(node, offset: float, scale: float):
     """The wall's fields with every position along the wall moved from the crop's ruler onto the wall."""
     if isinstance(node, dict):
-        return {k: (round((v - offset) * scale, 2) if k in U_FIELDS and isinstance(v, (int, float))
+        return {k: (v if k == "conf"  # confidences are keyed by field name: not positions
+                    else round((v - offset) * scale, 2) if k in U_FIELDS and isinstance(v, (int, float))
                     else round(v * scale, 3) if k == "pitch_m" and isinstance(v, (int, float))
                     else _register(v, offset, scale)) for k, v in node.items()}
     if isinstance(node, list):
@@ -270,9 +271,12 @@ def assemble(record: dict, reading: dict, meta: dict) -> dict:
         if wall.get("like") not in ids:
             wall.pop("like", None)
     body["walls"] = walls
+    body.get("wall_defaults", {}).pop("measured_on", None)
     grid = body.get("wall_defaults", {}).get("bays")
     if isinstance(grid, dict):  # a default grid has to fit walls of any length: its pitch alone
         body["wall_defaults"]["bays"] = {k: v for k, v in grid.items() if k not in ("count", "first_m")}
+        if "pitch_m" not in grid:
+            del body["wall_defaults"]["bays"]
     if registered:
         provenance[0]["note"] += "; moved onto the wall: " + ", ".join(registered)
     doc = {"schema": "turku-description/building/1", "id": f"building/{key}", "tier": "observed",

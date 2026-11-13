@@ -85,9 +85,9 @@ def test_assembled_description_is_valid_and_framed():
             "style": {"type": "stone_apartment"}, "identity_cues": ["red plaster"],
             "materials": {"wall": {"family": "plaster", "colour": "#a8564f"}},
             "opening_types": {"w": {"kind": "window", "w_m": 1.1, "h_m": 1.5}},
-            "wall_defaults": {"material": "wall", "bays": {"count": 4, "pitch_m": 3.6}},
+            "wall_defaults": {"material": "wall", "measured_on": "", "bays": {"count": 4, "pitch_m": 3.6}},
             "walls": [{"id": "w00", "measured_on": "w00-1.jpg", "material": "wall",
-                       "bays": {"count": 5, "pitch_m": 3.6, "first_m": 2.0},
+                       "bays": {"count": 5, "pitch_m": 3.6, "first_m": 2.0, "conf": {"first_m": 0.4}},
                        "storeys": [{"kind": "upper", "count": 3, "height_m": 3.1, "window": "w", "src": "invented"}],
                        "conf": {"*": 0.7}},
                       {"id": "w77", "like": "w00"}],
@@ -105,6 +105,7 @@ def test_assembled_description_is_valid_and_framed():
     only = doc["walls"][0]
     assert only["frame"]["p0"] == [0.0, 0.0] and only["frame"]["p1"] == [20.0, 0.0]
     assert only["observed"]["visible_share"] == 0.75
+    assert only["bays"]["conf"] == {"first_m": 0.4}  # a confidence keyed by a position's name is left alone
     assert only["bays"]["first_m"] == 3.0 and only["observed"]["hidden_m"] == [[4.0, 0.0, 6.0, 2.0]]
     assert "measured_on" not in only and "w00 +1.00 m" in doc["provenance"][0]["note"]
     assert doc["wall_defaults"]["bays"] == {"pitch_m": 3.6}  # a default grid fits walls of any length

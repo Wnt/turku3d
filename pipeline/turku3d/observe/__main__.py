@@ -2,12 +2,13 @@
 
     python -m turku3d.observe views    (--building KEY... | --at E,N [--radius R] | --view ID...)
     python -m turku3d.observe describe (--building KEY... | --at E,N [--radius R] | --view ID...) [--effort low]
-    python -m turku3d.observe publish                 store every description of the work directory
+    python -m turku3d.observe assemble                descriptions again from the saved readings, no model call
 
 `views` writes the crops and views.json of each building under $TURKU3D_WORK/observe/buildings/<key>/ and reports
 the walls no panorama sees. `describe` also reads them and writes the description to
 $TURKU3D_WORK/observe/descriptions/building/<key>.json (the layout of a private descriptions root), and stores it
-through turku3d.world.store (docs/design/world-pipeline.md, section 4.2) when that is available.
+through turku3d.world.store (docs/design/world-pipeline.md, section 4.2). `assemble` rebuilds every description of
+the work directory from its views.json and reading.json, for when only the assembly changed.
 `--view` takes reference views of qa/views/views.jsonl and selects every building visible in them.
 """
 
@@ -31,16 +32,29 @@ VISIBLE_SHARE = 0.004  # of a view's pixels, for a building to count as visible 
 
 
 def store(doc: dict) -> str | None:
-    """Store a description in the shared descriptions root; None when the world store is not there or refuses."""
-    try:
-        from turku3d.world import store as world_store
-    except ImportError:
-        return None
+    """Store a description in the shared descriptions root; None when the store refuses."""
+    from turku3d.world import store as world_store
+
     try:
         return str(world_store.write_description(doc, by="w2-observe", note=doc["provenance"][0].get("note", "")))
     except ValueError as error:  # a higher tier is stored already
         print(f"observe: {doc['id']} not stored: {error}", file=sys.stderr)
         return None
+
+
+def finish(record: dict, reading: dict, meta: dict, packet: Path, root: Path) -> dict:
+    """Assemble a reading into its description, check it, write and store it; the facts for the run's report."""
+    from turku3d.world.kinds.building import description as fmt
+
+    doc = reader.assemble(record, reading, meta)
+    problems = fmt.errors(doc)
+    target = root / "descriptions/building" / f"{record['building']}.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    (target if not problems else packet / "invalid-description.json").write_text(
+        json.dumps(doc, indent=1, ensure_ascii=False))
+    return {"building": record["building"], "read_s": meta["seconds"], "cost_usd": meta["cost_usd"],
+            "invalid": problems[:5] or None, "description": str(target) if not problems else None,
+            "stored": store(doc) if not problems else None}
 
 
 def visible_in_view(view: dict, scene: lod2.Scene, grid=(96, 72), reach: float = 250.0) -> dict:
@@ -90,7 +104,7 @@ def select(args) -> tuple[lod2.Scene, list, dict]:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m turku3d.observe", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["views", "describe", "publish"])
+    ap.add_argument("command", choices=["views", "describe", "assemble"])
     ap.add_argument("--building", nargs="*", help="entity keys (with --near)")
     ap.add_argument("--near", help="E,N near the buildings named by --building")
     ap.add_argument("--everywhere", action="store_true", help="load the whole register to find --building keys")
@@ -102,10 +116,13 @@ def main(argv=None) -> int:
     ap.add_argument("--jobs", type=int, default=4, help="readings in parallel")
     ap.add_argument("--force", action="store_true", help="read again even when a description exists")
     a = ap.parse_args(argv)
-    if a.command == "publish":
-        root = a.out or config.work_root() / "observe"
-        for path in sorted((root / "descriptions/building").glob("*.json")):
-            print(json.dumps({"id": path.stem, "stored": store(json.loads(path.read_text()))}))
+    root = a.out or config.work_root() / "observe"
+    if a.command == "assemble":
+        for packet in sorted((root / "buildings").iterdir()):
+            if (packet / "reading.json").exists() and (packet / "views.json").exists():
+                saved = json.loads((packet / "reading.json").read_text())
+                print(json.dumps(finish(json.loads((packet / "views.json").read_text()), saved["reading"],
+                                        saved["meta"], packet, root), ensure_ascii=False), flush=True)
         return 0
     if a.building and a.near:
         e, n = (float(x) for x in a.near.split(","))
@@ -113,7 +130,6 @@ def main(argv=None) -> int:
         buildings, why = [scene.buildings[k] for k in a.building if k in scene.buildings], {}
     else:
         scene, buildings, why = select(a)
-    root = a.out or config.work_root() / "observe"
     panos = Panoramas(root / "panoramas")
     lines, jobs = {}, []
     for b in buildings:
@@ -138,12 +154,10 @@ def main(argv=None) -> int:
             line["skipped"] = "already described (--force reads again)"
             print(json.dumps(line, ensure_ascii=False), flush=True)
         else:
-            jobs.append((b.id, record, packet, target))
+            jobs.append((b.id, record, packet))
 
     def describe(job):
-        from turku3d.world.kinds.building import description as fmt
-
-        key, record, packet, target = job
+        key, record, packet = job
         line = lines[key]
         try:
             reading, meta = reader.read(record, packet, effort=a.effort)
@@ -152,14 +166,7 @@ def main(argv=None) -> int:
         else:
             (packet / "reading.json").write_text(json.dumps({"reading": reading, "meta": meta}, indent=1,
                                                             ensure_ascii=False))
-            doc = reader.assemble(record, reading, meta)
-            problems = fmt.errors(doc)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            (target if not problems else packet / "invalid-description.json").write_text(
-                json.dumps(doc, indent=1, ensure_ascii=False))
-            line.update(read_s=meta["seconds"], cost_usd=meta["cost_usd"], invalid=problems[:5] or None,
-                        description=str(target) if not problems else None,
-                        stored=store(doc) if not problems else None)
+            line.update(finish(record, reading, meta, packet, root))
         print(json.dumps(line, ensure_ascii=False), flush=True)
 
     if jobs:
