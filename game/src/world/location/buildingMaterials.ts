@@ -94,6 +94,17 @@ function glass(p: BuildingMaterialParams) {
   const blindColour = vec3(0.84, 0.83, 0.8).mul(slats).mul(0.68);
   let inside = mix(room, cloth, inCurtain);
   inside = mix(inside, blindColour, inBlind);
+  if (shop) {
+    // A lit shop behind the pane: a pale back wall that brightens towards the ceiling lights, a light strip under
+    // the ceiling and dark goods of uneven height along the floor; `seed` and `tone` make every pane differ.
+    const back = mix(vec3(0.1, 0.095, 0.085), vec3(0.36, 0.33, 0.29), tone).mul(at.y.mul(0.75).add(0.5));
+    const lights = smoothstep(0.84, 0.88, at.y).mul(smoothstep(0.97, 0.93, at.y)).mul(0.35);
+    const cell = at.x.mul(seed.mul(4).add(3)).add(seed.mul(7));
+    const height = fract(sin(cell.floor().mul(12.9898)).mul(43758.5453)).mul(0.26).add(0.14);
+    const goods = step(at.y, height).mul(step(fract(cell), 0.82));
+    const stock = mix(vec3(0.05, 0.045, 0.04), vec3(0.16, 0.1, 0.07), fract(cell.floor().mul(0.37).add(seed)));
+    inside = mix(back.add(lights), stock, goods);
+  }
   if (p.interior === 'frosted') inside = vec3(0.35, 0.37, 0.38);
   if (p.tint) inside = inside.mul(uniform(new THREE.Color(p.tint)).mul(2).add(0.3));
   material.colorNode = inside;
