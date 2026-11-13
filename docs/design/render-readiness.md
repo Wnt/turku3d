@@ -247,8 +247,8 @@ measurements on the M1 Max behind it, how cluster culling, a visibility buffer a
 WebGPU in Chrome on Apple silicon, sizes for a city of Turku's extent, how one source scales to every fidelity
 (rule S3), and the decisions that are expensive to reverse. Three of them bear on the rules above:
 
-- The M1 family has no path to a compute rasteriser in WebGPU, so triangles are drawn by the hardware rasteriser and
-  their number on screen is set by the cluster hierarchy alone. Rules G3 and G5 (shared borders, nothing merged or
+- WebGPU offers the M1 family no efficient compute rasteriser, and measurements show it does not need one: triangles
+  are drawn by the hardware rasteriser and their number on screen is set by the cluster hierarchy alone. Rules G3 and G5 (shared borders, nothing merged or
   thinned by hand) are what lets the hierarchy do that.
 - WebGPU has no bindless textures: materials are evaluated per pixel from flat rows, so a family is procedural or
   samples a few shared array textures. No entity brings its own image (rules M1 and M4).

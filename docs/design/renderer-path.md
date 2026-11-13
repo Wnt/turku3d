@@ -29,8 +29,9 @@ building blocks, not the game; best of several runs while other agents' browsers
 2. **The hardware rasteriser draws pixel-sized triangles fast enough, so no compute rasteriser is needed.** 8 M
    triangles of a quarter pixel each, culled and drawn by one indirect draw into a 1920 x 1080 visibility buffer,
    take 2.9 ms; 32 M take 13.6 ms (2.2 to 2.8 M triangles per ms). That matters because the compute rasteriser
-   Nanite uses for small triangles needs a 64-bit atomic that WebGPU will not have on the M1 family. For scale,
-   today's renderer on its ultra tier runs 115 to 160 ms frames at 19.7 M triangles on the same machine.
+   Nanite uses for small triangles needs a 64-bit atomic that WebGPU does not offer on the M1 family. For scale,
+   today's renderer on its ultra tier runs GPU-bound 115 to 160 ms frames at 19.7 M triangles on the same machine
+   (with full forward shading and 4096-pixel shadow cascades, so not like for like).
 3. **Distance-field tracing fits the frame, and three.js shares it.** One primary ray per pixel through a
    four-level distance-field clipmap at 1080p takes 1.5 ms, and diffuse rays run at about 0.3 M per ms, so a
    Lumen-style gather of a quarter ray per pixel is about 1.7 ms of tracing. Stock three.js r186 accepted a device
@@ -164,11 +165,11 @@ Features (25): `bgra8unorm-storage`, `chromium-experimental-subgroup-matrix`, `c
 - `primitive-index`: the triangle id in the fragment stage without a per-vertex id;
 - `shader-f16`, `subgroups`, `dual-source-blending`, `clip-distances`: optimisations, never preconditions.
 
-**Absent from the list above, and the design must not need them:** multi-draw indirect; the 64-bit atomic; mesh shaders; hardware ray tracing (proposals opened 2026-10, not
-shipped); bindless textures (a resource-table proposal is in progress); 64-bit atomics. The new
+**Absent from the list above, and the design must not need them:** multi-draw indirect (flag-gated in Chrome and
+emulated on Metal; one indirect draw of instanced clusters makes it unnecessary); a 64-bit atomic (the new
 `atomic-vec2u-min-max` feature gives a 64-bit atomic maximum in storage buffers, but Dawn enables it on Apple GPU
-families 8 and 9 only, "so not the M1" (section 10). Multi-draw indirect is flag-gated in Chrome and emulated on
-Metal; one indirect draw of instanced clusters makes it unnecessary.
+families 8 and 9 only, "so not the M1": section 10); mesh shaders; hardware ray tracing (proposals opened 2026-10,
+not shipped); bindless textures (a resource-table proposal is in progress).
 
 **Sharing the device and targets with three.js r186**, without touching its source:
 
@@ -327,8 +328,8 @@ instances of shared assets. That holds only while rule I1 holds: flattening the 
 multiplies the building share by about sixteen.
 
 Resident on the GPU on the M1 Max, as a planning budget: geometry pages 0.5 GB, textures 1 GB, surface cache
-0.3 GB, distance fields 0.1 GB, targets at 1440p 0.3 GB. The adapter's limits (4 GiB per buffer, 16,384-pixel textures, 2,048
-array layers) are far above every item; how much memory Chrome's GPU process may take in total was not measured.
+0.3 GB, distance fields 0.1 GB, targets at 1440p 0.3 GB. The adapter's limits (4 GiB per buffer, 16,384-pixel
+textures, 2,048 array layers) are far above every item; how much memory Chrome's GPU process may take in total was not measured.
 
 ## 7. Decisions in today's formats and partition that could put 40 FPS out of reach
 
@@ -394,8 +395,9 @@ the city, only with what is on screen.
    (families and parameters, palette, shared atlases) and means the world's surface shaders are written once in
    WGSL, not in TSL.
 3. **Hardware rasteriser only on the M1 family, so the triangle budget is set by LOD, and the partition needs
-   parents above the cell.** The M1 will not get the 64-bit atomic a compute rasteriser needs. The far field must
-   come from merged proxies per parent cell and the near field from an error threshold the governor moves.
+   parents above the cell.** The M1 family is left out of the 64-bit atomic a compute rasteriser needs, and the
+   measurements show it can do without. The far field must come from merged proxies per parent cell and the near
+   field from an error threshold the governor moves.
 
 The frame's owner (which code creates the device, the main targets and the pass order) follows from these: our
 frame, with three.js rendering into it. It is cheap to reverse while both paths exist side by side.
