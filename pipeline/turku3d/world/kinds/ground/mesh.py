@@ -1,10 +1,16 @@
-"""Compile one ground cell: a height-field skin split by cover, kerbs as closed solids on it, paint as cover.
+"""Compile one ground cell: a height-field skin split by cover, kerbs as closed solids on it, paint as cover,
+and bridge decks over water as a second sheet above the skin.
 
 Everything is cell-local here: x east and z south in metres from the cell's north-west corner, heights in N2000.
 The skin is one continuous, single-valued sheet, so the cell stays a height field (render-readiness F3): a
 carriageway and the pavement beside it are two levels of it, joined by a narrow ramp under the kerb stone, which is
 its own closed prism from below the road to the top of the pavement (G1, G2). Paint is not a decal: a stripe is a
 region of the skin with the paint cover (F4).
+
+A bridge deck (`decks`) is the one place with two sheets: the triangles inside a deck's outline are drawn at the
+deck's level with their own vertices (covers, kerbs and paint as anywhere), and once more at the scan's level as the
+bank or the river bed under the deck. A closed slab hangs under the deck's sheet and railings stand on its open
+sides. The height raster is single-valued and carries the deck, the level that is walked and driven on.
 """
 from __future__ import annotations
 
@@ -15,8 +21,9 @@ import shapely
 from scipy.ndimage import distance_transform_edt, gaussian_filter
 from shapely.ops import substring
 
-from ...api import Heightfield, Material, Part, Output
+from ...api import Heightfield, Instances, Material, Part, Output
 from ...frame import CELL
+from . import decks
 from .covers import NAMED
 
 KERB_WIDTH = 0.20        # top of a granite kerb stone
@@ -32,6 +39,12 @@ FLUSH = 0.005          # a kerb stone whose top is this near the skin under it i
 WATER_LEVEL = 0.0       # N2000: the river and the sea share one datum (the old generator's water level)
 BED_DEPTH = 1.0         # how far under the water level the bed lies, until soundings say more
 SLIVER = 0.0005        # a triangle lower than this over its longest side is a vertex on an edge
+UNDER_CLEAR = 0.3       # m: where the scan's ground is this near the deck's top there is no sheet under the deck
+SLAB_COVER = {'family': 'concrete', 'params': {'colour': '#8d8a84', 'finish': 'cast', 'scale_m': 1.2}, 'color': (0.27, 0.25, 0.23), 'roughness': 0.85}
+RAILING = 1.2           # m: height of a deck's railing panel from the carriageway level (1.08 m over a footway)
+RAILING_PANEL = 2.0     # m: length of a railing panel (the fence kind's iron panel)
+RAILING_INSET = 0.12    # m from the deck's edge to the railing's line
+RAILING_DROP = 1.0      # m of fall beside the deck from which a railing stands
 
 
 def polygons(shape) -> list:
@@ -203,8 +216,9 @@ def partition(description: dict, e0: float, n1: float):
     return pieces, low_area, kerb_lines, np.unique(seams[on_edge], axis=0)
 
 
-def triangulate(pieces, seams=np.zeros((0, 2))) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """One conforming triangulation of all pieces: vertices (n, 2), triangles (m, 3) and the piece of each.
+def triangulate(pieces, seams=np.zeros((0, 2)), cuts=()) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """One conforming triangulation of all pieces: vertices (n, 2), triangles (m, 3) and the piece of each. `cuts`
+    are lines no triangle may cross (a deck's outline).
 
     The faces of the planar arrangement of the piece boundaries and a regular grid (the relief resolution of the
     skin) are triangulated one by one, so every edge is shared by the faces on both sides of it.
@@ -215,6 +229,7 @@ def triangulate(pieces, seams=np.zeros((0, 2))) -> tuple[np.ndarray, np.ndarray,
     lines += [shapely.LineString([(x, y), (x + (0.01 if x == 0 else -0.01 if x == CELL else 0.0),
                                            y + (0.0 if x in (0.0, CELL) else 0.01 if y == 0 else -0.01))]) for x, y in seams]
     lines += [piece.boundary for piece, _, _ in pieces]
+    lines += list(cuts)
     noded = shapely.unary_union(lines)   # the pieces are on a millimetre lattice already; snapping again opens rings
     faces = shapely.get_parts(shapely.polygonize(list(shapely.get_parts(noded))))
     faces = faces[shapely.area(faces) > 0]
@@ -313,15 +328,14 @@ def stations(points: np.ndarray, kerb_lines, origin_xz) -> np.ndarray:
     return np.einsum('ij,ij->i', points + origin_xz, run)
 
 
-def kerb_solid(points, triangles, low_at, high_at, origin_xz, along) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """The closed prism over the kerb band: top at the pavement level, bottom below the carriageway, a wall on every
-    rim edge. Returns positions (heights absolute), triangles, normals, uvs and the station along the kerb."""
+def solid(points, triangles, top, bottom, origin_xz, along) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """The closed prism over some triangles of the cell (a kerb band, a deck's slab) between a top and a bottom height
+    per vertex, with a wall on every rim edge. Returns positions (heights absolute), triangles, normals, uvs and the
+    station along the kerb."""
     used, inverse = np.unique(triangles, return_inverse=True)
     tris = inverse.reshape(-1, 3)
     xz = points[used]
-    low = low_at(xz[:, 0], xz[:, 1])
-    top = np.maximum(high_at(xz[:, 0], xz[:, 1]), low)
-    bottom = low - KERB_ROOT
+    top, bottom = top[used], bottom[used]
     count = len(used)
     positions = [np.column_stack([xz[:, 0], top, xz[:, 1]]), np.column_stack([xz[:, 0], bottom, xz[:, 1]])]
     normals = [np.tile([0.0, 1.0, 0.0], (count, 1)), np.tile([0.0, -1.0, 0.0], (count, 1))]
@@ -366,6 +380,45 @@ def kerb_solid(points, triangles, low_at, high_at, origin_xz, along) -> tuple[np
     return np.concatenate(positions), np.concatenate(faces), np.concatenate(normals), np.concatenate(uvs), np.concatenate(station)
 
 
+def railings(spans, ground_at, base: float) -> list[Instances]:
+    """Railing panels and posts along the sides of the decks where the ground beside the deck lies well under it,
+    for the panels whose middle is in this cell. Panels are counted along each deck's whole outline, so the cells a
+    deck crosses place the same panels."""
+    from ..fence import IRON, iron_panel, post
+    from ...objects.common import yaw_of_run
+
+    panels, posts, panel_ids, post_ids = [], [], [], []
+    for key, shape, axis, ends in spans:
+        for n, ring in enumerate(polygon.exterior for polygon in polygons(shape)):
+            count = max(int(ring.length // RAILING_PANEL), 1)
+            at = np.arange(count + 1) * (ring.length / count)
+            joints = shapely.get_coordinates(shapely.line_interpolate_point(ring, at))
+            for k, (a, b) in enumerate(zip(joints[:-1], joints[1:])):
+                middle = (a + b) / 2
+                run = b - a
+                length = float(np.hypot(*run))
+                if length < 0.5 or not (0.0 <= middle[0] < CELL and 0.0 <= middle[1] < CELL):
+                    continue
+                side = np.array([-run[1], run[0]]) / length
+                inward = side if shape.contains(shapely.Point(middle + side * RAILING_INSET)) else -side
+                outside = middle - inward * 1.0
+                top = float(decks.level(axis, ends, middle[:1], middle[1:])[0])
+                if top - float(ground_at(outside[:1], outside[1:])[0]) < RAILING_DROP:
+                    continue
+                yaw = yaw_of_run(float(np.degrees(np.arctan2(run[0], -run[1]))))
+                a, b, middle = a + inward * RAILING_INSET, b + inward * RAILING_INSET, middle + inward * RAILING_INSET
+                panels.append([middle[0], top - base, middle[1], yaw, length / RAILING_PANEL, 1.0, 1.0])
+                panel_ids.append(f'{key}/railing-{n}-{k}')
+                posts.append([a[0], top - base, a[1], yaw, 1.0, 1.0, 1.0])
+                post_ids.append(f'{key}/railing-post-{n}-{k}')
+    if not panels:
+        return []
+    return [Instances(iron_panel(RAILING, IRON).parts(), np.round(np.array(panels), 4), ids=panel_ids, behaviour='fixed',
+                      collision={'shape': 'box', 'size': [RAILING_PANEL, RAILING, 0.06]}),
+            Instances(post('iron', RAILING, IRON).parts(), np.round(np.array(posts), 4), ids=post_ids, behaviour='fixed',
+                      collision={'shape': 'box', 'size': [0.1, RAILING, 0.1]})]
+
+
 def compile_cell(description: dict) -> Output:
     i, j = description['cell']
     from ...frame import ORIGIN_E, ORIGIN_N
@@ -376,7 +429,11 @@ def compile_cell(description: dict) -> Output:
     base = float(np.floor(relief.height.min()))
     pieces, low_area, kerb_lines, seams = partition(description, e0, n1)
     low, high = levels(relief, low_area, kerb_lines)
-    points, triangles, owner = triangulate(pieces, seams)
+    cell = shapely.box(0, 0, CELL, CELL)
+    spans = [(deck['key'], local_shape(deck['rings'], e0, n1), local_line(deck['axis'], e0, n1), deck['ends'])
+             for deck in description.get('decks', [])]
+    cuts = [part.boundary for _, shape, _, _ in spans for part in polygons(shapely.set_precision(shape.intersection(cell), 0.001))]
+    points, triangles, owner = triangulate(pieces, seams, cuts)
 
     def sampler(raster):
         slope_z, slope_x = np.gradient(raster, relief.step)
@@ -387,30 +444,62 @@ def compile_cell(description: dict) -> Output:
 
     # Skin: one continuous sheet. A vertex that a carriageway triangle uses lies at the carriageway level for every
     # triangle that shares it, so the sheet has no cracks; the strip under a kerb stone ramps between the levels.
-    roles = np.array([role for _, _, role in pieces])
+    roles = np.array([role for _, _, role in pieces] + ['under'])
+    piece_covers = [cover for _, cover, _ in pieces] + [NAMED['water']]
+    px, pz = points[:, 0], points[:, 1]
+    vertex_low, vertex_high = low_at(px, pz), high_at(px, pz)
+    # Decks: the triangles inside a deck's outline get vertices of their own at the deck's level (the carriageway
+    # on the line between the abutments, everything else a kerb's height above it; never under the scanned ground,
+    # which is the street at the abutments). The same triangles at the scan's level are the sheet under the deck.
+    centre = points[triangles].mean(axis=1)
+    deck_of = np.full(len(triangles), -1)
+    for k, (_, shape, _, _) in enumerate(spans):
+        deck_of[shapely.contains_xy(shape, centre[:, 0], centre[:, 1])] = k
+    wet = [local_shape(s['rings'], e0, n1) for s in description['surfaces'] if s['level'] == 'bed']
+    under = triangles[deck_of >= 0]
+    under_bed = shapely.contains_xy(shapely.unary_union(wet), centre[deck_of >= 0, 0], centre[deck_of >= 0, 1]) if wet and len(under) \
+        else np.zeros(len(under), bool)
+    on_deck = np.zeros(len(points), bool)
+    deck_level = np.zeros(len(points))
+    for k, (_, _, axis, ends) in enumerate(spans):
+        mine = np.flatnonzero(deck_of == k)
+        if not len(mine):
+            continue
+        used, inverse = np.unique(triangles[mine], return_inverse=True)
+        top = decks.level(axis, ends, points[used, 0], points[used, 1])
+        triangles[mine] = inverse.reshape(-1, 3) + len(points)
+        points = np.concatenate([points, points[used]])
+        vertex_low = np.concatenate([vertex_low, np.maximum(top, vertex_low[used])])
+        vertex_high = np.concatenate([vertex_high, np.maximum(top + decks.KERB, vertex_high[used])])
+        on_deck = np.concatenate([on_deck, np.ones(len(used), bool)])
+        deck_level = np.concatenate([deck_level, top])
+    px, pz = points[:, 0], points[:, 1]
     low_triangle = np.isin(roles[owner], ('low', 'paint'))
     low_vertex = np.zeros(len(points), bool)
     low_vertex[triangles[low_triangle].ravel()] = True
-    px, pz = points[:, 0], points[:, 1]
     # Whole millimetres, with ties broken upwards past float noise: a neighbour computes the same border heights.
-    heights = np.floor(np.where(low_vertex, low_at(px, pz), high_at(px, pz)) * 1000 + 0.5 + 1e-6) / 1000
+    heights = np.floor(np.where(low_vertex, vertex_low, vertex_high) * 1000 + 0.5 + 1e-6) / 1000
     # Under open water the skin is the bed: every vertex a water piece uses lies below the water level, so the bank's
-    # last triangles fall to it (the quay or bank face until a wall of its own stands there).
+    # last triangles fall to it (the quay or bank face until a wall of its own stands there). A deck's own sheet
+    # is over the water, the sheet under it is the bed.
     bed_vertex = np.zeros(len(points), bool)
-    bed_vertex[triangles[roles[owner] == 'bed'].ravel()] = True
-    # A bridge deck keeps its level to its edge: the bed's first triangles beside it rise to the deck (a bank under
-    # the deck's side, until bridges are solids of their own with the water passing under).
-    spans = [local_shape(deck['rings'], e0, n1) for deck in description.get('decks', [])]
-    if spans:
-        bed_vertex &= ~(shapely.distance(shapely.points(points), shapely.unary_union(spans)) < 0.02)
+    bed_vertex[triangles[(roles[owner] == 'bed') & (deck_of < 0)].ravel()] = True
+    bed_vertex[under[under_bed].ravel()] = True
     heights = np.where(bed_vertex, np.minimum(heights, WATER_LEVEL - BED_DEPTH), heights)
     vertex_normals = np.where(low_vertex[:, None], low_normal(px, pz), high_normal(px, pz))
     vertex_normals /= np.linalg.norm(vertex_normals, axis=1, keepdims=True)
+    vertex_normals[on_deck] = (0.0, 1.0, 0.0)
+    if len(under):
+        # No second sheet where the two would lie in each other (the deck's ends on the abutments).
+        clear = (np.where(on_deck, heights, np.inf)[triangles[deck_of >= 0]] - heights[under]).max(axis=1) > UNDER_CLEAR
+        triangles = np.concatenate([triangles, under[clear]])
+        owner = np.concatenate([owner, np.full(int(clear.sum()), len(pieces))])
+        deck_of = np.concatenate([deck_of, np.full(int(clear.sum()), -1)])
 
-    stone_top = np.maximum(high_at(px, pz), low_at(px, pz))
+    stone_top = np.maximum(vertex_high, vertex_low)
     groups: dict[str, tuple[dict, str, list]] = {}
     kerb_triangles, kerb_cover = [], None
-    for index, (_, cover, role) in enumerate(pieces):
+    for index, (cover, role) in enumerate(zip(piece_covers, roles)):
         mine = np.flatnonzero(owner == index)
         if not len(mine):
             continue
@@ -436,10 +525,16 @@ def compile_cell(description: dict) -> Output:
         parts.append(Part(name, positions, facing_up(xz, inverse.reshape(-1, 3)), material_of(cover),
                           normals=vertex_normals[used], uvs=xz + origin_xz, attributes=extra))
     if kerb_triangles and sum(len(chunk) for chunk in kerb_triangles):
-        positions, faces, normals, uvs, station = kerb_solid(points, np.concatenate(kerb_triangles), low_at, high_at, origin_xz, along)
+        positions, faces, normals, uvs, station = solid(points, np.concatenate(kerb_triangles), stone_top, vertex_low - KERB_ROOT, origin_xz, along)
         positions[:, 1] -= base
         extra = {'along': station.astype(np.float32)} if kerb_cover['family'] == 'kerbstone' else {}
         parts.append(Part('kerbs', positions, faces, material_of(kerb_cover), normals=normals, uvs=uvs, attributes=extra))
+    # The slab of each deck: a closed solid from just under the deck's sheet to the underside.
+    slabs = [triangles[deck_of == k] for k in range(len(spans)) if (deck_of == k).any()]
+    if slabs:
+        positions, faces, normals, uvs, _ = solid(points, np.concatenate(slabs), heights - 0.02, deck_level - decks.SLAB, origin_xz, along)
+        positions[:, 1] -= base
+        parts.append(Part('deck-slab', positions, faces, material_of(SLAB_COVER), normals=normals, uvs=uvs))
 
     # Far level of detail: the plain height field, coloured per node by the cover under it.
     nodes = int(CELL / FAR_STEP) + 1
@@ -457,6 +552,9 @@ def compile_cell(description: dict) -> Output:
     far_normals /= np.linalg.norm(far_normals, axis=1, keepdims=True)
     far_heights = relief.sample(plain, fx, fz)
     far_heights = np.where(roles[nearest] == 'bed', np.minimum(far_heights, WATER_LEVEL - BED_DEPTH), far_heights)
+    for _, shape, axis, ends in spans:
+        inside = shapely.contains_xy(shape, fx, fz)
+        far_heights = np.where(inside, np.maximum(far_heights, decks.level(axis, ends, fx, fz)), far_heights)
     parts.append(Part('far', np.column_stack([fx, far_heights - base, fz]), facing_up(far_xz, far),
                       Material('ground_far', {}, (1.0, 1.0, 1.0), 0.95), normals=far_normals, uvs=far_xz + origin_xz,
                       colors=colors, lod=1))
@@ -469,5 +567,12 @@ def compile_cell(description: dict) -> Output:
     if beds:
         inside_bed = shapely.contains_xy(shapely.unary_union(beds), relief.x[inner, inner].ravel(), relief.z[inner, inner].ravel()).reshape(side, side)
         raster = np.where(inside_bed, np.minimum(raster, WATER_LEVEL - BED_DEPTH), raster)
+    rx, rz = relief.x[inner, inner].ravel(), relief.z[inner, inner].ravel()
+    for _, shape, axis, ends in spans:
+        inside = shapely.contains_xy(shape.buffer(decks.APRON), rx, rz).reshape(side, side)
+        if inside.any():
+            top = decks.level(axis, ends, rx, rz).reshape(side, side) + np.where(inside_low, 0.0, decks.KERB)
+            raster = np.where(inside, np.maximum(raster, top), raster)
     field = Heightfield((i * CELL, j * CELL), relief.step, raster)
-    return Output((i * CELL, base, j * CELL), parts, heightfield=field, error_m={0: 0.01, 1: 0.15})
+    rails = railings(spans, lambda x, z: relief.sample(relief.height, x, z), base)
+    return Output((i * CELL, base, j * CELL), parts, instances=rails, heightfield=field, error_m={0: 0.01, 1: 0.15})

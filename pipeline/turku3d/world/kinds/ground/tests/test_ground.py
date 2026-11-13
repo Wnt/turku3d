@@ -124,17 +124,60 @@ def test_a_carriageway_is_measured_across_its_way():
     assert _section(shapely.box(0, -50, 100, 50), shapely.LineString([(5, 0), (95, 0)])) is None
 
 
-def test_a_deck_holds_its_level_across_the_water():
-    """Relief nodes on a bridge deck take the straight line between the levels of its two ends; nodes beside it keep
-    the scan's water level, and ground the scan found above the deck (an abutment) stays."""
-    import shapely
-
+def test_a_deck_ends_where_the_bank_under_it_has_climbed():
+    """The mapped bridge ends over the bank: the deck goes on to where the scan's ground stops climbing, and not at
+    all where the ground beyond the end is level or climbs only farther away (a hill)."""
     from turku3d.world.kinds.ground import decks
 
-    deck = {'key': 'osm:way/1', 'area': shapely.box(0, -4, 40, 4), 'axis': shapely.LineString([(0, 0), (40, 0)]), 'ends': (3.0, 5.0), 'mapped': True}
-    east = np.array([0.0, 10.0, 20.0, 40.0, 20.0, 20.0, 2.0])
-    north = np.array([0.0, 0.0, 3.9, 0.0, 4.5, 6.0, 0.0])
-    scan = np.array([0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 3.6])
-    held = decks.held(scan, east, north, [deck])
-    assert np.allclose(held, [3.0, 3.5, 4.0, 5.0, 4.0, 0.2, 3.6])
-    assert decks.held(scan, east, north, []) is scan
+    bank = np.array([1.1, 1.1, 1.1, 1.2, 1.7, 2.2, 2.7, 3.2, 3.7, 4.2, 4.7, 5.0, 5.2, 5.1, 5.0] + [5.0] * 10)
+    assert decks.abutment(bank) == 12
+    assert decks.abutment(np.full(25, 4.0)) == 0
+    assert decks.abutment(np.concatenate([np.full(10, 4.0), 4.0 + 0.3 * np.arange(15)])) == 0
+
+
+def test_a_deck_is_a_second_sheet_over_the_water():
+    """Inside a deck's outline the cell has two sheets: the deck at the line between its abutments' levels (the
+    carriageway; a footway a kerb higher) with a closed slab under it, and the river bed below. The height raster
+    carries the deck. Railings stand on the sides over the water, none across the street at the deck's ends."""
+    from turku3d.world.kinds.ground import decks
+
+    description = street_cell()
+    e0, _, _, n1 = cell_box_en(*description['cell'])
+    ring = lambda x0, z0, x1, z1: [[[e0 + x0, n1 - z0], [e0 + x1, n1 - z0], [e0 + x1, n1 - z1], [e0 + x0, n1 - z1]]]  # noqa: E731
+    side = int(CELL / STEP) + 1 + 2 * HALO
+    axis = (np.arange(side) - HALO) * STEP
+    x, z = np.meshgrid(axis, axis)
+    # A river from west to east between banks at 4 m and 5 m; a street from north to south crosses it on a deck.
+    scan = np.where(z < 20, 4.0, np.where(z > 44, 5.0, 0.3))
+    description['relief']['heights_mm'] = np.rint(scan * 1000).astype(int).ravel().tolist()
+    asphalt, slabs, bed = covers.of_register('Asfaltti', 'low', False), covers.of_register('Betonilaatta', 'high', False), covers.NAMED['water']
+    description['surfaces'] = [
+        {'key': 'a', 'source': 'street', 'level': 'low', 'use': 'Ajorata', 'surface': 'Asfaltti', 'rank': 0, 'cover': asphalt, 'rings': ring(26, -5, 34, 70)},
+        {'key': 'b', 'source': 'street', 'level': 'high', 'use': 'Jalkakäytävä', 'surface': 'Betonilaatta', 'rank': 1, 'cover': slabs, 'rings': ring(34, -5, 37, 70)},
+        {'key': 'w', 'source': 'osm', 'level': 'bed', 'use': 'water', 'surface': '', 'rank': 2.5, 'cover': bed, 'rings': ring(-5, 20, 70, 44)},
+    ]
+    description['crossings'], description['lanes'] = [], []
+    description['decks'] = [{'key': 'osm:way/1', 'rings': ring(26, 18, 37, 46), 'axis': [[e0 + 30, n1 - 18], [e0 + 30, n1 - 46]], 'ends': [4.0, 5.0]}]
+    output = compile_cell(description)
+    base = output.origin[1]
+
+    def heights_at(name, px, pz):
+        part = next(p for p in output.parts if p.name == name)
+        near = np.hypot(part.positions[:, 0] - px, part.positions[:, 2] - pz) < 1.3
+        return part.positions[near, 1] + base
+
+    road = heights_at('asphalt-carriageway', 30.0, 32.0)
+    assert len(road) and np.allclose(road, 4.0 + (np.clip(32.0, 18, 46) - 18) / 28, atol=0.06)       # the deck, mid-span
+    assert heights_at('paving', 35.5, 32.0).min() > road.max() + 0.05                                  # the footway a kerb higher
+    under = next(p for p in output.parts if p.material.family == 'soil')
+    below = under.positions[(np.abs(under.positions[:, 0] - 30) < 3) & (np.abs(under.positions[:, 2] - 32) < 3), 1] + base
+    assert len(below) and below.max() < 0.0                                                             # the bed under it
+    slab = next(p for p in output.parts if p.name == 'deck-slab')
+    assert np.isclose(slab.positions[:, 1].min() + base, 4.0 - decks.SLAB, atol=0.01)
+    field = output.heightfield
+    assert abs(field.heights[int(32 / STEP), int(30 / STEP)] - 4.5) < 0.01                              # walked and driven on
+    assert field.heights[int(32 / STEP), int(10 / STEP)] < 0.0                                          # the river beside it
+    panels = output.instances[0]
+    assert panels.collision and panels.behaviour == 'fixed'
+    assert set(np.round(panels.transforms[:, 0]).astype(int)) <= {26, 37}                              # the two sides
+    assert panels.transforms[:, 2].min() > 19 and panels.transforms[:, 2].max() < 45                   # only over the water

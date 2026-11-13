@@ -367,9 +367,10 @@ class Ground:
         wet, quays = banks.quay_lines(box)
         quays = None if quays is None or quays.is_empty else quays
         with sources.timed('street:lidar'):
-            window = lidar.Window(*area.bbox(CELL + MARGIN + decks.BEYOND[-1] + 1.0))
-        # Bridges over water: the deck's level across the span, and its surface where the register maps none.
-        bridges = decks.spans(box, window)
+            window = lidar.Window(*area.bbox(CELL + MARGIN))
+        # Bridges over water: a second sheet over the skin at the deck's level, with a surface where the register
+        # maps none.
+        bridges = decks.spans(box)
         for deck in bridges:
             if not deck['mapped']:
                 surfaces.append((deck['area'], {'key': f"{deck['key']}:deck", 'source': 'osm', 'level': 'high', 'use': 'asphalt-yard',
@@ -388,7 +389,6 @@ class Ground:
                 heights = window.sample('ground', east.ravel(), north.ravel())
                 if quays is not None:
                     heights = banks.held(heights, east.ravel(), north.ravel(), wet, quays, window)
-                heights = decks.held(heights, east.ravel(), north.ravel(), bridges)
                 wide = shapely.box(cell[0] - MARGIN, cell[1] - MARGIN, cell[2] + MARGIN, cell[3] + MARGIN)
                 rows = []
                 for k in sorted(tree.query(wide, predicate='intersects')):
@@ -399,8 +399,9 @@ class Ground:
                     'cell': [i, j],
                     'relief': {'step': STEP, 'halo': HALO, 'side': side, 'heights_mm': np.rint(heights * 1000).astype(int).tolist()},
                     'surfaces': rows,
-                    'decks': [{'key': deck['key'], 'rings': _rings(part)} for deck in bridges
-                              for part in _polygons(deck['area'].intersection(wide))],
+                    'decks': [{'key': deck['key'] if n == 0 else f"{deck['key']}#{n}", 'rings': _rings(part),
+                               'axis': np.round(np.asarray(deck['axis'].coords), 3).tolist(), 'ends': [round(v, 3) for v in deck['ends']]}
+                              for deck in bridges if deck['area'].intersects(wide) for n, part in enumerate(_polygons(deck['area']))],
                     'crossings': [{'key': key, 'line': np.asarray(line.coords).tolist(), 'width': CROSSING_WIDTH}
                                   for line, key in crossings if line.intersects(wide)],
                     'lanes': [{'key': key, 'line': np.asarray(part.coords).tolist(),
