@@ -19,7 +19,8 @@ W2's readings rule (w2-rules 6c0a8090 on local/loop-integration, ``world/kinds/b
   every second bay; 1980-1999 three in four, glazed with a solid front; since 2000 nine in ten, glazed
   with a glass front. None before 1940 (the town's stone houses have their own vocabulary).
 - Windows: since 1980 the street wall's commonest window is one light (7 of 15 read blocks of
-  1980-2022; a vent leaf 3), about 1.4 m wide, 1.5 m tall in the eighties, 1.7 m since 2000.
+  1980-2022; a vent leaf 3), about 1.4 m wide, 1.5 m tall in the eighties, 1.7 m since 2000. A
+  block with a surveyed wall keeps its windows on every wall (one window type a building).
 
 Against the readings W2's automatic tier drew the balconies right on 139 -> 155 of 184 read buildings
 with this rule (and the instrument fix); lights 75 -> 79, window width 66 -> 73.
@@ -199,7 +200,8 @@ def _single_lights(wall, prior, v):
 def apply(building, program, vertices) -> dict:
     """Balconies and windows of the block-of-flats rule on the program's rule-sampled walls, in place.
 
-    Reviewed walls (``measured_wall_id``) keep everything. Returns counts for diagnostics."""
+    Reviewed walls (``measured_wall_id``) keep everything; a building with one keeps its windows on
+    every wall. Returns counts for diagnostics."""
     from turkutex.facade_program import value
 
     attrs = program.get("attributes") or building.attributes or {}
@@ -212,7 +214,10 @@ def apply(building, program, vertices) -> dict:
     for i in free:
         program["walls"][i]["balconies"] = v([])
     lights = SINGLE_LIGHT.get(band(year))
-    if lights:
+    # A surveyed wall keeps its windows, so the rest of its building keeps theirs too: single lights
+    # beside it drew two window types on one block (Uudenmaankatu 19 and Itainen Pitkakatu 24 at
+    # uudenmaa-01, Fable 2026-11-14: "the end wall and long wall look like two different buildings").
+    if lights and len(free) == len(program["walls"]):
         for i in free:
             if program["walls"][i]["bays"]["count"]:
                 _single_lights(program["walls"][i], lights, v)

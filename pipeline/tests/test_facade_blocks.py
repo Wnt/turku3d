@@ -158,6 +158,21 @@ def test_single_light_windows_since_1980_and_who_is_not_the_class(monkeypatch):
         assert "block_of_flats" not in program(wall_meshes(b, walls, np.zeros(3)))
 
 
+def test_a_block_with_a_surveyed_wall_keeps_one_window_type(monkeypatch):
+    import copy
+
+    from turku3d.facade_blocks import apply
+    from turku3d.facade_programs import resolve
+
+    b, walls = block(monkeypatch, year=1992)
+    prog = resolve(b, walls, {i: 15.0 for i in range(0, len(walls), 4)})
+    prog["walls"][0]["measured_wall_id"] = "103000000A_survey"
+    windows = copy.deepcopy([w["windows"] for w in prog["walls"]])
+    stats = apply(b, prog, walls)
+    assert [w["windows"] for w in prog["walls"]] == windows  # no single lights beside the surveyed wall
+    assert stats["type"] == "glazed" or stats["type"] is None  # balconies still follow the rule
+
+
 def test_a_described_building_keeps_its_description(monkeypatch):
     from turku3d.facade_blocks import is_block
 
