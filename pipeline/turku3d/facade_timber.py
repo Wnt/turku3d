@@ -66,13 +66,21 @@ def layout(height, levels, plinth, prior):
 
 
 def timber_wall(wall, vertices, building, program):
-    """Expand one shell wall into the measured old-wooden-house layout in its own surveyed frame."""
+    """Expand one shell wall into the measured old-wooden-house layout, surveyed over its outline edge."""
     from turkutex.facade_archetypes import TIMBER_OLD, TIMBER_OLD_SOURCE, parsed_year
     from turkutex.facade_program import value
 
     prior = TIMBER_OLD
-    a, b = vertices[0], vertices[1]
-    width = float(np.linalg.norm((b - a)[[0, 2]]))
+    # A shell wall may be one fragment of a facade (a gable end is several quads under its sloped
+    # top): the layout spans the whole outline edge the fragment lies on (``width_m``, the fragment
+    # starting ``uv_offset`` m along it), as learned layouts do, so the fragments of one facade share
+    # one window rhythm and one plinth, and the paint's wall metres (u + uv_offset) stay inside it.
+    fragment = vertices[1] - vertices[0]
+    fragment[1] = 0
+    tangent = fragment / max(float(np.linalg.norm(fragment)), 1e-9)
+    a = vertices[0] - tangent * float(wall.get("uv_offset", 0) or 0)
+    width = max(float(wall.get("width_m") or 0), float(np.linalg.norm(fragment)))
+    b = a + tangent * width
     base = float(building.base)
     if not wall.get("outline", True) or float(vertices[:2, 1].min()) > base + 1.0:
         return wall  # A setback or roof-step ring above a lower part keeps the sampled layout.
@@ -86,7 +94,7 @@ def timber_wall(wall, vertices, building, program):
         return wall  # Too low for a lived-in storey: a shed keeps its sampled treatment.
     m = lambda x: value(x, TIMBER_OLD_SOURCE, 0.6)  # noqa: E731
     w = copy.deepcopy(wall)
-    w.update(width_m=width, height_m=float(wall["height_m"]))
+    w.update(width_m=width, height_m=float(wall["height_m"]))  # uv_offset stays: the fragment's place on the edge
     w["measured_geometry"] = dict(
         p0=[float(a[0] + C.ORIGIN_E), float(C.ORIGIN_N - a[2])],
         p1=[float(b[0] + C.ORIGIN_E), float(C.ORIGIN_N - b[2])],

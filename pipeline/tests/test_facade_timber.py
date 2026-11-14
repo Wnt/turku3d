@@ -79,3 +79,31 @@ def test_old_wooden_house_paints_a_coloured_projecting_plinth_and_framed_windows
     assert len(windows) == len(w["windows"]["rectangles_m"])
     casings = [s for _, _, s in parts if s.get("relief_m") == 0.055]
     assert len(casings) >= 4 * len(windows) - len(windows)  # four casing strips per window
+
+
+def test_a_wall_fragment_is_laid_out_over_its_whole_outline_edge():
+    """A gable end comes as several quads; one 3.8 m fragment 7.2 m along a 11 m edge must paint in
+    the edge's metres (the shader reads u + uv_offset against the wall size: outside it, the whole
+    fragment turned into corner-board trim, white, in the first Portsa stills)."""
+    from turku3d.facade_program_geometry import wall_parts
+    from turku3d.facade_programs import compile_wall
+    from turku3d.facade_timber import timber_wall
+
+    b, program, _ = house(width=11.0)
+    wall = {**program["walls"][0], "uv_offset": 7.2, "fragment_width_m": 3.8}
+    v = np.array([[7.2, 10.0, 0], [11.0, 10.0, 0], [11.0, 15.5, 0], [7.2, 15.5, 0]], float)
+    w = timber_wall(wall, v, b, program)
+    assert w["width_m"] == 11.0 and w["uv_offset"] == 7.2 and w["measured_size"][0] == 11.0
+    whole = timber_wall(program["walls"][0], np.array([[0, 10.0, 0], [11.0, 10.0, 0], [11.0, 15.5, 0],
+                                                       [0, 15.5, 0]], float), b, program)
+    assert w["windows"]["rectangles_m"] == whole["windows"]["rectangles_m"]  # one rhythm per facade
+    style = compile_wall(w, program["storeys"]["value"])
+    style["origin"][1] = b.base
+    parts = list(wall_parts(v, w, style))
+    assert parts and style["size"][0] == 11.0
+    for _, uv, s in parts:
+        if s.get("detail", [0, 0, 0, 0])[3] > 0:
+            continue  # window and door patches carry their own extent
+        metres = uv[:, 0] - style["origin"][0]
+        assert metres.min() >= 7.2 - 1e-6 and metres.max() <= 11.0 + 1e-6
+    assert any(s["module"] in (43, 44) for _, _, s in parts)  # the plinth runs on under this fragment
