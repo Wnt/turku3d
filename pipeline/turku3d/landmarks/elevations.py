@@ -11,17 +11,21 @@ from functools import lru_cache
 import numpy as np
 from PIL import Image, ImageDraw
 
-from .procedural import arch, maps, wall_surface
+from .procedural import arch, fieldstone, maps, wall_surface
 from .openings import panelled_door
 
 
 def select(vertices, elevations):
+    """The elevation a wall piece samples: among the rows facing its way, the one whose plane is
+    nearest. A building with a courtyard has inner walls facing like its street fronts; each takes
+    the row measured on its own plane, never a street front's openings."""
     direction = vertices[1, [0, 2]] - vertices[0, [0, 2]]
     direction /= np.linalg.norm(direction)
     normal = np.array([direction[1], -direction[0]])
-    matches = [(float(normal @ row["normal_xz"]), row) for row in elevations]
-    score, row = max(matches, key=lambda pair: pair[0])
-    return row if score > 0.9 else None
+    centre = vertices[:2, [0, 2]].mean(axis=0)
+    matches = [(abs(float((centre - row["origin_xz"]) @ row["normal_xz"])), row)
+               for row in elevations if float(normal @ row["normal_xz"]) > 0.9]
+    return min(matches, key=lambda pair: pair[0])[1] if matches else None
 
 
 def coordinates(vertices, base, row):
@@ -38,6 +42,15 @@ def texture(description_json, elevation_json):
     rgb, relief = wall_surface(width, height, d, 17)
     ny, nx = relief.shape
     sx, sy = nx / width, ny / height
+    # Stone-faced parts of a rendered front (a granite ground storey, granite bays): the description's
+    # stone over each [x, width, low, height] zone, in elevation metres.
+    if row.get("stone_zones"):
+        stone, stone_relief = fieldstone(width, height, d["stone"], 17)
+        for x, w, low, h in row["stone_zones"]:
+            cols = slice(max(0, round(x * sx)), min(nx, round((x + w) * sx)))
+            rows = slice(max(0, round((height - low - h) * sy)), min(ny, round((height - low) * sy)))
+            rgb[rows, cols] = stone[rows, cols]
+            relief[rows, cols] = stone_relief[rows, cols]
     albedo = Image.fromarray(np.clip(rgb, 0, 255).astype(np.uint8))
     depth = Image.fromarray(relief.astype(np.float32), "F")
     paint, bump = ImageDraw.Draw(albedo), ImageDraw.Draw(depth)

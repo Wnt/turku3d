@@ -1,0 +1,2007 @@
+{
+  "version": 1,
+  "building_id": "103295899S",
+  "name": "Jugendlinna (Turun kaupunginkanslian talo)",
+  "style": "jugendstil-national-romantic",
+  "provenance": [
+    {
+      "source": "commons-2200553.jpg",
+      "method": "visual identification against supplied building identity and image metadata; exterior parameter estimation",
+      "confidence": 0.94
+    },
+    {
+      "source": "building evidence for 103295899S",
+      "method": "supplied city LOD2 height with stored lidar roof residuals; material and address metadata",
+      "confidence": 0.9
+    },
+    {
+      "source": "street photographs of the Kristiinankatu and river fronts (local only)",
+      "method": "reviewed elevations: granite ground storey, granite bays and tower section, rendered end bays and top storey; positions from the LOD2 shell walls, zones and openings read from the photographs",
+      "confidence": 0.6
+    }
+  ],
+  "observations": [
+    "The reference matches Jugendlinna, the Turku City Office at Kristiinankatu 1: the supplied photograph title and building identity agree with the distinctive yellow-rendered riverside facade, grey stone piers, paired rooftop turrets and green copper roof. Reference verification uses the supplied photograph and metadata.",
+    "Only the large Jugendstil building is parameterized. The low pale building and red wooden building to its right, and the white modern building to its left, are excluded.",
+    "Supplied height evidence gives base 3.512 m N2000 and top 29.900 m N2000, yielding 26.388 m above base. This is the overall calibration, not a measured main cornice height. Its correspondence to individual roof and turret peaks is uncertain; flagpoles are excluded from visual height estimates.",
+    "All other metre values are approximate visual estimates, with dimensional confidence about 0.5. Main eaves are approximately 18–19 m above base; the main ridge and turret caps occupy the approximately 24–26.4 m zone.",
+    "Main wall material is warm pale ochre render, with extensive grey stone facing at the ground storey, vertical piers and central turret-bearing bays. Projecting bays, carved ornament and horizontal cornices articulate the facade.",
+    "brick.colour represents the render albedo. Concealed brick dimensions, mortar and running bond are low-confidence compatibility estimates, not observed exposed masonry; do not draw a brick pattern over the render.",
+    "Stone facing combines smooth ashlar and rough-faced panels. The specified stone size is a representative block estimate; actual courses and block lengths vary substantially.",
+    "The primary body has round-arched ground-floor openings and three visible tiers of rectangular upper windows. Upper-window heights and grouped bay arrangements vary, so rows_m is intentionally empty. The rectangular window parameters represent a typical upper-floor opening only.",
+    "Typical upper windows have one principal vertical mullion, transoms and additional small upper panes. Mullion counts and spacing vary by bay; spacing_m is an approximate centre-to-centre interval within regular bays.",
+    "Small rounded dormers belong to the roof and oval openings belong to the central turret-bearing bays. Neither is included in global window rows.",
+    "The broad hipped roof has strongly patinated green copper sheets and visible standing seams, consistent with the supplied copper roof tag. Small projecting bay roofs are also green; turret caps appear much darker and their precise finish is uncertain.",
+    "Two narrow integrated rooftop turrets are visible, rather than one freestanding tower. Tower parameters approximate one turret-bearing bay and cannot encode the paired arrangement. minimum_height_m and maximum_width_m are classification thresholds, not measured overall dimensions.",
+    "stone_top_m and copper_start_m approximate the transition from pale stone turret bases to dark sheet-metal caps. opening_rows is empty because turret openings cannot be measured reliably. The oval features are windows; no clock is identifiable, so clock dimensions are zero.",
+    "Entrance dimensions approximate a visible riverside arched doorway. The photograph does not securely identify the principal entrance. The southeast orientation is inferred from the riverside location; flags partly obscure doorway details.",
+    "Colours are estimated neutral albedo in 0–255 RGB, with confidence about 0.7. Weathering and patina are visual estimates; seam spacing and masonry unit dimensions have confidence about 0.35.",
+    "Reviewed (issue #2, 2026-11-13 review): both street fronts carry a granite-faced ground storey with round-arched openings and granite vertical fields and twin tower bays; the end bays, the corner and the top storey are cream render. Courtyard and back walls are plain render with the upper storeys' windows."
+  ],
+  "brick": {
+    "colour": [
+      207,
+      184,
+      143
+    ],
+    "size_m": [
+      0.27,
+      0.085
+    ],
+    "mortar_m": 0.012,
+    "mortar_colour": [
+      181,
+      174,
+      158
+    ],
+    "bond": "running",
+    "variation": 0.07
+  },
+  "stone": {
+    "colour": [
+      164,
+      163,
+      154
+    ],
+    "size_m": [
+      0.62,
+      0.34
+    ],
+    "mortar_m": 0.012,
+    "mortar_colour": [
+      151,
+      150,
+      143
+    ]
+  },
+  "trim_colour": [
+    214,
+    202,
+    174
+  ],
+  "roof": {
+    "material": "copper",
+    "colour": [
+      111,
+      151,
+      137
+    ],
+    "patina": 0.86,
+    "seam_m": 0.55
+  },
+  "windows": {
+    "type": "rectangular",
+    "width_m": 1.15,
+    "height_m": 2.6,
+    "spacing_m": 2.5,
+    "sill_m": 5.7,
+    "mullions": 1,
+    "rows_m": []
+  },
+  "tower": {
+    "minimum_height_m": 22,
+    "maximum_width_m": 5,
+    "stone_top_m": 22,
+    "copper_start_m": 21.8,
+    "clock_height_m": 0,
+    "clock_radius_m": 0,
+    "cornices_m": [
+      18.2,
+      21.8
+    ],
+    "opening_rows": []
+  },
+  "weathering": 0.19,
+  "entrance": {
+    "width_m": 1.6,
+    "height_m": 3.6,
+    "sill_m": 0.15,
+    "facade": "southeast riverside facade"
+  },
+  "wall_material": "render",
+  "elevations": [
+    {
+      "origin_xz": [
+        110.89,
+        282.43
+      ],
+      "axis_xz": [
+        -0.5751,
+        -0.8181
+      ],
+      "normal_xz": [
+        -0.8181,
+        0.5751
+      ],
+      "width_m": 39.85,
+      "height_m": 20.0,
+      "plinth_m": 0.35,
+      "bands": [
+        [
+          4.25,
+          0.2
+        ],
+        [
+          13.55,
+          0.15
+        ],
+        [
+          15.85,
+          0.45
+        ]
+      ],
+      "stone_zones": [
+        [
+          0,
+          39.85088004335336,
+          0,
+          4.3
+        ],
+        [
+          0,
+          0.9,
+          4.3,
+          9.25
+        ],
+        [
+          7.6,
+          7.57,
+          4.3,
+          9.25
+        ],
+        [
+          15.17,
+          3.83,
+          4.3,
+          15.7
+        ],
+        [
+          19.0,
+          4.7,
+          4.3,
+          9.25
+        ],
+        [
+          23.7,
+          3.71,
+          4.3,
+          15.7
+        ],
+        [
+          27.41,
+          8.05,
+          4.3,
+          9.25
+        ]
+      ],
+      "openings": [
+        {
+          "x_m": 4.67,
+          "sill_m": 5.1,
+          "width_m": 1.6,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 4.67,
+          "sill_m": 8.1,
+          "width_m": 1.6,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 4.67,
+          "sill_m": 11.1,
+          "width_m": 1.6,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 4.67,
+          "sill_m": 14.0,
+          "width_m": 1.6,
+          "height_m": 1.5,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 9.4,
+          "sill_m": 5.1,
+          "width_m": 2.2,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 9.4,
+          "sill_m": 8.1,
+          "width_m": 2.2,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 9.4,
+          "sill_m": 11.1,
+          "width_m": 2.2,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 9.4,
+          "sill_m": 14.0,
+          "width_m": 2.2,
+          "height_m": 1.5,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 13.0,
+          "sill_m": 5.1,
+          "width_m": 2.2,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 13.0,
+          "sill_m": 8.1,
+          "width_m": 2.2,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 13.0,
+          "sill_m": 11.1,
+          "width_m": 2.2,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 13.0,
+          "sill_m": 14.0,
+          "width_m": 2.2,
+          "height_m": 1.5,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 17.1,
+          "sill_m": 5.1,
+          "width_m": 1.0,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 17.1,
+          "sill_m": 8.1,
+          "width_m": 1.0,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 17.1,
+          "sill_m": 11.1,
+          "width_m": 1.0,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 17.1,
+          "sill_m": 14.0,
+          "width_m": 1.0,
+          "height_m": 1.5,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 21.35,
+          "sill_m": 5.1,
+          "width_m": 1.9,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 21.35,
+          "sill_m": 8.1,
+          "width_m": 1.9,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 21.35,
+          "sill_m": 11.1,
+          "width_m": 1.9,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 21.35,
+          "sill_m": 14.0,
+          "width_m": 1.9,
+          "height_m": 1.5,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 25.6,
+          "sill_m": 5.1,
+          "width_m": 1.0,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 25.6,
+          "sill_m": 8.1,
+          "width_m": 1.0,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 25.6,
+          "sill_m": 11.1,
+          "width_m": 1.0,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 25.6,
+          "sill_m": 14.0,
+          "width_m": 1.0,
+          "height_m": 1.5,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 29.5,
+          "sill_m": 5.1,
+          "width_m": 2.2,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 29.5,
+          "sill_m": 8.1,
+          "width_m": 2.2,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 29.5,
+          "sill_m": 11.1,
+          "width_m": 2.2,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 29.5,
+          "sill_m": 14.0,
+          "width_m": 2.2,
+          "height_m": 1.5,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 33.4,
+          "sill_m": 5.1,
+          "width_m": 2.2,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 33.4,
+          "sill_m": 8.1,
+          "width_m": 2.2,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 33.4,
+          "sill_m": 11.1,
+          "width_m": 2.2,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 33.4,
+          "sill_m": 14.0,
+          "width_m": 2.2,
+          "height_m": 1.5,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 37.6,
+          "sill_m": 5.1,
+          "width_m": 1.6,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 37.6,
+          "sill_m": 8.1,
+          "width_m": 1.6,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 37.6,
+          "sill_m": 11.1,
+          "width_m": 1.6,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 37.6,
+          "sill_m": 14.0,
+          "width_m": 1.6,
+          "height_m": 1.5,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 4.67,
+          "sill_m": 0.7,
+          "width_m": 2.4,
+          "height_m": 2.8,
+          "shape": "round",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.16,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 9.2,
+          "sill_m": 0.7,
+          "width_m": 2.4,
+          "height_m": 2.8,
+          "shape": "round",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.16,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 13.2,
+          "sill_m": 0.7,
+          "width_m": 2.4,
+          "height_m": 2.8,
+          "shape": "round",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.16,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 21.35,
+          "sill_m": 0.7,
+          "width_m": 2.4,
+          "height_m": 2.8,
+          "shape": "round",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.16,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 25.6,
+          "sill_m": 0.7,
+          "width_m": 2.4,
+          "height_m": 2.8,
+          "shape": "round",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.16,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 29.5,
+          "sill_m": 0.7,
+          "width_m": 2.4,
+          "height_m": 2.8,
+          "shape": "round",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.16,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 33.4,
+          "sill_m": 0.7,
+          "width_m": 2.4,
+          "height_m": 2.8,
+          "shape": "round",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.16,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 17.1,
+          "sill_m": 0.05,
+          "width_m": 1.8,
+          "height_m": 3.3,
+          "shape": "round",
+          "kind": "door",
+          "columns": 2,
+          "rows": 4,
+          "trim_m": 0.18,
+          "colour": [
+            78,
+            92,
+            84
+          ]
+        },
+        {
+          "x_m": 37.6,
+          "sill_m": 0.05,
+          "width_m": 1.3,
+          "height_m": 2.6,
+          "shape": "rect",
+          "kind": "door",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.12,
+          "colour": [
+            96,
+            74,
+            52
+          ]
+        }
+      ]
+    },
+    {
+      "origin_xz": [
+        148.98,
+        261.51
+      ],
+      "axis_xz": [
+        -0.8775,
+        0.4795
+      ],
+      "normal_xz": [
+        0.4795,
+        0.8775
+      ],
+      "width_m": 43.45,
+      "height_m": 20.0,
+      "plinth_m": 0.35,
+      "bands": [
+        [
+          4.25,
+          0.2
+        ],
+        [
+          13.55,
+          0.15
+        ],
+        [
+          15.85,
+          0.45
+        ]
+      ],
+      "stone_zones": [
+        [
+          0,
+          43.451366556403116,
+          0,
+          4.3
+        ],
+        [
+          5.5,
+          3.4,
+          4.3,
+          9.25
+        ],
+        [
+          14.16,
+          13.86,
+          4.3,
+          15.7
+        ],
+        [
+          33.3,
+          3.4,
+          4.3,
+          9.25
+        ],
+        [
+          42.601366556403114,
+          0.85,
+          4.3,
+          9.25
+        ]
+      ],
+      "openings": [
+        {
+          "x_m": 3.2,
+          "sill_m": 5.1,
+          "width_m": 1.6,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 3.2,
+          "sill_m": 8.1,
+          "width_m": 1.6,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 3.2,
+          "sill_m": 11.1,
+          "width_m": 1.6,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 3.2,
+          "sill_m": 14.0,
+          "width_m": 1.6,
+          "height_m": 1.5,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 7.2,
+          "sill_m": 5.1,
+          "width_m": 1.4,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 7.2,
+          "sill_m": 8.1,
+          "width_m": 1.4,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 7.2,
+          "sill_m": 11.1,
+          "width_m": 1.4,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 7.2,
+          "sill_m": 14.0,
+          "width_m": 1.4,
+          "height_m": 1.5,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 11.4,
+          "sill_m": 5.1,
+          "width_m": 2.2,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 11.4,
+          "sill_m": 8.1,
+          "width_m": 2.2,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 11.4,
+          "sill_m": 11.1,
+          "width_m": 2.2,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 11.4,
+          "sill_m": 14.0,
+          "width_m": 2.2,
+          "height_m": 1.5,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 16.8,
+          "sill_m": 5.1,
+          "width_m": 1.0,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 16.8,
+          "sill_m": 8.1,
+          "width_m": 1.0,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 16.8,
+          "sill_m": 11.1,
+          "width_m": 1.0,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 16.8,
+          "sill_m": 14.0,
+          "width_m": 1.0,
+          "height_m": 1.5,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 21.1,
+          "sill_m": 5.1,
+          "width_m": 2.2,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 21.1,
+          "sill_m": 8.1,
+          "width_m": 2.2,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 21.1,
+          "sill_m": 11.1,
+          "width_m": 2.2,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 21.1,
+          "sill_m": 14.0,
+          "width_m": 2.2,
+          "height_m": 1.5,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 25.3,
+          "sill_m": 5.1,
+          "width_m": 1.0,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 25.3,
+          "sill_m": 8.1,
+          "width_m": 1.0,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 25.3,
+          "sill_m": 11.1,
+          "width_m": 1.0,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 25.3,
+          "sill_m": 14.0,
+          "width_m": 1.0,
+          "height_m": 1.5,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 30.8,
+          "sill_m": 5.1,
+          "width_m": 2.2,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 30.8,
+          "sill_m": 8.1,
+          "width_m": 2.2,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 30.8,
+          "sill_m": 11.1,
+          "width_m": 2.2,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 30.8,
+          "sill_m": 14.0,
+          "width_m": 2.2,
+          "height_m": 1.5,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 35.0,
+          "sill_m": 5.1,
+          "width_m": 1.4,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 35.0,
+          "sill_m": 8.1,
+          "width_m": 1.4,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 35.0,
+          "sill_m": 11.1,
+          "width_m": 1.4,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 35.0,
+          "sill_m": 14.0,
+          "width_m": 1.4,
+          "height_m": 1.5,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 38.9,
+          "sill_m": 5.1,
+          "width_m": 1.6,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 38.9,
+          "sill_m": 8.1,
+          "width_m": 1.6,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 38.9,
+          "sill_m": 11.1,
+          "width_m": 1.6,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 38.9,
+          "sill_m": 14.0,
+          "width_m": 1.6,
+          "height_m": 1.5,
+          "shape": "rect",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 3.2,
+          "sill_m": 0.7,
+          "width_m": 2.4,
+          "height_m": 2.8,
+          "shape": "round",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.16,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 7.2,
+          "sill_m": 0.7,
+          "width_m": 2.4,
+          "height_m": 2.8,
+          "shape": "round",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.16,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 11.4,
+          "sill_m": 0.7,
+          "width_m": 2.4,
+          "height_m": 2.8,
+          "shape": "round",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.16,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 16.8,
+          "sill_m": 0.7,
+          "width_m": 2.4,
+          "height_m": 2.8,
+          "shape": "round",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.16,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 25.3,
+          "sill_m": 0.7,
+          "width_m": 2.4,
+          "height_m": 2.8,
+          "shape": "round",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.16,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 30.8,
+          "sill_m": 0.7,
+          "width_m": 2.4,
+          "height_m": 2.8,
+          "shape": "round",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.16,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 35.0,
+          "sill_m": 0.7,
+          "width_m": 2.4,
+          "height_m": 2.8,
+          "shape": "round",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.16,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 38.9,
+          "sill_m": 0.7,
+          "width_m": 2.4,
+          "height_m": 2.8,
+          "shape": "round",
+          "columns": 3,
+          "rows": 3,
+          "trim_m": 0.16,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "x_m": 21.1,
+          "sill_m": 0.05,
+          "width_m": 2.0,
+          "height_m": 3.5,
+          "shape": "round",
+          "kind": "door",
+          "columns": 2,
+          "rows": 4,
+          "trim_m": 0.18,
+          "colour": [
+            78,
+            92,
+            84
+          ]
+        }
+      ]
+    },
+    {
+      "origin_xz": [
+        123.69,
+        225.287
+      ],
+      "axis_xz": [
+        0.5726,
+        0.8198
+      ],
+      "normal_xz": [
+        0.8198,
+        -0.5726
+      ],
+      "width_m": 44.08,
+      "height_m": 20.0,
+      "plinth_m": 0.6,
+      "bands": [
+        [
+          4.25,
+          0.2
+        ],
+        [
+          15.85,
+          0.45
+        ]
+      ],
+      "repeated_openings": [
+        {
+          "start_m": 1.6,
+          "spacing_m": 2.5,
+          "end_margin_m": 1.0,
+          "sill_m": 5.1,
+          "width_m": 1.15,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "start_m": 1.6,
+          "spacing_m": 2.5,
+          "end_margin_m": 1.0,
+          "sill_m": 8.1,
+          "width_m": 1.15,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "start_m": 1.6,
+          "spacing_m": 2.5,
+          "end_margin_m": 1.0,
+          "sill_m": 11.1,
+          "width_m": 1.15,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "start_m": 1.6,
+          "spacing_m": 2.5,
+          "end_margin_m": 1.0,
+          "sill_m": 14.0,
+          "width_m": 1.15,
+          "height_m": 1.5,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        }
+      ]
+    },
+    {
+      "origin_xz": [
+        88.052,
+        249.858
+      ],
+      "axis_xz": [
+        0.8265,
+        -0.5629
+      ],
+      "normal_xz": [
+        -0.5629,
+        -0.8265
+      ],
+      "width_m": 43.5,
+      "height_m": 20.0,
+      "plinth_m": 0.6,
+      "bands": [
+        [
+          4.25,
+          0.2
+        ],
+        [
+          15.85,
+          0.45
+        ]
+      ],
+      "repeated_openings": [
+        {
+          "start_m": 1.6,
+          "spacing_m": 2.5,
+          "end_margin_m": 1.0,
+          "sill_m": 5.1,
+          "width_m": 1.15,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "start_m": 1.6,
+          "spacing_m": 2.5,
+          "end_margin_m": 1.0,
+          "sill_m": 8.1,
+          "width_m": 1.15,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "start_m": 1.6,
+          "spacing_m": 2.5,
+          "end_margin_m": 1.0,
+          "sill_m": 11.1,
+          "width_m": 1.15,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "start_m": 1.6,
+          "spacing_m": 2.5,
+          "end_margin_m": 1.0,
+          "sill_m": 14.0,
+          "width_m": 1.15,
+          "height_m": 1.5,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        }
+      ]
+    },
+    {
+      "origin_xz": [
+        129.47,
+        241.403
+      ],
+      "axis_xz": [
+        -0.8775,
+        0.4795
+      ],
+      "normal_xz": [
+        0.4795,
+        0.8775
+      ],
+      "width_m": 26.06,
+      "height_m": 20.0,
+      "plinth_m": 0.6,
+      "bands": [
+        [
+          4.25,
+          0.2
+        ],
+        [
+          15.85,
+          0.45
+        ]
+      ],
+      "repeated_openings": [
+        {
+          "start_m": 1.6,
+          "spacing_m": 2.5,
+          "end_margin_m": 1.0,
+          "sill_m": 5.1,
+          "width_m": 1.15,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "start_m": 1.6,
+          "spacing_m": 2.5,
+          "end_margin_m": 1.0,
+          "sill_m": 8.1,
+          "width_m": 1.15,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "start_m": 1.6,
+          "spacing_m": 2.5,
+          "end_margin_m": 1.0,
+          "sill_m": 11.1,
+          "width_m": 1.15,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "start_m": 1.6,
+          "spacing_m": 2.5,
+          "end_margin_m": 1.0,
+          "sill_m": 14.0,
+          "width_m": 1.15,
+          "height_m": 1.5,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        }
+      ]
+    },
+    {
+      "origin_xz": [
+        135.01,
+        268.053
+      ],
+      "axis_xz": [
+        -0.5751,
+        -0.8181
+      ],
+      "normal_xz": [
+        -0.8181,
+        0.5751
+      ],
+      "width_m": 23.91,
+      "height_m": 20.0,
+      "plinth_m": 0.6,
+      "bands": [
+        [
+          4.25,
+          0.2
+        ],
+        [
+          15.85,
+          0.45
+        ]
+      ],
+      "repeated_openings": [
+        {
+          "start_m": 1.6,
+          "spacing_m": 2.5,
+          "end_margin_m": 1.0,
+          "sill_m": 5.1,
+          "width_m": 1.15,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "start_m": 1.6,
+          "spacing_m": 2.5,
+          "end_margin_m": 1.0,
+          "sill_m": 8.1,
+          "width_m": 1.15,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "start_m": 1.6,
+          "spacing_m": 2.5,
+          "end_margin_m": 1.0,
+          "sill_m": 11.1,
+          "width_m": 1.15,
+          "height_m": 2.0,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        },
+        {
+          "start_m": 1.6,
+          "spacing_m": 2.5,
+          "end_margin_m": 1.0,
+          "sill_m": 14.0,
+          "width_m": 1.15,
+          "height_m": 1.5,
+          "shape": "rect",
+          "columns": 2,
+          "rows": 3,
+          "trim_m": 0.1,
+          "frame_colour": [
+            205,
+            196,
+            170
+          ]
+        }
+      ]
+    }
+  ]
+}
