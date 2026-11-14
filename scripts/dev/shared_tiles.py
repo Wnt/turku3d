@@ -1778,11 +1778,15 @@ class Farm:
                 self.event('surface-maps-evicted', key=path.name, bytes=size)
             if self.room(target):
                 return True
-        wanted_tiles = {tile for _, tile in jobs}
-        files = sorted((p for kind in ('inputs', 'stages') for p in (cache / kind).rglob('*.pkl')
-                        if p.relative_to(cache).parts[1] not in wanted_tiles),
-                       key=lambda p: p.stat().st_mtime)
-        for path in files:
+        files = []
+        for path in (p for kind in ('inputs', 'stages') for p in (cache / kind).rglob('*.pkl')):
+            if path.relative_to(cache).parts[1] in queued:
+                continue
+            try:
+                files.append((path.stat().st_mtime, path))
+            except FileNotFoundError:  # replaced since the listing: the round goes on to the later phases
+                continue
+        for _, path in sorted(files):
             try:
                 if time.time() - path.stat().st_mtime < self.grace_seconds:
                     continue
