@@ -261,14 +261,21 @@ def timber_wall(wall, vertices, building, program, profile=None):
     low, high = prior["eaves_window_m"]
     side = min(high, knee - cornice - 2 * prior["eaves_gap_m"] - 0.12)
     eaves = 0
-    if (not is_gable and count and side >= low
+    # A gable whose roof storey got its windows beside the ridge has them in this band already.
+    roof_lit = any(y < height for _x, y, _w, _h in gable)
+    if (not roof_lit and count and side >= low
             and knee >= (prior["eaves_room_knee_m"] if roof else prior["eaves_knee_m"])):
         # The rooms behind a tall knee wall (or the register's storey in the roof) look out under
-        # the eaves: one small window per bay over the windows below, clear of the eaves board.
+        # the eaves: one small window per bay over the windows below, clear of the eaves board. On a
+        # gable end too low for windows of its own the row runs at the same height, and a window
+        # stands only where the wall is that high (a gable end's corners may sit under the eaves).
         sill = height - cornice - prior["eaves_gap_m"] - side
         ew = min(side * 1.15, ww)
         for i in range(count):
-            rectangles.append([round((i + 0.5) * bay - ew / 2, 3), round(sill, 3), round(ew, 3), round(side, 3)])
+            x = (i + 0.5) * bay - ew / 2
+            if not _under(profile, x - 0.05, x + ew + 0.05, sill + side + prior["eaves_gap_m"]):
+                continue
+            rectangles.append([round(x, 3), round(sill, 3), round(ew, 3), round(side, 3)])
             roles.append("window")
             eaves += 1
     for rect in gable:
