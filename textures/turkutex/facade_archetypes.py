@@ -405,9 +405,11 @@ TIMBER_OLD = dict(
     knee_m=1.2,
     knee_low_m=0.5,
     # Small windows under the eaves: where the register counts a storey in the roof (a storey and a
-    # half: Itäharju, Kähäri) and the knee wall has room, or where the knee wall alone is this tall
-    # (Portsa's one-storey houses on a 7 m eaves wall). One per bay over the windows below.
-    eaves_knee_m=1.6,
+    # half: Itäharju, Kähäri) and the knee wall has room, or where the blank wall between the window
+    # heads and the eaves is this tall (Portsa's one-storey houses on 6.6-7.4 m walls: 2.5-3.2 m; a
+    # one-storey house under a 1.2 m knee wall leaves 2.15 m and keeps its plain frieze). One per bay
+    # over the windows below.
+    eaves_band_m=2.4,
     eaves_room_knee_m=0.75,
     eaves_window_m=(0.45, 0.7),
     eaves_gap_m=0.1,

@@ -122,17 +122,18 @@ def edge_profiles(walls, program, base):
 
 
 def _top(profile, u):
-    """The wall top (m above the base) at ``u`` m along the edge; 0 where no fragment stands."""
+    """The wall top (m above the base) at ``u`` m along the edge; None where no fragment of it stands
+    (past its ends, or a gap the shell left: nothing is known there)."""
     for u0, u1, t0, t1 in profile:
         if u0 - 1e-6 <= u <= u1 + 1e-6:
             return t0 + (t1 - t0) * (u - u0) / max(u1 - u0, 1e-9)
-    return 0.0
+    return None
 
 
 def _under(profile, x0, x1, top):
-    """True when the wall stands at least ``top`` m high everywhere over [x0, x1]."""
+    """True when the wall stands at least ``top`` m high wherever it stands over [x0, x1]."""
     points = [x0, x1] + [u for u0, u1, _, _ in profile for u in (u0, u1) if x0 < u < x1]
-    return all(_top(profile, u) >= top for u in points)
+    return all(t is None or t >= top for t in (_top(profile, u) for u in points))
 
 
 def gable_windows(profile, height, floor, roof, ww, prior):
@@ -230,6 +231,7 @@ def timber_wall(wall, vertices, building, program, profile=None):
     w["windows"]["divisions"] = m(list(panes))
     w["windows"]["frame_colour"] = m(field_value(w["trim"], "colour", "#e8e4da"))
     rectangles, roles = [], []
+    head = storeys[-1][0] + storeys[-1][1]  # the top storey's window heads, once laid out
     ww = _rng(key, "window").uniform(*prior["window_m"])
     pitch = _rng(key, "pitch").uniform(*prior["pitch_m"])
     count = max(1, round(width / pitch)) if width >= prior["min_wall_m"] else 0
@@ -249,9 +251,12 @@ def timber_wall(wall, vertices, building, program, profile=None):
             sw = min(ww, wh / prior["upright"])  # sashes stand upright
         if wh < 0.8:
             continue
+        head = bottom + sill + wh
         for i in range(count):
-            rectangles.append([round((i + 0.5) * bay - sw / 2, 3), round(bottom + sill, 3),
-                               round(sw, 3), round(wh, 3)])
+            x = (i + 0.5) * bay - sw / 2
+            if not _under(profile, x - 0.05, x + sw + 0.05, bottom + sill + wh + prior["eaves_gap_m"]):
+                continue  # the wall is lower here than the building's layout (a lower wing): no cut window
+            rectangles.append([round(x, 3), round(bottom + sill, 3), round(sw, 3), round(wh, 3)])
             roles.append("window")
     floor = storeys[-1][0] + storeys[-1][1]
     # This edge's own eaves line: the lowest top along it (a long wall's top, a gable end's corners).
@@ -268,11 +273,12 @@ def timber_wall(wall, vertices, building, program, profile=None):
     # A gable whose roof storey got its windows beside the ridge has them in this band already.
     roof_lit = any(y < line for _x, y, _w, _h in gable)
     if (not roof_lit and count and side >= low
-            and line - floor >= (prior["eaves_room_knee_m"] if roof else prior["eaves_knee_m"])):
-        # The rooms behind a tall knee wall (or the register's storey in the roof) look out under
-        # the eaves: one small window per bay over the windows below, clear of the eaves board. On a
-        # gable end too low for windows of its own the row runs at the same height, and a window
-        # stands only where the wall is that high.
+            and (line - floor >= prior["eaves_room_knee_m"] if roof else height - head >= prior["eaves_band_m"])):
+        # The rooms behind a tall blank band over the window heads (the building's, so all its walls
+        # agree; or the register's storey in the roof) look out under the eaves: one small window per
+        # bay over the windows below, clear of this wall's eaves board. On a gable end too low for
+        # windows of its own the row runs at the same height, and a window stands only where the wall
+        # is that high.
         sill = line - cornice - prior["eaves_gap_m"] - side
         ew = min(side * 1.15, ww)
         for i in range(count):

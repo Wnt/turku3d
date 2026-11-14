@@ -201,6 +201,25 @@ def test_the_row_under_the_eaves_follows_the_walls_own_top_under_a_taller_layout
     assert all(y + h <= 7.4 - w["trim"]["cornice"]["value"] for _, y, _, h in w["windows"]["rectangles_m"])
 
 
+def test_the_row_follows_the_blank_band_over_the_heads_and_a_lower_wing_draws_no_cut_window():
+    """Portsa (t0_-5_1): 103329809M's long walls stand 6.71 m and 6.64 m; a knee threshold put the
+    row on one and not the other. 103321751P's wing stands 5.36 m under the building's 7.69 m layout:
+    its upper storey's windows ran through the eaves."""
+    from turku3d.facade_timber import timber_wall
+
+    rows = []
+    for top in (6.71, 6.64):
+        b, program, v = house(year=1906, levels=1, eaves=6.71, width=32.7, milieu="Puukaupunkimiljöö")
+        v[2:, 1] = b.base + top
+        rows.append(timber_wall(program["walls"][0], v, b, program)["timber_old"]["eaves_windows"])
+    assert rows[0] == rows[1] >= 10
+    b, program, v = house(year=1906, levels=2, eaves=7.69, width=5.4)
+    v[2:, 1] = b.base + 5.36
+    w = timber_wall(program["walls"][0], v, b, program)
+    assert len(w["timber_old"]["storeys"]) == 2 and w["windows"]["rectangles_m"]
+    assert all(y + h <= 5.36 for _, y, _, h in w["windows"]["rectangles_m"])
+
+
 def test_the_plinth_is_the_areas_granite_in_the_town_and_concrete_under_the_1920s_suburbs():
     from turku3d.facade_timber import timber_wall
 
