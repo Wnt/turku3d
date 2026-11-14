@@ -443,9 +443,10 @@ def wall_meshes(b, walls, origin, layout=None):
 
     slab = not garage and is_slab(b, program)
     pitch = storey_pitch(b, walls) if slab else None
-    from turku3d.facade_timber import is_old_timber, timber_wall
+    from turku3d.facade_timber import edge_profiles, is_old_timber, timber_wall
 
     timber = not garage and not slab and is_old_timber(b, program)
+    profiles = edge_profiles(walls, program, float(b.base)) if timber else {}
     from turku3d.night_lighting import use_class
     night_use = use_class(getattr(owner, "attributes", {}))
     apertures = volumes(measured(b.facade_key))
@@ -460,7 +461,7 @@ def wall_meshes(b, walls, origin, layout=None):
         elif slab and not wall.get("measured_wall_id"):
             wall = program["walls"][start // 4] = slab_wall(wall, vertices, b, pitch)
         elif timber and not wall.get("measured_wall_id"):
-            wall = program["walls"][start // 4] = timber_wall(wall, vertices, b, program)
+            wall = program["walls"][start // 4] = timber_wall(wall, vertices, b, program, profiles.get(start // 4))
         plans = plan(vertices, wall) + cuts(vertices, apertures)
         plans += edge_plans(vertices, b, plans)
         components, _ = geometry(vertices, plans, b.facade_key, origin)

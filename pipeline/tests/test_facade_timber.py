@@ -5,14 +5,14 @@ from turku3d.coarse.inputs import Building
 from turku3d.facade_kit import renderer
 
 
-def house(year=1905, levels=1, eaves=5.5, width=16.0, material="wood"):
+def house(year=1905, levels=1, eaves=5.5, width=16.0, material="wood", milieu=None):
     renderer()
     from turkutex.facade_archetypes import sample
 
     b = Building("h", shapely.box(0, 0, width, 9), 10.0, 10.0 + eaves + 3.5, "facade_plaster")
     b.facade_key = "h"
     b.attributes = {"construction_year": year, "material_class": material, "levels": levels,
-                    "levels_source": "register", "use": "1010", "register_id": "h"}
+                    "levels_source": "register", "use": "1010", "register_id": "h", "milieu": milieu}
     walls = [dict(wall_id="h:0", outline=True, width_m=width, fragment_width_m=width, uv_offset=0,
                   height_m=eaves, layout_height_m=eaves)]
     program = sample("h", b.attributes, walls)
@@ -44,11 +44,12 @@ def test_register_storeys_are_kept_where_they_fit_and_later_or_undated_timber_is
     from turku3d.facade_timber import is_old_timber, layout, timber_wall
     from turkutex.facade_archetypes import TIMBER_OLD
 
-    plinth, storeys, knee = layout(8.6, 2, 0.7, TIMBER_OLD)
-    assert len(storeys) == 2 and all(2.7 <= h <= 3.6 for _, h in storeys)
-    # A register count the shell has no room for counts the rooms in the roof: one storey.
-    plinth, storeys, knee = layout(5.2, 2, 0.7, TIMBER_OLD)
-    assert len(storeys) == 1
+    plinth, storeys, knee, roof = layout(8.6, 2, 0.7, TIMBER_OLD)
+    assert len(storeys) == 2 and all(2.7 <= h <= 3.6 for _, h in storeys) and roof == 0
+    # A register count the shell has no room for counts the rooms in the roof: one storey, and the
+    # second is a storey in the roof whose windows need a knee wall under the eaves.
+    plinth, storeys, knee, roof = layout(5.2, 2, 0.7, TIMBER_OLD)
+    assert len(storeys) == 1 and roof == 1 and knee >= 1.0
     b, program, v = house(year=1930, levels=2, eaves=8.6)
     w = timber_wall(program["walls"][0], v, b, program)
     rows = sorted({round(y, 2) for _, y, _, _ in w["windows"]["rectangles_m"]})
@@ -107,3 +108,99 @@ def test_a_wall_fragment_is_laid_out_over_its_whole_outline_edge():
         metres = uv[:, 0] - style["origin"][0]
         assert metres.min() >= 7.2 - 1e-6 and metres.max() <= 11.0 + 1e-6
     assert any(s["module"] in (43, 44) for _, _, s in parts)  # the plinth runs on under this fragment
+
+
+def gable_end(b, program, width=8.0, eaves=5.6, rise=4.0):
+    """The two shell quads of a symmetric gable end (as the shell cuts it under its sloped top)."""
+    base = b.base
+    quads = [np.array([[0, base, 0], [width / 2, base, 0], [width / 2, base + eaves + rise, 0],
+                       [0, base + eaves, 0]], float),
+             np.array([[width / 2, base, 0], [width, base, 0], [width, base + eaves, 0],
+                       [width / 2, base + eaves + rise, 0]], float)]
+    walls = [{**program["walls"][0], "width_m": width, "fragment_width_m": width / 2, "uv_offset": u,
+              "height_m": eaves, "layout_height_m": eaves} for u in (0.0, width / 2)]
+    return np.concatenate(quads), walls
+
+
+def test_a_storey_in_the_roof_looks_out_under_the_eaves_and_from_the_gable():
+    """Karjakatu 22 (1928, register 2 storeys, 5.6 m eaves): the photo has small windows under the
+    eaves over a belt, two windows in the gable and an attic light; the first stills had one low row
+    of windows under a blank wall."""
+    from turku3d.facade_timber import edge_profiles, timber_wall
+
+    b, program, v = house(year=1928, levels=2, eaves=5.6, width=11.0)
+    w = timber_wall(program["walls"][0], v, b, program)
+    t = w["timber_old"]
+    assert t["roof_storeys"] == 1 and len(t["storeys"]) == 1 and t["knee_m"] >= 1.0
+    rows = sorted({y for _, y, _, _ in w["windows"]["rectangles_m"]})
+    assert len(rows) == 2 and t["eaves_windows"] >= 3
+    eaves = [r for r in w["windows"]["rectangles_m"] if r[1] == rows[1]]
+    cornice = w["trim"]["cornice"]["value"]
+    assert all(0.45 <= h <= 0.7 and y + h <= 5.6 - cornice for _, y, _, h in eaves)  # under the eaves board
+    assert w["trim"]["string_courses"]["value"][-1] < rows[1]  # the belt runs under them
+    quads, walls = gable_end(b, program)
+    gprogram = {**program, "walls": walls}
+    profiles = edge_profiles(quads, gprogram, b.base)
+    assert profiles[0] == profiles[1] and len(profiles[0]) == 2
+    fragments = [timber_wall(walls[i], quads[i * 4:i * 4 + 4], b, gprogram, profiles[i]) for i in (0, 1)]
+    assert fragments[0]["windows"]["rectangles_m"] == fragments[1]["windows"]["rectangles_m"]
+    g = fragments[0]["timber_old"]
+    assert g["gable_windows"] == 3 and g["eaves_windows"] == 0  # two beside the ridge, an attic light
+    gable = [r for r in fragments[0]["windows"]["rectangles_m"] if r[1] > 4.0]
+    for x, y, ww, wh in gable:  # every gable window stays under the verges
+        assert y + wh + 0.3 <= 5.6 + 4.0 * (1 - abs(x + ww / 2 - 4.0) / 4.0) - 4.0 * ww / 8
+
+
+def test_a_gable_over_storeys_that_fit_gets_one_attic_window_and_a_low_gable_none():
+    from turku3d.facade_timber import edge_profiles, timber_wall
+
+    b, program, _ = house(year=1905, levels=1, eaves=5.5)
+    quads, walls = gable_end(b, program, eaves=5.5, rise=3.0)
+    gprogram = {**program, "walls": walls}
+    profiles = edge_profiles(quads, gprogram, b.base)
+    w = timber_wall(walls[0], quads[:4], b, gprogram, profiles[0])
+    assert w["timber_old"]["gable_windows"] == 1 and w["timber_old"]["roof_storeys"] == 0
+    quads, walls = gable_end(b, program, eaves=5.5, rise=1.0)  # a low-pitched roof: no room
+    gprogram = {**program, "walls": walls}
+    w = timber_wall(walls[0], quads[:4], b, gprogram, edge_profiles(quads, gprogram, b.base)[0])
+    assert w["timber_old"]["gable_windows"] == 0
+
+
+def test_the_plinth_is_the_areas_granite_in_the_town_and_concrete_under_the_1920s_suburbs():
+    from turku3d.facade_timber import timber_wall
+
+    def plinth(**kwargs):
+        b, program, v = house(**kwargs)
+        w = timber_wall(program["walls"][0], v, b, program)
+        return w["timber_old"]["plinth_area"], w["material_bands"][0]
+
+    area, band = plinth(year=1905, milieu="Puukaupunkimiljöö")  # Portsa
+    assert area == "town" and band["material"] in ("stone", "brick") and band["height_m"] >= 1.0
+    area, band = plinth(year=1928, levels=2, eaves=5.6)  # Itäharju, outside every milieu zone
+    assert area == "suburb" and band["material"] == "concrete" and band["height_m"] >= 0.85
+    area, band = plinth(year=1890)  # an old house outside the town keeps the low plinth
+    assert area == "other" and band["material"] in ("stone", "brick") and band["height_m"] <= 1.35
+    area, band = plinth(year=1925, milieu="Muuttuva kaupunkiympäristö")  # in the map, not the town
+    assert area == "suburb"
+
+
+def test_window_jambs_close_only_their_upright_edges():
+    """The jambs stand between the head and sill casings: their level returns are hidden."""
+    from turku3d.facade_program_geometry import wall_parts
+    from turku3d.facade_programs import compile_wall
+    from turku3d.facade_relief import relief_parts
+    from turku3d.facade_timber import timber_wall
+
+    b, program, v = house()
+    w = timber_wall(program["walls"][0], v, b, program)
+    style = compile_wall(w, program["storeys"]["value"])
+    style["origin"][1] = b.base
+    parts = list(wall_parts(v, w, style))
+    jambs = [(p, uv, s) for p, uv, s in parts if s.get("returns") == "vertical"]
+    windows = [s for _, _, s in parts if s["module"] < 42 and s["detail"][3] % 4 == 1]
+    assert len(jambs) == 2 * len(windows)
+    faces = [list(relief_parts(p, uv, s)) for p, uv, s in jambs]
+    assert all(len(f) == 3 for f in faces)  # front and two upright returns, no level ones
+    assert all("returns" not in s for f in faces for _, _, s in f)
+    heads = [(p, uv, s) for p, uv, s in parts if s.get("relief_m") == 0.055 and "returns" not in s]
+    assert all(len(list(relief_parts(p, uv, s))) == 5 for p, uv, s in heads)

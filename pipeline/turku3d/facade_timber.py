@@ -9,9 +9,16 @@ register says one, the wall above the window heads a boarded knee wall), and get
 measured size in white casings with six panes or a T-frame. Proportions are the bounded priors of
 ``turkutex.facade_archetypes.TIMBER_OLD``.
 
+The wall above the storeys is not left blank (pp-wood2, after the first stills): a register storey
+with no room under the eaves is a storey in the roof (a storey and a half), so the knee wall gets a
+row of small windows under the eaves and the gables the roof storey's windows and an attic light;
+a gable over storeys that all fit gets one attic window. The plinth is the area's: tall granite or
+red brick in the town of the centre milieu typing (Portsa), grey concrete under the 1920s-30s
+houses outside it (Itäharju), the low stone or brick plinth elsewhere (``plinth_area``).
+
 Scope: every rule-sampled timber house dated before 1940, city-wide (the old wooden quarters and
-the 1920s suburbs share the type). Existing descriptions and reviewed readings keep priority, and
-walls standing on a roof or an inner LoD2 ring keep the sampled layout.
+the 1920s suburbs share the type); the plinth by area as above. Existing descriptions and reviewed
+readings keep priority, and walls standing on a roof or an inner LoD2 ring keep the sampled layout.
 """
 
 import copy
@@ -38,12 +45,33 @@ def _rng(key, field):
     return random.Random(stable_seed(key, "timber-old:" + field))
 
 
-def layout(height, levels, plinth, prior):
-    """(plinth, [(bottom, storey height)], knee) of an eaves wall ``height`` m high.
+def plinth_area(attrs, prior):
+    """Which plinth the house stands on: "town", "suburb" or "other" (``TIMBER_OLD["plinth_areas"]``).
 
-    The register's storey count is kept where its storeys fit at 2.7-3.6 m; a count that does
-    not fit (the register counts the rooms in the roof) falls to the storeys that do. What is
-    left over lifts the plinth (at most ``plinth_lift_max_m``) and then becomes the knee wall.
+    Scope (Jonni's area rule, 2026-11-13): the tall granite or brick plinth only in the town of the
+    centre milieu typing (``coarse.milieus.in_town``), where the Portsa photos were taken; the grey
+    concrete base only outside it for houses built from 1920 (the Itäharju photo; the 1920s-30s
+    garden suburbs). Older houses outside the town keep the low stone or brick plinth. Without the
+    milieu table (a source version that lacks it) no house is in the town.
+    """
+    from turku3d.coarse.milieus import in_town
+    from turkutex.facade_archetypes import parsed_year
+
+    if in_town(attrs):
+        return "town"
+    year = parsed_year(attrs.get("construction_year"))
+    return "suburb" if year and year >= prior["plinth_suburb_from"] else "other"
+
+
+def layout(height, levels, plinth, prior):
+    """(plinth, [(bottom, storey height)], knee, roof) of an eaves wall ``height`` m high.
+
+    The register's storey count is kept where its storeys fit at 2.7-3.6 m. A count that does not
+    fit falls to the storeys that do; the rest (``roof``) are the register's rooms in the roof, a
+    storey and a half: their floor is the top storey's ceiling, so the knee wall keeps room for
+    their windows under the eaves and the gables carry theirs (``timber_wall``). What is left over
+    lifts the plinth (at most ``plinth_lift_max_m``, never past ``plinth_total_max_m``) and then
+    becomes the knee wall.
     """
     low, high = prior["storey_m"]
     available = height - plinth
@@ -53,20 +81,101 @@ def layout(height, levels, plinth, prior):
         count = int(levels)
     else:
         count = max(1, round((available - knee) / ((low + high) / 2)))
+    roof = max(0, count - fit)
     count = min(count, fit)
+    if roof:
+        knee = max(knee, min(prior["knee_m"], available - low * count))
     each = min(high, (available - knee) / count)
     if each < low:
         knee = max(0.0, available - low * count)
         each = (available - knee) / count
     spare = max(0.0, available - knee - each * count)
-    lift = min(spare, prior["plinth_lift_max_m"])
+    lift = min(spare, prior["plinth_lift_max_m"], max(0.0, prior["plinth_total_max_m"] - plinth))
     plinth += lift
     knee += spare - lift
-    return plinth, [(plinth + i * each, each) for i in range(count)], knee
+    return plinth, [(plinth + i * each, each) for i in range(count)], knee, roof
 
 
-def timber_wall(wall, vertices, building, program):
-    """Expand one shell wall into the measured old-wooden-house layout, surveyed over its outline edge."""
+def edge_profiles(walls, program, base):
+    """{wall index: [(u0, u1, top0, top1)]}: every shell fragment of the wall's outline edge, in edge
+    metres along it and metres above ``base``. A gable end comes as several quads under its sloped
+    top; each fragment is laid out alone, so this is how it knows where the gable has room."""
+    edges, keys = {}, {}
+    for index in range(len(walls) // 4):
+        wall = program["walls"][index]
+        if not wall.get("outline", True):
+            continue
+        v = walls[index * 4 : index * 4 + 4]
+        run = v[1] - v[0]
+        run[1] = 0
+        length = float(np.linalg.norm(run))
+        if length < 1e-6:
+            continue
+        tangent = run / length
+        u0 = float(wall.get("uv_offset", 0) or 0)
+        a = v[0] - tangent * u0
+        key = (round(float(a[0]), 1), round(float(a[2]), 1), round(float(tangent[0]), 2),
+               round(float(tangent[2]), 2), round(float(wall.get("width_m") or length), 1))
+        keys[index] = key
+        edges.setdefault(key, []).append((u0, u0 + length, float(v[3, 1]) - base, float(v[2, 1]) - base))
+    return {index: sorted(edges[key]) for index, key in keys.items()}
+
+
+def _top(profile, u):
+    """The wall top (m above the base) at ``u`` m along the edge; 0 where no fragment stands."""
+    for u0, u1, t0, t1 in profile:
+        if u0 - 1e-6 <= u <= u1 + 1e-6:
+            return t0 + (t1 - t0) * (u - u0) / max(u1 - u0, 1e-9)
+    return 0.0
+
+
+def _under(profile, x0, x1, top):
+    """True when the wall stands at least ``top`` m high everywhere over [x0, x1]."""
+    points = [x0, x1] + [u for u0, u1, _, _ in profile for u in (u0, u1) if x0 < u < x1]
+    return all(_top(profile, u) >= top for u in points)
+
+
+def gable_windows(profile, height, floor, roof, ww, prior):
+    """Window rectangles (x, y, w, h; edge metres) in the gable over an eaves line ``height`` m up.
+
+    The roof storey (``roof`` > 0, floor ``floor`` m up) gets its windows beside the ridge, two when
+    they fit and one when not, and an attic light above them; a gable without a roof storey gets one
+    attic window. Every window stays ``gable_margin_m`` under the verges, so none is cut by the roof.
+    """
+    if not profile:
+        return []
+    peak_u, peak = max(((u, t) for u0, u1, t0, t1 in profile for u, t in ((u0, t0), (u1, t1))),
+                       key=lambda item: item[1])
+    if peak - height < prior["gable_rise_m"]:
+        return []
+    margin = prior["gable_margin_m"]
+    result, head = [], height
+    if roof:
+        low, high = prior["gable_window_h_m"]
+        sill = floor + prior["gable_sill_m"]
+        for h in (high, (low + high) / 2, low):
+            for centres in ((peak_u - prior["gable_pair_m"] / 2, peak_u + prior["gable_pair_m"] / 2), (peak_u,)):
+                rects = [(c - ww / 2, sill, ww, h) for c in centres]
+                if all(_under(profile, x - 0.1, x + w + 0.1, y + h + margin) for x, y, w, h in rects):
+                    result, head = rects, sill + h
+                    break
+            if result:
+                break
+    small, large = prior["attic_window_m"]
+    for side in (large, small):
+        sill = max(head, height) + prior["attic_gap_m"]
+        rect = (peak_u - side / 2, sill, side, side)
+        if _under(profile, rect[0] - 0.1, rect[0] + side + 0.1, sill + side + margin):
+            result.append(rect)
+            break
+    return [[round(x, 3), round(y, 3), round(w, 3), round(h, 3)] for x, y, w, h in result]
+
+
+def timber_wall(wall, vertices, building, program, profile=None):
+    """Expand one shell wall into the measured old-wooden-house layout, surveyed over its outline edge.
+
+    ``profile`` is the outline edge's fragments (``edge_profiles``); without it the fragment is
+    taken as the whole edge."""
     from turkutex.facade_archetypes import TIMBER_OLD, TIMBER_OLD_SOURCE, parsed_year
     from turkutex.facade_program import value
 
@@ -88,8 +197,16 @@ def timber_wall(wall, vertices, building, program):
     key = str(attrs.get("register_id") or building.facade_key)
     height = float(wall.get("layout_height_m", wall["height_m"]))
     top = float(vertices[:, 1].max()) - base
-    plinth = _rng(key, "plinth").uniform(*prior["plinth_m"])
-    plinth, storeys, knee = layout(height, program["storeys"]["value"], plinth, prior)
+    if not profile:
+        u0 = float(wall.get("uv_offset", 0) or 0)
+        profile = [(u0, u0 + float(np.linalg.norm(fragment)), float(vertices[3, 1]) - base,
+                    float(vertices[2, 1]) - base)]
+    area = plinth_area(attrs, prior)
+    plinths = prior["plinth_areas"].get(area) or dict(
+        height_m=prior["plinth_m"], plinths=prior["plinths"], weights=prior["plinth_weights"],
+        relief_m=prior["plinth_relief_m"])
+    plinth = _rng(key, "plinth").uniform(*plinths["height_m"])
+    plinth, storeys, knee, roof = layout(height, program["storeys"]["value"], plinth, prior)
     if storeys[0][1] < prior["storey_min_m"]:
         return wall  # Too low for a lived-in storey: a shed keeps its sampled treatment.
     m = lambda x: value(x, TIMBER_OLD_SOURCE, 0.6)  # noqa: E731
@@ -100,13 +217,13 @@ def timber_wall(wall, vertices, building, program):
         p1=[float(b[0] + C.ORIGIN_E), float(C.ORIGIN_N - b[2])],
         base_h=base,
     )
-    w["measured_size"] = [width, max(top, height)]
+    peak = max(max(t0, t1) for *_, t0, t1 in profile)
+    w["measured_size"] = [width, max(top, height, peak)]
     w["measured_wall_id"] = f"{building.facade_key}:timber-old"
     w["observation"] = dict(needs_review=False, scope="full-wall", source="old wooden house class")
-    weights = prior["plinth_weights"]
-    material, colour = _rng(key, "plinth-material").choices(prior["plinths"], weights=weights)[0]
+    material, colour = _rng(key, "plinth-material").choices(plinths["plinths"], weights=plinths["weights"])[0]
     w["material_bands"] = [dict(bottom_m=0.0, height_m=round(plinth, 3), material=material,
-                                colour=colour, relief_m=prior["plinth_relief_m"], support=0.6)]
+                                colour=colour, relief_m=plinths["relief_m"], support=0.6)]
     w["base"]["plinth_height_m"] = m(0)  # the stone band above replaces the painted board plinth
     year = parsed_year(attrs.get("construction_year"))
     panes = prior["panes_early"] if year and year < prior["panes_until"] else prior["panes_late"]
@@ -129,20 +246,34 @@ def timber_wall(wall, vertices, building, program):
         else:
             sill = min(prior["sill_m"], storey * 0.3)
             wh = min(prior["window_h_m"], storey - sill - prior["head_gap_m"])
-            sw = ww
+            sw = min(ww, wh / prior["upright"])  # sashes stand upright
         if wh < 0.8:
             continue
         for i in range(count):
             rectangles.append([round((i + 0.5) * bay - sw / 2, 3), round(bottom + sill, 3),
                                round(sw, 3), round(wh, 3)])
             roles.append("window")
-    if knee >= prior["attic_knee_m"]:
-        # A knee wall this tall has rooms behind it: one small attic light per bay.
-        side = prior["attic_window_m"]
-        attic = storeys[-1][0] + storeys[-1][1] + prior["attic_sill_m"]
+    floor = storeys[-1][0] + storeys[-1][1]
+    is_gable = peak - height >= prior["gable_rise_m"]
+    gable = gable_windows(profile, height, floor, roof, ww, prior) if is_gable else []
+    cornice = field_value(w["trim"], "cornice", 0.0)
+    cornice = float(cornice) if isinstance(cornice, (int, float)) else 0.0
+    low, high = prior["eaves_window_m"]
+    side = min(high, knee - cornice - 2 * prior["eaves_gap_m"] - 0.12)
+    eaves = 0
+    if (not is_gable and count and side >= low
+            and knee >= (prior["eaves_room_knee_m"] if roof else prior["eaves_knee_m"])):
+        # The rooms behind a tall knee wall (or the register's storey in the roof) look out under
+        # the eaves: one small window per bay over the windows below, clear of the eaves board.
+        sill = height - cornice - prior["eaves_gap_m"] - side
+        ew = min(side * 1.15, ww)
         for i in range(count):
-            rectangles.append([round((i + 0.5) * bay - side / 2, 3), round(attic, 3), side, side])
+            rectangles.append([round((i + 0.5) * bay - ew / 2, 3), round(sill, 3), round(ew, 3), round(side, 3)])
             roles.append("window")
+            eaves += 1
+    for rect in gable:
+        rectangles.append(rect)
+        roles.append("window")
     w["windows"].update(
         rectangles_m=rectangles,
         opening_roles=roles,
@@ -184,7 +315,8 @@ def timber_wall(wall, vertices, building, program):
     w["bays"].update(count=0, support=0.6)
     w["timber_old"] = dict(plinth_m=round(plinth, 3), storeys=[round(s, 3) for _, s in storeys],
                            knee_m=round(knee, 3), plinth_material=material, windows=len(rectangles),
-                           shopfront=shop)
+                           shopfront=shop, plinth_area=area, roof_storeys=roof, eaves_windows=eaves,
+                           gable_windows=len(gable))
     w["paint_source"] = "old-wooden-house-class"
     return w
 

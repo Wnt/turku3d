@@ -381,19 +381,51 @@ ORDER_SOURCE = "reference-measured classical order"
 TIMBER_OLD = dict(
     plinth_m=(0.6, 0.85),
     plinth_lift_max_m=0.5,
+    plinth_total_max_m=1.6,
     plinth_relief_m=0.05,
     plinths=(("stone", "#8a857d"), ("stone", "#7e7a73"), ("stone", "#948f86"), ("brick", "#7f4637")),
     plinth_weights=(3, 2, 2, 3),
+    # The plinth by area (``facade_timber.plinth_area``). The town (the centre milieu typing's town
+    # types, coarse.milieus.in_town: Portsa, the wooden quarters by the river and the hills) stands on
+    # rock-faced red-grey granite or dark red brick about 1-1.35 m high, often with cellar windows
+    # (photos street_wooden_01/02: Rauhankatu, Puutarhakatu). The 1920s-30s houses outside the town
+    # (Itäharju, Nummi, Raunistula, Pohjola, Kähäri) stand on a grey concrete base 0.85-1.25 m high
+    # (photo fresh02_01, Karjakatu 22). Older houses outside the town keep the low stone or brick
+    # plinth above. Colours are the photos' plinths against their walls, as pigments.
+    plinth_areas=dict(
+        town=dict(height_m=(1.0, 1.35), relief_m=0.07, weights=(3, 2, 2, 3),
+                  plinths=(("stone", "#8d7d73"), ("stone", "#7f7069"), ("stone", "#978479"),
+                           ("brick", "#7f4637"))),
+        suburb=dict(height_m=(0.85, 1.25), relief_m=0.04, weights=(3, 2, 2),
+                    plinths=(("concrete", "#8e9391"), ("concrete", "#9a9c97"), ("concrete", "#83898a"))),
+    ),
+    plinth_suburb_from=1920,
     storey_m=(2.7, 3.6),
     storey_min_m=2.2,
     knee_m=1.2,
     knee_low_m=0.5,
-    attic_knee_m=1.8,
-    attic_window_m=0.6,
-    attic_sill_m=0.45,
+    # Small windows under the eaves: where the register counts a storey in the roof (a storey and a
+    # half: Itäharju, Kähäri) and the knee wall has room, or where the knee wall alone is this tall
+    # (Portsa's one-storey houses on a 7 m eaves wall). One per bay over the windows below.
+    eaves_knee_m=1.6,
+    eaves_room_knee_m=0.75,
+    eaves_window_m=(0.45, 0.7),
+    eaves_gap_m=0.1,
+    # The gable: the roof storey's windows (two beside the ridge, else one) and an attic light under
+    # the ridge; a gable without a roof storey gets one attic window. Clear of the verges by
+    # ``gable_margin_m``; nothing where the gable has no room.
+    gable_rise_m=1.5,
+    gable_margin_m=0.35,
+    gable_sill_m=0.8,
+    gable_window_h_m=(0.9, 1.3),
+    gable_pair_m=1.7,
+    attic_window_m=(0.55, 0.75),
+    attic_gap_m=0.45,
     sill_m=0.95,
     window_m=(1.0, 1.1),
     window_h_m=1.7,
+    # Sashes stand upright: a window lower than this times its width is narrowed.
+    upright=1.4,
     head_gap_m=0.35,
     pitch_m=(2.4, 2.8),
     casing="frame",
