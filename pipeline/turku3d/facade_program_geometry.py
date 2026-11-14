@@ -265,6 +265,7 @@ def _paint_layers(vertices, wall, style):
                 (x - thickness, y - thickness, w + 2 * thickness, thickness),
                 (x - thickness, y + h, w + 2 * thickness, thickness),
             ]
+            sides = []
             if surround == "rustication":
                 strips += [
                     (xx, yy, thickness, min(0.24, y + h - yy))
@@ -272,7 +273,9 @@ def _paint_layers(vertices, wall, style):
                     for yy in np.arange(y, y + h, 0.32)
                 ]
             else:
-                strips += [(xx, y, thickness, h) for xx in (x - thickness, x + w)]
+                # The jambs stand between the head and the sill casing: their top and bottom
+                # returns touch those casings and are never seen (``facade_relief.offset_parts``).
+                sides = [(xx, y, thickness, h) for xx in (x - thickness, x + w)]
             if surround == "pediment":
                 for t in np.linspace(0, 1, 16, endpoint=False):
                     strips.append(
@@ -287,13 +290,14 @@ def _paint_layers(vertices, wall, style):
                 "detail": [0, 0, 0, 0],
                 "relief_m": 0.055,
             }
-            for left, bottom, rw, rh in strips:
+            jamb = {**decoration, "returns": "vertical"}
+            for (left, bottom, rw, rh), paint in [(s, decoration) for s in strips] + [(s, jamb) for s in sides]:
                 left, right = sorted([offset + left * sign, offset + (left + rw) * sign])
                 part = quad(
                     max(x0, left), min(x1, right), max(y0, y0 + bottom), min(y1, y0 + bottom + rh)
                 )
                 if part:
-                    yield *part, decoration, 3
+                    yield *part, paint, 3
     from turku3d.facade_style_geometry import details
 
     yield from details(wall, style, blank, boxes, quad, x0, x1, y0, y1, offset, sign)

@@ -9,8 +9,11 @@ Collision stays on the separate, unmodified building shell.
 import numpy as np
 
 
-def offset_parts(points, uv, style, depth, side_style):
-    """Displace a paint owner and close its perimeter with correctly wound returns."""
+def offset_parts(points, uv, style, depth, side_style, returns="all"):
+    """Displace a paint owner and close its perimeter with correctly wound returns.
+
+    ``returns="vertical"`` closes only the upright edges: a strip butting against other relief
+    above and below (a window jamb between its head and sill casing) hides its level returns."""
     tangent = points[1] - points[0]
     tangent[1] = 0
     tangent /= np.linalg.norm(tangent)
@@ -21,6 +24,8 @@ def offset_parts(points, uv, style, depth, side_style):
         j = (i + 1) % 4
         length = float(np.linalg.norm(points[j] - points[i]))
         if length < 0.001:
+            continue
+        if returns == "vertical" and abs(float(points[j][1] - points[i][1])) < 1e-6:
             continue
         yield (
             np.array([points[i], points[j], displaced[j], displaced[i]]),
@@ -36,9 +41,11 @@ def relief_parts(points, uv, style):
     perimeter can be extruded. Never manufacture a return across a partition seam.
     """
     projection = style.get("relief_m", 0)
+    returns = style.get("returns", "all")
+    style = {k: v for k, v in style.items() if k != "returns"}
     if projection:
         style = {k: v for k, v in style.items() if k != "relief_m"}
-        yield from offset_parts(points, uv, style, projection, style)
+        yield from offset_parts(points, uv, style, projection, style, returns)
         return
     kind = style.get("detail", [0, 0, 0, 0])[3]
     width, height = style.get("size", [0, 0])
@@ -81,7 +88,7 @@ def composed_parts(points, uv, style, plans):
             yield from relief_parts(patch, tex, style)
         else:
             # The structural component already owns this surface's displacement.
-            yield patch, tex, {k: v for k, v in style.items() if k != "relief_m"}
+            yield patch, tex, {k: v for k, v in style.items() if k not in ("relief_m", "returns")}
 
 
 def bands(vertices, style, quad, order=None):
