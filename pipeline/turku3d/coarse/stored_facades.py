@@ -368,12 +368,9 @@ def facade_layouts(shells):
                 heights.append((max(.1, float(p[2:, 1].min() - owner.base)), width))
         if not heights:
             continue
-        half, accumulated = sum(w for _, w in heights) / 2, 0
-        for height, width in sorted(heights):
-            accumulated += width
-            if accumulated >= half:
-                break
-        result[key] = owner, height
+        from turku3d.facade_programs import floor_grid_height, register_levels
+
+        result[key] = owner, floor_grid_height(heights, register_levels(owner))
     return result
 
 
@@ -414,7 +411,67 @@ def base_course(vertices, wall, style):
     return [(lower, wall, course)] + ([(upper, wall, style)] if upper is not None else [])
 
 
-def wall_meshes(b, walls, origin, layout=None):
+def ring_eaves(walls):
+    """{quad start: eave} of an extrusion's walls. Each extrusion ring closes before the next roof part
+    starts; its lowest top is the eave, including when a gable side has several collinear segments."""
+    eaves = {}
+    ring_start = 0
+    for end in range(0, len(walls), 4):
+        if np.linalg.norm(walls[end + 1, [0, 2]] - walls[ring_start, [0, 2]]) < 1e-6:
+            eave = float(walls[ring_start : end + 4].reshape(-1, 4, 3)[:, 2:, 1].min())
+            eaves.update((i, eave) for i in range(ring_start, end + 4, 4))
+            ring_start = end + 4
+    return eaves
+
+
+def exposed_eaves(shell_walls, walls):
+    """{piece start: eave} of the exposed wall pieces, read from the shell's own closed rings.
+
+    Ownership trimming (``exposed_wall_quads``) splits ring walls into pieces, drops hidden ones and can
+    leave zero-width trapezoids with a corner at the base. The pieces' rings then no longer close where
+    the shell's did, and such a sliver's top read as the whole ring's eave: every wall of the ring drew
+    0.1 m tall and blank above (Varkkavuorenkatu 36 and 34, Heikkilankatu 7; 24 of 267 programs in six
+    train25 tiles). Every piece lies on its source wall's bottom line and inside its span, so it takes
+    that wall's ring eave. A piece without a source keeps its own top (``resolve``'s default).
+    """
+    source = np.asarray(shell_walls, float).reshape(-1, 4, 3)
+    pieces = np.asarray(walls, float).reshape(-1, 4, 3)
+    if not len(source) or not len(pieces):
+        return {}
+    ring = ring_eaves(source.reshape(-1, 3))
+    eave = np.array([ring.get(4 * i, np.nan) for i in range(len(source))])
+    start = source[:, 0, [0, 2]]
+    vector = source[:, 1, [0, 2]] - start
+    length = np.linalg.norm(vector, axis=1)
+    tangent = vector / np.maximum(length, 1e-12)[:, None]
+    normal = np.column_stack((-tangent[:, 1], tangent[:, 0]))
+    low, high = source[:, :, 1].min(axis=1), source[:, :, 1].max(axis=1)
+    result = {}
+    for k, piece in enumerate(pieces):
+        delta = piece[:, None, [0, 2]] - start[None]  # (4 corners, sources, 2)
+        across = np.abs(np.einsum("vni,ni->vn", delta, normal)).max(axis=0)
+        along = np.einsum("vni,ni->vn", delta, tangent)
+        direction = piece[1, [0, 2]] - piece[0, [0, 2]]
+        run = float(np.linalg.norm(direction))
+        fits = (
+            np.isfinite(eave)
+            & (across < 1e-3)
+            & (along.min(axis=0) > -1e-3)
+            & (along.max(axis=0) < length + 1e-3)
+            & (piece[:, 1].min() > low - 1e-3)
+            & (piece[:, 1].max() < high + 1e-3)
+        )
+        if run > 1e-6:
+            fits &= tangent @ (direction / run) > 0.999
+        found = np.flatnonzero(fits)
+        if len(found):
+            result[4 * k] = float(eave[found[np.argmin(across[found])]])
+    return result
+
+
+def wall_meshes(b, walls, origin, layout=None, shell_walls=None):
+    """Generated facade meshes of one shell's exposed walls. ``shell_walls`` (the extrusion's own walls,
+    before ownership trimming) give each exposed piece its ring's eave."""
     if not len(walls):
         return []
     from turku3d.facade_component_geometry import geometry, plan, slots
@@ -428,15 +485,7 @@ def wall_meshes(b, walls, origin, layout=None):
     garage = is_garage(b)
 
     meshes = []
-    # Each extrusion ring closes before the next roof part starts. Its lowest top
-    # is the eave, including when a gable side has several collinear segments.
-    eaves = {}
-    ring_start = 0
-    for end in range(0, len(walls), 4):
-        if np.linalg.norm(walls[end + 1, [0, 2]] - walls[ring_start, [0, 2]]) < 1e-6:
-            eave = float(walls[ring_start : end + 4].reshape(-1, 4, 3)[:, 2:, 1].min())
-            eaves.update((i, eave) for i in range(ring_start, end + 4, 4))
-            ring_start = end + 4
+    eaves = ring_eaves(walls) if shell_walls is None else exposed_eaves(shell_walls, walls)
     owner, height = layout if layout is not None else (b, None)
     program = resolve(owner, walls, eaves, layout_height=height)
     from turku3d.facade_slab import is_slab, slab_wall, storey_pitch

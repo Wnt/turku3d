@@ -437,6 +437,46 @@ def premise_shopfronts(program, vertices, fronts):
             wall["premise_front"] = True
 
 
+STOREY_MIN_M = 2.2  # resolve()'s storey plausibility band starts here; a lower storey is no floor grid
+TOWER_WALL_M = 4.0  # walls of at least this much width must reach a floor-grid height
+
+
+def register_levels(building):
+    """The register's storey count of a building, or None (OSM storeys are checked against the shell)."""
+    attrs = getattr(building, "attributes", None) or {}
+    levels = attrs.get("levels")
+    if attrs.get("levels_source") == "osm" or not isinstance(levels, (int, float)) or levels < 1:
+        return None
+    return levels
+
+
+def floor_grid_height(rows, levels=None):
+    """The building's floor-grid height from its walls' [(height m, width m)].
+
+    The width-weighted median of the wall heights, so fragments a roof or tunnel clipped do not rescale
+    the grid. Register storeys count the tallest part, though: a tower over wide low wings put the median
+    at the wings and the tower drew its storeys half as tall (Koulukatu 19: 10 storeys, median 14.4 m,
+    1.44 m storeys, twice its rows of small windows). When the median gives the register storeys less
+    than 2.2 m each, the grid spans the lowest wall height that gives them at least 2.2 m and that walls
+    of 4 m or more reach within a metre; lower walls are clipped by their own tops as before.
+    """
+    rows = sorted((float(h), float(w)) for h, w in rows)
+    if not rows:
+        return None
+    half, accumulated = sum(w for _, w in rows) / 2, 0
+    height = rows[-1][0]
+    for h, w in rows:
+        accumulated += w
+        if accumulated >= half:
+            height = h
+            break
+    if levels and height / levels < STOREY_MIN_M:
+        for h, _ in rows:
+            if h / levels >= STOREY_MIN_M and sum(w for g, w in rows if h <= g <= h + 1.0) >= TOWER_WALL_M:
+                return h
+    return height
+
+
 def resolve(building, vertices, eaves, *, layout_height=None):
     renderer()  # Make the shared textures package importable in the OCI pipeline interpreter.
     from turkutex.facade_archetypes import MASONRY, MEASURED_PIGMENT, MONOLITH, sample
@@ -486,14 +526,8 @@ def resolve(building, vertices, eaves, *, layout_height=None):
     # Roof/tunnel ownership splits a facade into fragments with different tops.
     # Those tops clip the building's floor grid; they must not rescale that grid.
     if layout_height is None:
-        heights = sorted((g["height_m"], g["fragment_width_m"]) for g in geometry)
-        half, accumulated = sum(w for _, w in heights) / 2, 0
-        layout_height = heights[-1][0]
-        for height, width in heights:
-            accumulated += width
-            if accumulated >= half:
-                layout_height = height
-                break
+        layout_height = floor_grid_height(
+            [(g["height_m"], g["fragment_width_m"]) for g in geometry], register_levels(building))
     for g in geometry:
         g["layout_height_m"] = layout_height
 

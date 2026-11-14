@@ -60,9 +60,11 @@ def building_visual(tile, shells, ortho, first_pass, wall_context=()):
             )
         )
     layouts = facade_layouts(shells)
-    for (b, _), walls in zip(shells, assemble_walls(shells, wall_context), strict=True):
+    for (b, shell), walls in zip(shells, assemble_walls(shells, wall_context), strict=True):
         custom_walls = landmark_walls(b, walls, origin)
-        walls = custom_walls if custom_walls is not None else wall_meshes(b, walls, origin, layouts.get(b.key))
+        # The shell's own walls carry its closed rings: each exposed piece takes its ring's eave.
+        walls = custom_walls if custom_walls is not None else wall_meshes(
+            b, walls, origin, layouts.get(b.key), shell[4])
         for mesh in walls:
             if b.attributes.get("address"):
                 mesh.extras["address"] = b.attributes["address"]
