@@ -388,14 +388,38 @@ def on_front(points, front, tolerance=0.2):
     return across <= tolerance and -tolerance <= along <= length + tolerance
 
 
+# Small historic houses keep their windows: in historic Turku (the city's milieu type, register fact
+# ``milieu``) a house of at most two register storeys dated before 1940 with a cafe or restaurant in it
+# has the ordinary windows of a house in its street storey, the premise behind a door of its own.
+# Photographed (pp-readings2, 2026-11-14, the 5 such houses of pp-town's 58 premise buildings): ordinary
+# windows at Linnankatu 2's cafe (1817), Läntinen Rantakatu 1 (1830), Piispankatu 15's restaurant manor
+# (1833) and Linnankatu 85's restaurant (1915); Tehtaankatu 6 (1891) has one display window among them.
+# The glazed 2003 restaurant pavilion on Brahenkatu and undated buildings keep their fronts, and so do
+# the taller blocks. Scope: the "Historiallinen Turku" zones only.
+HOUSE_MILIEUS = frozenset({"Historiallinen Turku"})
+HOUSE_STOREYS = 2
+HOUSE_BEFORE = 1940
+
+
+def small_historic_house(attrs) -> bool:
+    from turkutex.facade_archetypes import parsed_year
+
+    levels = attrs.get("levels")
+    year = parsed_year(attrs.get("construction_year") or attrs.get("year") or attrs.get("start_date"))
+    return (attrs.get("milieu") in HOUSE_MILIEUS and isinstance(levels, (int, float))
+            and 1 <= levels <= HOUSE_STOREYS and year is not None and year < HOUSE_BEFORE)
+
+
 def opens_premises(program, attrs, description) -> bool:
     """Whether the building's mapped premises open its walls: none describes it, its composition is not
-    a masonry, monolith or civic one, and no public use keeps its front closed."""
+    a masonry, monolith or civic one, no public use keeps its front closed and it is no small historic
+    house."""
     from turkutex.facade_archetypes import MASONRY, MONOLITH, building_use
 
     return (bool(attrs.get("premise_fronts")) and not description
             and program["archetype"] not in (MASONRY, MONOLITH, "civic")
-            and building_use(attrs) not in PREMISE_CLOSED_USES)
+            and building_use(attrs) not in PREMISE_CLOSED_USES
+            and not small_historic_house(attrs))
 
 
 def premise_shopfronts(program, vertices, fronts):

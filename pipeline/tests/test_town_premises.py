@@ -210,6 +210,23 @@ def test_public_buildings_keep_their_own_front():
     assert opens_premises(town_house, dict(fronts, osm_use="hotel"), None)  # a hotel's restaurant opens
 
 
+def test_small_historic_houses_keep_their_windows():
+    from turku3d.facade_kit import renderer
+    from turku3d.facade_programs import opens_premises
+
+    renderer()
+    fronts = dict(premise_fronts=[[0.0, 0.0, 12.0, 0.0]], use="1150")
+    house = dict(archetype="empire")
+    historic = dict(fronts, milieu="Historiallinen Turku", construction_year=1817)
+    assert not opens_premises(house, dict(historic, levels=2), None)  # Linnankatu 2's cafe
+    assert not opens_premises(house, dict(historic, levels=1, construction_year="1833"), None)  # a manor
+    assert opens_premises(house, dict(historic, levels=3), None)  # a town block over its restaurant
+    assert opens_premises(house, dict(historic), None)  # storeys unknown: the premise decides
+    assert opens_premises(house, dict(historic, levels=2, construction_year=2003), None)  # glazed pavilion
+    assert opens_premises(house, dict(historic, levels=1, construction_year=None), None)  # undated
+    assert opens_premises(house, dict(fronts, milieu="Liikekeskusta", levels=2, construction_year=1817), None)
+
+
 def test_a_premise_inside_a_public_building_opens_nothing():
     import shapely
 

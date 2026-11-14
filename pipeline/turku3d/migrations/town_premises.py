@@ -1,4 +1,4 @@
-"""town-premises@1: spot rebuild of the tiles holding a town building whose customer premises open it.
+"""town-premises@2: spot rebuild of the tiles holding a town building whose customer premises open it.
 
 ``coarse.milieus`` gives every building the type of the centre milieu zone holding it (a farm source
 overlay, ``derived/milieus/milieus.json``, never in git) and ``coarse.premises`` opens the street
@@ -10,6 +10,12 @@ is a committed tile list: the owning tiles of the 58 buildings that the rule ope
 describes and no public building keeps closed (``work/survey`` of pp-town over the 178 tiles of
 the milieu area, 2026-11-14T00:41Z, the pipeline's own enrichment on the farm's OSM snapshots).
 A changed town set, OSM snapshot or rule is a new version with its own list.
+
+@2 (pp-readings2, 2026-11-14): small historic houses keep their windows (``facade_programs.
+small_historic_house``: historic Turku, at most two register storeys, dated before 1940). It closes
+the fronts of 5 of the survey's 58 buildings, in t0_1_-1, t0_1_0, t0_2_-2, t0_-9_6 and t0_3_-3,
+each checked against photos; the class stays the 31 tiles, because a train derived from train24
+rebuilds each of them whole at its generator and the other 26 must keep @1's fronts.
 """
 
 from .core import Rebuild
@@ -26,4 +32,4 @@ def affected(manifest: dict) -> bool:
     return manifest.get("tile") in TILES
 
 
-MIGRATION = Rebuild("town-premises", 1, affected=affected)
+MIGRATION = Rebuild("town-premises", 2, affected=affected)
