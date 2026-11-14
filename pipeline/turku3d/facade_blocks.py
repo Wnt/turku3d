@@ -228,9 +228,11 @@ def apply(building, program, vertices) -> dict:
     if not candidates:
         return stats
     longest = max(walls[i]["width_m"] for i in candidates)
+    # The wall's own eave height, not the building's layout height: plan() frames components in it, so a
+    # wall whose eave reads at the base (a 0.1 m program wall) would squash its stacks to nothing.
     tall = [i for i in candidates
             if walls[i]["width_m"] >= max(TALL_WIDTH_M, TALL_SHARE * longest)
-            and walls[i].get("layout_height_m", walls[i]["height_m"]) >= TALL_HEIGHT_M]
+            and min(walls[i]["height_m"], walls[i].get("layout_height_m", walls[i]["height_m"])) >= TALL_HEIGHT_M]
     if not tall:
         return stats
     sunny = max(tall, key=lambda i: _facing(edges[i]))

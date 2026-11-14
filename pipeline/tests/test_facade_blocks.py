@@ -91,6 +91,19 @@ def test_balconies_stand_only_on_the_sun_facing_tall_walls_as_cheap_geometry(mon
                if "detail" in s)
 
 
+def test_a_wall_whose_eave_reads_at_the_base_carries_no_stacks(monkeypatch):
+    from turku3d.facade_blocks import apply
+    from turku3d.facade_programs import resolve
+
+    key = find_key(lambda p: p and p["type"] == "cantilever")
+    b, walls = block(monkeypatch, key=key)
+    # Every eave at the base: 0.1 m program walls under a 15 m layout (plan() would squash stacks to nothing).
+    prog = resolve(b, walls, {i: 0.0 for i in range(0, len(walls), 4)}, layout_height=15.0)
+    stats = apply(b, prog, walls)
+    assert stats["type"] == "cantilever" and stats["stacks"] == stats["balconies"] == 0
+    assert not any(w.get("geometry_components") for w in prog["walls"])
+
+
 def test_a_loggia_stack_moves_its_wall_back_and_glazed_panes_face_outward(monkeypatch):
     from turku3d.coarse.stored_facades import wall_meshes
 
