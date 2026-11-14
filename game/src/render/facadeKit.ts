@@ -40,7 +40,12 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
   const module = program?.module ?? selected;
   const cell = vec2(module.mod(7), module.div(7).floor().mul(2)).add(vec2(0, float(1).sub(upper)));
   // Four-pixel wrapped gutters isolate modules from neighbouring atlas cells and mip levels.
-  const fraction = program?.local ?? vec2(fract(bays.x), fract(bays.y));
+  const cellFraction = program?.local ?? vec2(fract(bays.x), fract(bays.y));
+  // The kit renders each cell as a 3 m wall, and a wood render has 0.15 m corner boards at both ends. Packaging repeats
+  // a blank cell every 3 m, so the blank wood cell (45) painted a trim strip every 3 m across plain wood walls, read as
+  // half-timbering on the old wooden houses. Sample only its boarded interior: a wall's real corners are its corner
+  // band, and casings and belts are geometry.
+  const fraction = vec2(module.equal(45).select(cellFraction.x.mul(.88).add(.06), cellFraction.x), cellFraction.y);
   const local = vec2(fraction.x, float(1).sub(fraction.y)).mul(120).add(4);
   const coord = cell.mul(128).add(local).div(vec2(1024, 2048));
   // Derive mip footprints before fract: a bay edge is not a jump across the atlas.
