@@ -6,7 +6,7 @@ from . import (bridge_ends, chain_record, finished_ground, floodlights, furnitur
                monolith_walls, path_trees, racks, roadbed, shell_look, signals, signs, span_lamps,
                square_lights, stand_roofs, structure_materials, trees_lidar, wires, facade_reality,
                forest_cover, centred_paint, pole_support, measured_walls, facade_readings, old_timber,
-               town_premises, block_balconies, street_edges)
+               town_premises, block_balconies, street_edges, block_windows)
 
 CHAIN = (
     chain_record.MIGRATION,
@@ -60,4 +60,6 @@ CHAIN = (
     block_balconies.MIGRATION,
     # Spot rebuild of the tiles with streets outside the centre's milieu map: concrete kerbs, grass verges.
     street_edges.MIGRATION,
+    # Spot rebuild of the tiles holding a 1980+ block of flats with a surveyed wall: one window type a block.
+    block_windows.MIGRATION,
 )

@@ -191,3 +191,16 @@ def test_block_balconies_rebuilds_only_tiles_holding_a_block_of_flats():
     assert len(keys) > 2000 and len(set(keys)) == len(keys)
     assert block_balconies.affected({"building_keys": ["x", keys[0]]})
     assert not block_balconies.affected({"building_keys": ["x"]}) and not block_balconies.affected({})
+
+
+def test_block_windows_rebuilds_only_tiles_holding_a_surveyed_later_block():
+    from turku3d.migrations import block_balconies, block_windows, registry, street_edges
+
+    # Appended after block-balconies and street-edges: earlier trains stay a prefix of the chain.
+    assert registry.CHAIN.index(block_windows.MIGRATION) > registry.CHAIN.index(block_balconies.MIGRATION)
+    assert registry.CHAIN.index(block_windows.MIGRATION) > registry.CHAIN.index(street_edges.MIGRATION)
+    keys = block_windows.keys()
+    assert 0 < len(keys) < 100 and keys <= block_balconies.keys()
+    assert "103443386D" in keys and "103443384B" in keys  # the two blocks of uudenmaa-01
+    assert block_windows.affected({"building_keys": ["103443386D"]})
+    assert not block_windows.affected({"building_keys": ["x"]}) and not block_windows.affected({})
