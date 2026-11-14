@@ -34,6 +34,21 @@ def test_kerbs_outside_the_milieu_map_are_concrete_inside_granite():
     assert mesh.extras["material_key"] == "draft_concrete_curb"
 
 
+def test_concrete_kerb_finish_is_a_repeatable_light_grey_pbr_map():
+    from turku3d.coarse import ground_finishes
+
+    maps = ground_finishes.maps("concrete_curb", 128)
+    for slot, pixels in maps.items():
+        np.testing.assert_array_equal(pixels, ground_finishes.maps("concrete_curb", 128)[slot])
+        assert pixels.shape == (128, 128, 3) and pixels.dtype == np.uint8
+        edge = np.abs(pixels[:, 0].astype(float) - pixels[:, -1]).mean()
+        assert edge < max(np.abs(np.diff(pixels.astype(float), axis=1)).mean() * 3, 8)
+    # Cast concrete reads light, neutral grey: lighter than asphalt, no granite speckle hue.
+    albedo = maps["albedo"].reshape(-1, 3).mean(axis=0)
+    assert 140 < albedo.mean() < 190 and np.ptp(albedo) < 15
+    assert maps["normal"][..., 2].min() > 128 and np.all(maps["orm"][..., 2] == 0)
+
+
 def test_mapped_kerb_strips_split_at_the_milieu_map():
     faces = Faces()
     for x in (40.0, 180.0):
