@@ -730,8 +730,8 @@ def build(
         "street_edge_lines", source_key(Path(street_edges.__file__)), [tile, paving_sources],
         lambda: street_edges.street_lines(tile, osm),
     ) if osm and concrete is not None else []
-    base = next((g for g, m in cover if m == mat_id("road")), None)
-    verge_regions = street_edges.verges(tile, edge_lines, base, concrete)
+    unmapped = next((g for g, m in cover if m == mat_id("road")), None)
+    verge_regions = street_edges.verges(tile, edge_lines, unmapped, concrete)
     # Precedence, last wins: ortho cover, yard lawns, OSM areas and ways, the OSM surface tag's
     # unit paving, then the street register's surveyed parts and their finishes.
     # Meadows replace lawn where the green register or OSM says the grass is not mown; litter, needle duff and moss
