@@ -123,6 +123,7 @@ class Inputs:
     retaining: list = ()  # raw-lidar two-sided WFS retaining tops, before path blending
     playgrounds: list = ()  # surveyed playground sites reaching the tile (turku3d.playgrounds)
     finished_ground: dict | None = None  # ground.finished report; None where the lidar ground stands
+    milieus: list = ()  # (zone, type) of the centre's milieu typing (coarse.milieus); () without the table
 
 
 # -- ground ---------------------------------------------------------------------------------------
@@ -1097,4 +1098,5 @@ def gather(
         parking=values["parking"] or ((), ()),
         playgrounds=values.get("playgrounds") or (),
         finished_ground=(values.get("finished_ground") or {}).get("report"),
+        milieus=(values["appearance"] or {}).get("milieus") or (),
     )

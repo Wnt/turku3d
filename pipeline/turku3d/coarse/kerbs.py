@@ -214,22 +214,25 @@ def terrain_edge(a, b, step):
     return a + np.asarray(sorted(cuts))[:, None] * (b - a)
 
 
-def visuals(tile, meshes):
+def visuals(tile, meshes, concrete=None):
+    """Granite strips; outside the centre's milieu map (``concrete``, coarse.street_edges) cast concrete."""
+    from .street_edges import split_kerbs
+
     return [
         GlbMesh(
-            m.object_id,
+            m.object_id + ("_concrete" if cast else ""),
             m.positions - tile.origin,
             m.indices,
             uvs=m.uvs,
             color=(1, 1, 1, 1),
             extras=dict(
                 layer="structures",
-                object_id=m.object_id,
-                material_key="draft_granite_curb",
+                object_id=m.object_id + ("_concrete" if cast else ""),
+                material_key="draft_concrete_curb" if cast else "draft_granite_curb",
                 kind="curb",
             ),
         )
-        for m in meshes
+        for m, cast in split_kerbs(meshes, concrete)
     ]
 
 

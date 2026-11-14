@@ -115,6 +115,28 @@ def _forest_floor(key, rng, size, period, grain, macro, gaussian_filter):
     return albedo, height, ao, roughness
 
 
+def _concrete_curb(rng, size, grain, gaussian_filter):
+    """Cast concrete kerb stones (coarse.street_edges, outside the centre's milieu map): pale, even grey with a fine
+    sand grain, faint cement mottling and a sprinkle of small aggregate and air pores; none of the granite's
+    crystal speckle. Tone: W2's concrete kerb (linear 0.37/0.365/0.345, w2-rules 2026-11-13), a little paler than
+    the library's kerb granite."""
+    def noise(sigma):
+        n = gaussian_filter(rng.normal(0, 1, (size, size)), sigma, mode="wrap")
+        return n / max(n.std(), 1e-6)
+
+    blotch, mottle, sand = noise(size / 8), noise(size / 40), gaussian_filter(grain, .7, mode="wrap")
+    sand /= max(sand.std(), 1e-6)
+    aggregate = gaussian_filter((rng.random((size, size)) < .025) * rng.choice([-1.0, 1.0], (size, size)), .6,
+                                mode="wrap") * 2.2
+    pores = gaussian_filter((rng.random((size, size)) < .004).astype(float), .5, mode="wrap") * 2.5
+    albedo = (np.array([166, 164, 158]) + blotch[..., None] * [3.5, 3.5, 3] + mottle[..., None] * 2.5
+              + sand[..., None] * 3 + aggregate[..., None] * [9, 9, 8] - pores[..., None] * [26, 26, 24])
+    height = sand * .00015 + mottle * .0003 - pores * .0008
+    ao = 1 - np.clip(pores, 0, 1) * .25
+    roughness = np.clip(.88 + sand * .015 - blotch * .01, .8, .95)
+    return albedo, height, ao, roughness
+
+
 def _sand(rng, size, period, grain, macro, gaussian_filter):
     """Beach and sandpit sand: fine beige-grey grains, trampled into footprint dimples, compacted darker patches, a
     few pebbles and dry stalks. Kansanpuisto beach in summer panoramas: hue 31-34 deg, saturation 0.09-0.12, sunlit
@@ -367,6 +389,8 @@ def maps(key, size=None):
         albedo, height, ao, roughness = _sand(rng, size, period, grain, macro, gaussian_filter)
     elif key == "field_hay":
         albedo, height, ao, roughness = _field(rng, size, period, grain, macro, gaussian_filter)
+    elif key == "concrete_curb":
+        albedo, height, ao, roughness = _concrete_curb(rng, size, grain, gaussian_filter)
     else:
         raise ValueError(f"Unknown ground finish: {key}")
 

@@ -721,6 +721,17 @@ def build(
     natural = np.isin(dry.material, [mat_id(n) for n in ("rock", "sand", "soil")])
     natural_area = shapely.union_all(shapely.polygons(dry.positions[dry.indices[natural]][:, :, [0, 2]]))
     cover = surfaces.cover_regions(tile, inputs.ortho, natural_area) if inputs.ortho is not None else []
+    # Outside the centre's milieu map: cast concrete kerbs, and grass verges where the street's edge is still the
+    # unmapped base (coarse.street_edges).
+    from . import street_edges
+
+    concrete = street_edges.concrete_area(tile, inputs.milieus)
+    edge_lines = cache.run(
+        "street_edge_lines", source_key(Path(street_edges.__file__)), [tile, paving_sources],
+        lambda: street_edges.street_lines(tile, osm),
+    ) if osm and concrete is not None else []
+    base = next((g for g, m in cover if m == mat_id("road")), None)
+    verge_regions = street_edges.verges(tile, edge_lines, base, concrete)
     # Precedence, last wins: ortho cover, yard lawns, OSM areas and ways, the OSM surface tag's
     # unit paving, then the street register's surveyed parts and their finishes.
     # Meadows replace lawn where the green register or OSM says the grass is not mown; litter, needle duff and moss
@@ -735,7 +746,7 @@ def build(
     unmown = meadows.regions(tile, inputs.green_areas, kept)
     floors = forest_floor.regions(tile, inputs.forests, inputs.vegetation_canopy, GridHeight(tile, grid_pos), trees,
                                   inputs.water, kept)
-    visual_regions = [*cover, *lawn_regions, *inputs.surfaces, *shore, *unmown, *floors, *forest_paths, *osm_finishes]
+    visual_regions = [*cover, *verge_regions, *lawn_regions, *inputs.surfaces, *shore, *unmown, *floors, *forest_paths, *osm_finishes]
     surface_args = (
         dry.positions,
         dry.indices,
@@ -753,6 +764,7 @@ def build(
         lambda: surfaces.split_boundaries(*surface_args, keep_steep=True),
     )
     seconds["surface_boundaries"] = time.perf_counter() - t_surface
+    surface_ids = street_edges.kerb_stone(surface_pos, surface_idx, surface_ids, concrete)
     visual_args = (
         tile,
         surface_pos,
@@ -817,7 +829,7 @@ def build(
     ) if venue_lines else None
     if venue_paint is not None:
         ground_meshes.append(venue_paint)
-    ground_meshes.extend(kerbs.visuals(tile, kerb_meshes))
+    ground_meshes.extend(kerbs.visuals(tile, kerb_meshes, concrete))
     stair_visuals = stairs.visuals(tile, stair_meshes)
     ground_meshes.extend(stair_visuals)
     ground_meshes.extend(venue_stage.visuals(tile, venue_meshes))
