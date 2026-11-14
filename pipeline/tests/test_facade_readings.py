@@ -221,6 +221,22 @@ def test_shop_glass_read_as_windows_opens_shops_but_dwelling_windows_do_not():
     doc["opening_types"]["glass"]["glass"]["interior"] = "dark"
     doc["walls"][0]["storeys"][0]["sill_m"] = 0.9
     assert conv.convert(doc)[0]["description"]["ground_floor"] == "doors"
+    # A few shop windows among a house's doors and windows keep its ground storey punched (Puutarhakatu 32).
+    doc["walls"][0]["storeys"][0].update(sill_m=0.2, row=["glass", "door", "win", "door", "win", "door"])
+    assert conv.convert(doc)[0]["description"]["ground_floor"] == "doors"
+
+
+def test_dark_trim_read_on_a_light_rendered_wall_draws_light():
+    doc = reading()
+    doc["materials"]["render"] = {"family": "plaster", "colour": "#dfa996", "conf": {"*": 0.8}}
+    doc["walls"][0]["material"] = doc["walls"][1]["material"] = "render"
+    doc["walls"][0]["verticals"] = [{"kind": "lesene", "colour": "#3b3e40"}] * 4
+    d = conv.convert(doc)[0]["description"]
+    assert d["material"] == "plaster" and d["trim_colour"] == conv.TRIM["plaster"]  # Puolalanpuisto 2a
+    doc["walls"][0]["verticals"] = [{"kind": "lesene", "colour": "#f4f1ea"}] * 4
+    assert conv.convert(doc)[0]["description"]["trim_colour"] == "#f4f1ea"  # light read trim stays
+    assert not conv.dark_trim("#3b3e40", "#9a8f87", "plaster")  # a dark wall keeps its dark bands
+    assert not conv.dark_trim("#3b3e40", "#dfa996", "brick")
 
 
 def test_grouped_windows_draw_at_their_group_width_with_their_lights():

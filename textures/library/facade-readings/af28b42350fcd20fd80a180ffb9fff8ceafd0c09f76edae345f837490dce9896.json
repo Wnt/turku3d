@@ -6,7 +6,7 @@
    "string_courses",
    "ornament"
   ],
-  "ground_floor": "shops",
+  "ground_floor": "windows",
   "ground_openings": 5,
   "material": "plaster",
   "plinth": false,
@@ -42,7 +42,7 @@
      6704179.033
     ]
    ],
-   "ground_floor": "shops",
+   "ground_floor": "windows",
    "width_m": 15.147,
    "window_columns": 5,
    "window_height": 0.4046,

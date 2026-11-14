@@ -3,7 +3,7 @@
  "description": {
   "facade_id": "reading-1032958218",
   "features": [],
-  "ground_floor": "shops",
+  "ground_floor": "doors",
   "ground_openings": 9,
   "material": "metal",
   "plinth": true,
@@ -58,7 +58,7 @@
      6705469.407
     ]
    ],
-   "ground_floor": "shops",
+   "ground_floor": "doors",
    "width_m": 37.85,
    "window_columns": 6,
    "window_height": 0.4398,

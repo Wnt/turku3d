@@ -6,7 +6,7 @@
    "balconies",
    "string_courses"
   ],
-  "ground_floor": "shops",
+  "ground_floor": "doors",
   "ground_openings": 12,
   "material": "wood",
   "plinth": true,
@@ -42,7 +42,7 @@
      6704133.792
     ]
    ],
-   "ground_floor": "shops",
+   "ground_floor": "doors",
    "width_m": 28.893,
    "window_columns": 11,
    "window_height": 0.512,

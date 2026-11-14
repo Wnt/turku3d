@@ -138,6 +138,28 @@ def accent(colour, wall_colour, step=24) -> bool:
     return max(abs(a - b) for a, b in zip(rgb(colour), rgb(wall_colour), strict=True)) >= step
 
 
+def luminance(colour) -> float:
+    r, g, b = rgb(colour)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+# A light rendered wall's trim (pilasters, cornices, bands, surrounds and the balcony fronts drawn in it)
+# is light in the town: a near-black "trim" read on one is window frames, recesses or a shadowed lesene.
+# Photographed (pp-readings2, 2026-11-14): Puolalanpuisto 2a's pink tower with white balcony bands read
+# charcoal lesenes and drew almost black; Humalistonkatu 14's sandstone trim on ochre and the white blocks of 103329710E
+# read dark too; only a white modernist villa (102057472H) has black fascias. Scope: plaster and render
+# rows whose wall is light; the read frame colour stays on the frames.
+LIGHT_WALL_LUMINANCE = 160.0
+DARK_TRIM_SHARE = 0.5
+
+
+def dark_trim(trim, wall_colour, material) -> bool:
+    if material != "plaster" or not (isinstance(trim, str) and len(trim) == 7 and len(wall_colour) == 7):
+        return False
+    wall = luminance(wall_colour)
+    return wall >= LIGHT_WALL_LUMINANCE and luminance(trim) < DARK_TRIM_SHARE * wall
+
+
 def architectural_trim(walls, materials, wall_colour):
     """The accent colour most of the read pilasters and cornice/string-course bands carry, by wall
     size. Parts in the wall's own colour are relief and leave the trim to the windows' colours."""
@@ -204,6 +226,11 @@ def window_size(walls, types):
 # an office (a villa's or an office's tall windows). Readings 2026-11-13: filmed or blinded shop windows
 # 2.2-4.9 m x 1.9 m on a 0.2 m sill; dwelling French windows are 0.9-1.85 m wide.
 SHOP_GLASS_W_M, SHOP_GLASS_H_M, SHOP_SILL_M = 2.0, 1.8, 0.6
+# The kit's shop storey glazes the whole ground storey, so it stands for a ground storey whose openings
+# are mostly shop glass. A house with a few shop windows among its doors and dwelling windows keeps
+# them punched: Puutarhakatu 32 (4 shop windows among 12 openings) drew wall-to-wall glass, worse than
+# before in Fable's sample verdict (pp-readings2, 2026-11-14).
+SHOP_SHARE = 0.5
 
 
 def shop_glass(t, sill) -> bool:
@@ -228,16 +255,16 @@ def ground_floor(wall, types, wood):
     datum = float(wall.get("ground_floor_m", (wall.get("plinth") or {}).get("height_m", 0)) or 0)
     top = datum + float((ground or {}).get("height_m", 3.5))
     sill = (ground or {}).get("sill_m")
-    shops = any(shop_glass(types[n], sill) for n in names)
+    shops = sum(shop_glass(types[n], sill) for n in names)
     for o in wall.get("openings") or []:
         if o.get("type") in types and datum - 0.3 <= float(o.get("v_m", -99)) < top:
             names.append(o["type"])
-            shops = shops or shop_glass(types[o["type"]], float(o.get("v_m", 99)) - datum)
+            shops += shop_glass(types[o["type"]], float(o.get("v_m", 99)) - datum)
     kinds = [types[n].get("kind") for n in names]
     if not kinds:
         return ("windows" if wood else "doors"), None
     count = sum(k in ("window", "door", "shopfront", "garage", "gateway") for k in kinds)
-    if shops:
+    if shops and shops >= SHOP_SHARE * count:
         return "shops", count
     if any(k in ("door", "garage", "gateway") for k in kinds):
         return "doors", count
@@ -383,6 +410,8 @@ def convert(doc: dict) -> tuple[dict | None, str]:
             or (window.get("surround") or {}).get("colour")
             or next((m.get("colour") for n, m in materials.items() if "trim" in n and m.get("colour")), None)
             or TRIM.get(material, TRIM["plaster"]))
+    if dark_trim(trim, wall_colour, material):
+        trim = TRIM["plaster"]
 
     if reference is not None:
         width = wall_width(reference)

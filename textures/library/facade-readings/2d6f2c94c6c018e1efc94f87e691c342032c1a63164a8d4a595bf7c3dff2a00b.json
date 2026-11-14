@@ -5,7 +5,7 @@
   "features": [
    "pilasters"
   ],
-  "ground_floor": "shops",
+  "ground_floor": "doors",
   "ground_openings": 12,
   "material": "metal",
   "plinth": true,
@@ -42,7 +42,7 @@
      6704321.059
     ]
    ],
-   "ground_floor": "shops",
+   "ground_floor": "doors",
    "width_m": 67.384,
    "window_columns": 13,
    "window_height": 0.2697,
