@@ -156,7 +156,7 @@ def test_spot_rebuild_class_is_the_surveyed_tile_list():
     assert town_premises.affected(dict(tile="t0_-1_1", building_keys=["x"]))  # Linnankatu 27
     assert not town_premises.affected(dict(tile="t0_40_40"))
     assert not town_premises.affected({})
-    assert len(town_premises.TILES) == 32
+    assert len(town_premises.TILES) == 31
 
 
 def test_an_old_wooden_house_opens_its_premise_wall_with_shop_windows():
@@ -208,3 +208,16 @@ def test_public_buildings_keep_their_own_front():
         assert not opens_premises(town_house, dict(fronts, osm_use=use), None), use
     assert not opens_premises(town_house, dict(fronts, use="2120"), None)  # the register's civic code
     assert opens_premises(town_house, dict(fronts, osm_use="hotel"), None)  # a hotel's restaurant opens
+
+
+def test_a_premise_inside_a_public_building_opens_nothing():
+    import shapely
+
+    from turku3d.coarse.premises import open_premises, public_host
+
+    school = shapely.box(0, 0, 30, 20)  # an old school's outline, its restaurant mapped inside
+    found = [(shapely.Point(10, 10), "restaurant", ""), (shapely.Point(40, 10), "cafe", "")]
+    assert public_host({"building": "school"}) and public_host({"building": "yes", "amenity": "theatre"})
+    assert not public_host({"building": "apartments"}) and not public_host({"amenity": "school"})  # no outline
+    assert open_premises(found, [school]) == found[1:]
+    assert open_premises(found, []) == found

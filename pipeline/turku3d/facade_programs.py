@@ -348,7 +348,8 @@ PREMISES = "mapped customer premises in the town"
 # Public buildings keep their own front: a cafe or restaurant inside a theatre, museum, church, school,
 # college, community house or the old prison opens no shopfront. Photographed (pp-town, 2026-11-14): the
 # museum's blank wall on Itainen Rantakatu, the park pavilion on Vartiovuori, the academy row on
-# Henrikinkatu; 11 of the town's 70 premise buildings. Values of turkutex ``building_use``.
+# Henrikinkatu. Values of turkutex ``building_use``; coarse.premises also drops a premise mapped inside a
+# public building's OSM outline. Together they keep 12 of the town's 70 undescribed premise buildings closed.
 PREMISE_CLOSED_USES = frozenset({
     "civic", "public", "townhall", "museum", "theatre", "library", "arts_centre", "concert_hall", "gallery",
     "place_of_worship", "church", "chapel", "cathedral", "school", "college", "university", "kindergarten",

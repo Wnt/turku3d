@@ -98,9 +98,9 @@ def read_osm(tile, path):
 
     from turku3d.spatial import rows
 
-    from .premises import premise
+    from .premises import open_premises, premise, public_host
 
-    buildings, shops, entrances, streets, doors, premises = [], [], [], [], [], []
+    buildings, shops, entrances, streets, doors, premises, hosts = [], [], [], [], [], [], []
     raised, grounded = [], []
     window = shapely.box(*tile.bbox.buffered(100).as_tuple())
     classes = {
@@ -169,6 +169,8 @@ def read_osm(tile, path):
             geom = shapely.make_valid(shapely.Polygon(geom))
         if geom.geom_type not in ("Polygon", "MultiPolygon") or geom.area < 4:
             continue
+        if public_host(tags):
+            hosts.append(geom)
         d = attributes(
             dict(
                 kerrosluku=tags.get("building:levels"),
@@ -227,7 +229,7 @@ def read_osm(tile, path):
         entrances=entrances,
         doors=doors,
         streets=streets,
-        premises=premises,
+        premises=open_premises(premises, hosts),
         open_ground=open_ground(raised, grounded),
     )
 

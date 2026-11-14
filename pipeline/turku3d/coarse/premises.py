@@ -23,6 +23,13 @@ ground storey of the walls on them, below every description, reading and reviewe
 from __future__ import annotations
 
 AMENITIES = frozenset({"restaurant", "cafe", "bar", "pub", "bank", "pharmacy"})
+# A premise inside a public building opens no shopfront: the restaurant in an old school (Eerikinkatu 18,
+# Panimoravintola Koulu), a museum's cafe, a theatre bar. OSM building or amenity values of the outline holding it.
+PUBLIC_HOSTS = frozenset({
+    "school", "college", "university", "kindergarten", "museum", "theatre", "library", "arts_centre",
+    "concert_hall", "church", "chapel", "cathedral", "place_of_worship", "hospital", "prison", "public", "civic",
+    "townhall", "community_centre",
+})
 REACH_M = 1.5  # a premise mapped on the wall line or at the door, outside the footprint
 PARTY_GAP_M = 0.5  # a neighbour's footprint this close to a wall stands against it
 MIN_FRONT_M = 4.0
@@ -38,6 +45,21 @@ def premise(geom, tags):
         return None
     point = geom if geom.geom_type == "Point" else geom.representative_point()
     return point, amenity, str(tags.get("addr:street") or "").strip().casefold()
+
+
+def public_host(tags) -> bool:
+    """An OSM outline of a public building (``PUBLIC_HOSTS``)."""
+    return bool(tags.get("building")) and (tags.get("building") in PUBLIC_HOSTS or tags.get("amenity") in PUBLIC_HOSTS)
+
+
+def open_premises(premises, hosts):
+    """The premises not standing inside a public building's outline (``hosts``, polygons)."""
+    if not hosts:
+        return list(premises)
+    import shapely
+
+    tree = shapely.STRtree(hosts)
+    return [found for found in premises if not len(tree.query(found[0], predicate="within"))]
 
 
 def street_of(address):
