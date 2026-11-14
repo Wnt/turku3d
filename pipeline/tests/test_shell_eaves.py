@@ -51,3 +51,15 @@ def test_a_tower_over_wide_low_wings_spans_the_register_storeys():
     assert floor_grid_height([(14.1, 300), (25.0, 1.5), (30.2, 20)], 10) == pytest.approx(30.2)
     # Nothing tall enough: the median stands.
     assert floor_grid_height([(14.1, 300), (16.0, 20)], 10) == pytest.approx(14.1)
+
+
+def test_shell_eaves_rebuilds_the_surveyed_ring_tiles_after_review_patches():
+    from turku3d.migrations import block_windows, registry, review_patches, shell_eaves
+
+    assert registry.CHAIN.index(shell_eaves.MIGRATION) > registry.CHAIN.index(block_windows.MIGRATION)
+    assert registry.CHAIN.index(shell_eaves.MIGRATION) > registry.CHAIN.index(review_patches.MIGRATION)
+    assert len(shell_eaves.TILES) == 697
+    # Varkkavuorenkatu 34-36, Sofiankatu 8, Koulukatu 19, Heikkilänkatu 7.
+    for tile in ("t0_-4_-11", "t0_-4_1", "t0_-3_0", "t0_-5_1"):
+        assert shell_eaves.affected({"tile": tile})
+    assert not shell_eaves.affected({"tile": "t0_-30_30"}) and not shell_eaves.affected({})
