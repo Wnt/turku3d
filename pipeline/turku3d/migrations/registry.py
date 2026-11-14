@@ -6,7 +6,7 @@ from . import (bridge_ends, chain_record, finished_ground, floodlights, furnitur
                monolith_walls, path_trees, racks, roadbed, shell_look, signals, signs, span_lamps,
                square_lights, stand_roofs, structure_materials, trees_lidar, wires, facade_reality,
                forest_cover, centred_paint, pole_support, measured_walls, facade_readings, old_timber,
-               town_premises, block_balconies, street_edges, block_windows)
+               town_premises, block_balconies, street_edges, block_windows, review_patches)
 
 CHAIN = (
     chain_record.MIGRATION,
@@ -62,4 +62,7 @@ CHAIN = (
     street_edges.MIGRATION,
     # Spot rebuild of the tiles holding a 1980+ block of flats with a surveyed wall: one window type a block.
     block_windows.MIGRATION,
+    # Spot rebuild of the tiles holding a reviewed patch of the 2026-11-13 review (Kristiinankatu 1's granite,
+    # Linnankatu 29's street wall, the Vahatori fountain).
+    review_patches.MIGRATION,
 )
