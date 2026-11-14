@@ -97,11 +97,12 @@ def atomic_json(path, value):
     temp.replace(path)
 
 
-def open_or_mapped(root):
-    """Paths under ``root`` that any process has open or memory-mapped (empty without /proc). Unlinking such a
+def open_or_mapped(*roots):
+    """Paths under ``roots`` that any process has open or memory-mapped (empty without /proc). Unlinking such a
     file frees nothing until its holder lets go, and the next reader decodes a second copy (2026-11-06: running
-    builds held 2.6 GB of evicted decoded arrays while the root disk ran short)."""
-    prefixes = tuple({str(root) + '/', os.path.realpath(root) + '/'})
+    builds held 2.6 GB of evicted decoded arrays while the root disk ran short). One pass over /proc for all
+    roots: a pass reads every process's maps (~0.4 s under a loaded farm)."""
+    prefixes = tuple({p for root in roots for p in (str(root) + '/', os.path.realpath(root) + '/')})
     paths = set()
     try:
         procs = [p for p in Path('/proc').iterdir() if p.name.isdigit()]
@@ -124,6 +125,39 @@ def open_or_mapped(root):
         except OSError:
             continue
     return paths
+
+
+def work_users(work):
+    """The running processes whose TURKU3D_WORK is ``work``, as (start time, tiles or None). Migrations, derives and
+    city passes share the farm's work/migrate and its cache: the farm's own migrations and the agents' apply scripts
+    alike, most of them outside the farm's job table. Tiles come from the command line (tile arguments and
+    --tiles-file); None when a process names none (a derive, a pass over rings), unless its parent is such a user
+    too (a pass's lane workers, a wrapper's child): the parent stands for it."""
+    target = os.path.realpath(work)
+    try:
+        procs = [p for p in Path('/proc').iterdir() if p.name.isdigit()]
+    except OSError:
+        return []
+    found = {}
+    for proc in procs:
+        try:
+            value = next((v[13:] for v in (proc / 'environ').read_bytes().split(b'\0')
+                          if v.startswith(b'TURKU3D_WORK=')), None)
+            if value is None or os.path.realpath(value.decode(errors='replace')) != target:
+                continue
+            argv = (proc / 'cmdline').read_bytes().decode(errors='replace').split('\0')
+            stat = (proc / 'stat').read_text().rsplit(')', 1)[1].split()
+        except OSError:
+            continue
+        tiles = {a for a in argv if TILE.fullmatch(a)}
+        if '--tiles-file' in argv[:-1]:
+            try:
+                listed = Path(os.readlink(proc / 'cwd')) / argv[argv.index('--tiles-file') + 1]
+                tiles.update(t for t in listed.read_text().split() if TILE.fullmatch(t))
+            except OSError:
+                tiles = set()
+        found[proc.name] = (stat[1], process_started(stat[19]) or time.time(), tiles or None)
+    return [(started, tiles) for parent, started, tiles in found.values() if tiles is not None or parent not in found]
 
 
 def read_json(path, default=None):
@@ -1551,21 +1585,24 @@ class Farm:
             self.event('eviction-skipped-link', what=kind, name=path.name, target=os.readlink(path))
 
     @staticmethod
-    def raw_entries(raw):
-        """Each LiDAR, roof, vegetation and crown-canopy cache entry with the lock its producer and readers take."""
-        for source in raw.glob('lidar/*/sources/*'):
+    def raw_entries(raw, versioned=True):
+        """Each LiDAR, roof, vegetation and crown-canopy cache entry with the lock its producer and readers take.
+        The shared raw-derived cache keeps a directory per producer version (<kind>/<digest>/...); a private
+        TURKU3D_WORK cache (the migrations' work/migrate/cache) keeps each kind's entries directly under <kind>."""
+        v = '*/' if versioned else ''
+        for source in raw.glob(f'lidar/{v}sources/*'):
             if source.is_dir() and HASHED.fullmatch(source.name):
                 yield 'lidar-source', source, source.with_suffix('.lock')
-        for crop in raw.glob('lidar/*/crops/*.npy'):
+        for crop in raw.glob(f'lidar/{v}crops/*.npy'):
             yield 'lidar-crop', crop, None
-        for roof in raw.glob('coarse-roofs/*/*.class6.npy'):
+        for roof in raw.glob(f'coarse-roofs/{v}*.class6.npy'):
             yield 'roof', roof, roof.parent / 'locks' / roof.name.removesuffix('.class6.npy') / '.cache.lock'
-        for kind, pattern in (('vegetation', 'vegetation/*/*.npz'), ('crown-canopy', 'crown-canopy/*.npz')):
+        for kind, pattern in (('vegetation', f'vegetation/{v}*.npz'), ('crown-canopy', 'crown-canopy/*.npz')):
             for path in raw.glob(pattern):
                 if HASHED.fullmatch(path.stem):
                     yield kind, path, path.with_suffix('.lock')
 
-    def evict_raw_entries(self, raw, target, oldest_build, wanted=()):
+    def evict_raw_entries(self, raw, target, oldest_build, wanted=(), private=()):
         """While builds run, reclaim LiDAR, roof, vegetation and crown-canopy entries one by one, by kind
         (RAW_ORDER) and oldest first within a kind.
 
@@ -1576,33 +1613,42 @@ class Farm:
 
         A LiDAR source stays while a queued or running tile, or one within a tile of it, lies in its spans:
         a build checks its sources first and opens their arrays later, so evicting one in between failed
-        builds (2026-11-06: t0_3_6, t0_3_7 FileNotFoundError on lidar/sources)."""
-        near = set()
-        for tile in wanted:
-            i, j = (int(v) for v in tile.split('_')[1:3])
-            near.update(f'c_{x}_{z}' for x in range(4 * i - 4, 4 * i + 8) for z in range(4 * j - 4, 4 * j + 8))
+        builds (2026-11-06: t0_3_6, t0_3_7 FileNotFoundError on lidar/sources).
+
+        ``private`` adds (root, oldest user's start, its users' tiles or None) of private caches whose entries
+        join the same order under the same rules: the migrations' work/migrate/cache (work_users). With tiles
+        None (a user that names none of its tiles), every LiDAR source in that cache stays. ``raw`` None skips
+        the shared cache (while adoption links into it)."""
         now = time.time()
-        horizon = min(now - self.grace_seconds, oldest_build if oldest_build is not None else now)
         # statvfs lags unlinks on a busy ZFS pool: the first round on 2026-11-06 deleted 47 GB for a 13 GB
         # deficit. Count what each deletion releases (blocks of files with no other link) and stop on that.
         deficit, released = target - self.free(), 0
-        held = open_or_mapped(raw)
-        entries = []
-        for kind, path, lock in self.raw_entries(raw):
-            try:
-                modified = path.stat().st_mtime
-            except FileNotFoundError:
-                continue
-            if modified >= horizon:
-                continue
-            if kind == 'lidar-source' and near:
-                spans = read_json(path / 'MANIFEST.json', {}).get('spans', {})
-                if not isinstance(spans, dict) or near.intersection(spans):
+        entries, roots = [], [(raw, True, oldest_build, wanted)] if raw is not None else []
+        roots += [(r, False, o, t) for r, o, t in private]
+        held = open_or_mapped(*(root for root, *_ in roots)) if roots else set()
+        for root, versioned, oldest, tiles in roots:
+            near = None if tiles is None else set()
+            for tile in tiles or ():
+                i, j = (int(v) for v in tile.split('_')[1:3])
+                near.update(f'c_{x}_{z}' for x in range(4 * i - 4, 4 * i + 8) for z in range(4 * j - 4, 4 * j + 8))
+            horizon = min(now - self.grace_seconds, oldest if oldest is not None else now)
+            for kind, path, lock in self.raw_entries(root, versioned):
+                try:
+                    modified = path.stat().st_mtime
+                except FileNotFoundError:
                     continue
-            entries.append((modified, kind, path, lock))
-        for _, kind, path, lock in sorted(entries, key=lambda e: (RAW_ORDER.index(e[1]), e[0])):
-            prefix = str(path) + '/'
-            if str(path) in held or any(h.startswith(prefix) for h in held):
+                if modified >= horizon:
+                    continue
+                if kind == 'lidar-source' and near is None:
+                    continue
+                if kind == 'lidar-source' and near:
+                    spans = read_json(path / 'MANIFEST.json', {}).get('spans', {})
+                    if not isinstance(spans, dict) or near.intersection(spans):
+                        continue
+                entries.append((modified, kind, path, lock, root))
+        for _, kind, path, lock, root in sorted(entries, key=lambda e: (RAW_ORDER.index(e[1]), e[0])):
+            real = os.path.realpath(path)  # /proc names real paths; a cache may sit behind a symlink (/bulk moves)
+            if real in held or any(h.startswith(real + '/') for h in held):
                 continue
             try:
                 with contextlib.ExitStack() as stack:
@@ -1624,7 +1670,8 @@ class Farm:
                 continue
             released += disk
             self.metrics['evicted_bytes'] += size
-            self.event('raw-entry-evicted', cache=kind, path=str(path.relative_to(raw)), bytes=size)
+            self.event('raw-entry-evicted', cache=kind, path=str(path.relative_to(root)), bytes=size,
+                       **({} if root == raw else {'root': os.path.relpath(root, self.root)}))
             if released >= deficit or self.free() >= target:
                 return True
         return False
@@ -1688,12 +1735,20 @@ class Farm:
                     shutil.rmtree(snapshot)
             if self.room(target):
                 return True
-        cache = self.root / 'cache'
+        cache, migrate = self.root / 'cache', self.root / 'work/migrate/cache'
+        # The migrations' private cache (TURKU3D_WORK=work/migrate: the farm's own migrations and the agents'
+        # apply scripts and city passes) holds the same kinds of entries. Nothing evicted it (2026-11-14: 25 GB,
+        # 18 of them decoded arrays, and '/' full at 03:06Z), so its entries follow the shared caches' rules below,
+        # with the processes working there (work_users) as its running builds.
+        queued, users, private = {tile for _, tile in jobs}, [], []
+        if migrate.is_dir():
+            users = work_users(migrate.parent)
+            tiles = None if any(t is None for _, t in users) else queued.union(*(t for _, t in users))
+            private.append((migrate, min((started for started, _ in users), default=None), tiles))
         # Raw-derived entries go before decoded arrays: LiDAR sources, roofs and vegetation away from the
         # queued tiles are cold, while decoded arrays are what the next tiles' builds read again
         # (2026-11-06: at the 45 GiB line every fresh decode was an array evicted earlier that day).
-        if not adopting and self.evict_raw_entries(cache / 'raw-derived', target, oldest_build,
-                                                   {tile for _, tile in jobs}):
+        if self.evict_raw_entries(None if adopting else cache / 'raw-derived', target, oldest_build, queued, private):
             return True
         # Map files are hard-linked into private products before the producer lock
         # is released, so old shared entries can be evicted even while builds run.
@@ -1746,20 +1801,48 @@ class Farm:
                 continue
             if self.room(target):
                 return True
+        # Finished-ground windows (ground.finished: <code>/<window tile>.<evidence>.pkl, written once by rename,
+        # no lock: a reader that misses one solves it again), shared and the migrations', oldest first past the
+        # grace period. A window serves the nine tiles round it, so those of queued and running tiles stay.
+        busy = queued.union(*(tiles for _, tiles in users if tiles))
+        near = {f't0_{i + di}_{j + dj}' for i, j in map(tile_ij, busy) for di in (-1, 0, 1) for dj in (-1, 0, 1)}
+        windows = []
+        for path in (*(cache / 'finished-ground').glob('*/*.pkl'), *(migrate / 'finished-ground').glob('*/*.pkl')):
+            if path.name.split('.', 1)[0] in near:
+                continue
+            try:
+                windows.append((path.stat().st_mtime, path))
+            except FileNotFoundError:
+                continue
+        for modified, path in sorted(windows):
+            if time.time() - modified < self.grace_seconds:
+                break  # the rest are younger still
+            try:
+                size = path.stat().st_size
+                path.unlink()
+            except FileNotFoundError:
+                continue
+            self.metrics['evicted_bytes'] += size
+            self.event('finished-ground-evicted', path=os.path.relpath(path, self.root), bytes=size)
+            if self.room(target):
+                return True
         # Decoded arrays are opened under their source lock and memory-mapped. An entry a
         # build still has open or mapped stays: unlinking it would free nothing until that
         # build ends. The reader touches an array on every use, so one used within the last hour stays; older
-        # ones go without waiting for a city-wide queue to become idle. These go last of the caches.
-        decoded, held = [], open_or_mapped(cache / 'raw-derived/decoded')
-        for path in (cache / 'raw-derived/decoded').glob('*/*.npy'):
-            if str(path) in held or os.path.realpath(path) in held:
-                continue
-            if not HASHED.fullmatch(path.stem) or not HASHED.fullmatch(path.parent.name):
-                continue
-            try:
-                decoded.append((path.stat().st_mtime, path))
-            except FileNotFoundError:
-                continue
+        # ones go without waiting for a city-wide queue to become idle. These go last of the caches, the
+        # migrations' own (same recipe and keys, decoded again by each migration) in the same order.
+        decoded, stores = [], [cache / 'raw-derived/decoded'] + ([migrate / 'decoded'] if private else [])
+        held = open_or_mapped(*stores)
+        for store in stores:
+            for path in store.glob('*/*.npy'):
+                if str(path) in held or os.path.realpath(path) in held:
+                    continue
+                if not HASHED.fullmatch(path.stem) or not HASHED.fullmatch(path.parent.name):
+                    continue
+                try:
+                    decoded.append((path.stat().st_mtime, path))
+                except FileNotFoundError:
+                    continue
         for _, path in sorted(decoded):
             try:
                 with path.with_suffix('.lock').open('a') as lock:
@@ -1772,7 +1855,8 @@ class Farm:
                         continue
                     path.unlink()
                     self.metrics['evicted_bytes'] += stat.st_size
-                    self.event('decoded-cache-evicted', key=path.stem, bytes=stat.st_size)
+                    self.event('decoded-cache-evicted', key=path.stem, bytes=stat.st_size,
+                               **({} if path.is_relative_to(cache) else {'root': os.path.relpath(migrate, self.root)}))
             except FileNotFoundError:
                 continue
             if self.room(target):

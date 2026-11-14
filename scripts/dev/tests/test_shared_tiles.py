@@ -807,6 +807,80 @@ class FarmTests(unittest.TestCase):
         farm.make_room(farm_module.GIB)  # once the build lets go, the entry is cold like any other
         self.assertFalse(mapped.exists())
 
+    def test_migration_cache_follows_the_shared_rules_with_its_own_users(self):
+        farm = self.farm(workers=0, free=lambda: 0)
+        migrate, now = self.root / 'work/migrate/cache', time.time()
+
+        def entry(path, age):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'entry')
+            os.utime(path, (now - age, now - age))
+            return path
+
+        crown = entry(migrate / 'crown-canopy' / ('6' * 64 + '.npz'), 9000)
+        crop = entry(migrate / 'lidar/crops' / ('5' * 64 + '.npy'), 9000)
+        vegetation = entry(migrate / 'vegetation' / ('1' * 64 + '.npz'), 8000)
+        during = entry(migrate / 'vegetation' / ('2' * 64 + '.npz'), 1800)  # made since its oldest user started
+        source = migrate / 'lidar/sources' / ('4' * 64)
+        farm_module.atomic_json(source / 'MANIFEST.json', dict(spans={'c_40_40': [0, 1]}))
+        os.utime(source, (now - 9000, now - 9000))
+        decoded_old = entry(migrate / 'decoded' / ('e' * 64) / ('f' * 64 + '.npy'), 7200)
+        decoded_recent = entry(migrate / 'decoded' / ('e' * 64) / ('a' * 64 + '.npy'), 1800)  # used 30 min ago
+        window = entry(migrate / 'finished-ground' / ('7' * 16) / 't0_9_9.0123.pkl', 9000)
+        beside = entry(migrate / 'finished-ground' / ('7' * 16) / 't0_1_1.0123.pkl', 9000)  # serves t0_0_0
+        shared = entry(self.root / 'cache/finished-ground' / ('7' * 16) / 't0_9_8.0123.pkl', 9000)
+        users = [(now - 3600, {'t0_0_0'}), (now - 600, None)]  # an apply, and a derive that names no tiles
+        with mock.patch.object(farm_module, 'work_users', return_value=users) as found:
+            self.assertFalse(farm.make_room(farm_module.GIB))
+        found.assert_called_with(self.root / 'work/migrate')
+        self.assertFalse(any(p.exists() for p in (crown, crop, vegetation, decoded_old, window, shared)))
+        self.assertTrue(all(p.exists() for p in (during, source, decoded_recent, beside)))
+        events = [json.loads(line) for line in (self.root / 'events.jsonl').read_text().splitlines()]
+        raw = [e for e in events if e['event'] == 'raw-entry-evicted']
+        self.assertEqual([(e['cache'], e['root']) for e in raw], [('lidar-crop', 'work/migrate/cache'),
+                         ('vegetation', 'work/migrate/cache'), ('crown-canopy', 'work/migrate/cache')])
+        self.assertEqual([e['root'] for e in events if e['event'] == 'decoded-cache-evicted'], ['work/migrate/cache'])
+        with mock.patch.object(farm_module, 'work_users', return_value=users[:1]):  # the derive has ended
+            farm.make_room(farm_module.GIB)
+        self.assertFalse(source.exists())  # its spans are far from the running apply's tile
+        self.assertTrue(during.exists() and decoded_recent.exists() and beside.exists())
+
+    @unittest.skipUnless(Path('/proc/self/maps').exists(), 'processes are read from /proc')
+    def test_migration_cache_users_are_the_processes_working_there(self):
+        import subprocess
+        import sys
+
+        work = self.root / 'work/migrate'
+        array = work / 'cache/decoded' / ('e' * 64) / ('b' * 64 + '.npy')
+        array.parent.mkdir(parents=True)
+        array.write_bytes(b'columns a migration reads')
+        os.utime(array, (time.time() - 7200, time.time() - 7200))
+        (work / 'tiles.txt').write_text('t0_5_5\nt0_6_5\n')
+        code = ('import mmap, subprocess, sys\n'
+                'stream = open(sys.argv[1], "rb")\n'
+                'data = mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ)\n'
+                'lane = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"], stdin=subprocess.PIPE)\n'
+                'print("mapped", flush=True)\n'
+                'sys.stdin.read()\n'
+                'lane.stdin.close()\n'
+                'lane.wait()')
+        migration = subprocess.Popen([sys.executable, '-c', code, str(array), 't0_1_2', '--tiles-file', 'tiles.txt'],
+                                     cwd=work, env=dict(os.environ, TURKU3D_WORK=str(work)),
+                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        self.addCleanup(migration.kill)
+        self.assertEqual(migration.stdout.readline().strip(), 'mapped')
+        users = farm_module.work_users(work)
+        self.assertEqual([tiles for _, tiles in users], [{'t0_1_2', 't0_5_5', 't0_6_5'}])  # its lane is folded in
+        self.assertLess(abs(users[0][0] - time.time()), 60)
+        self.assertEqual(farm_module.work_users(self.root / 'work/navigation'), [])
+        farm = self.farm(workers=0, free=lambda: 0)
+        farm.make_room(farm_module.GIB)
+        self.assertTrue(array.exists())  # a running migration maps it
+        migration.stdin.close()
+        migration.wait(5)
+        farm.make_room(farm_module.GIB)
+        self.assertFalse(array.exists())
+
     def test_raw_reducers_ignore_unrelated_geometry_but_track_local_helpers(self):
         farm = self.farm()
         repo = self.root / 'revisions' / REV / 'repo'
