@@ -312,7 +312,8 @@ def build(
     seconds["river_banks"] = cache.metrics["river_banks"]["seconds"]
     dry, river, bank, solid = cache.run(
         "gardens",
-        source_key(Path(gardens.__file__), Path(__file__).with_name("stairs.py")),
+        source_key(Path(gardens.__file__), Path(__file__).with_name("stairs.py"),
+                   Path(__file__).with_name("fountains.py")),
         [tile, inputs.gardens, dry, river, bank, solid],
         lambda: gardens.produce(tile, inputs.gardens, dry, river, bank, solid),
     )
