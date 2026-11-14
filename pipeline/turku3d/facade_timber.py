@@ -118,14 +118,23 @@ def timber_wall(wall, vertices, building, program):
     count = max(1, round(width / pitch)) if width >= prior["min_wall_m"] else 0
     bay = width / max(count, 1)
     ww = min(ww, bay * 0.6)
-    for bottom, storey in storeys:
-        sill = min(prior["sill_m"], storey * 0.3)
-        wh = min(prior["window_h_m"], storey - sill - prior["head_gap_m"])
+    # A mapped cafe, restaurant or shop opens this wall (coarse.premises): its street storey gets
+    # the wooden town's shop windows, wide and low-silled, instead of the dwelling's sashes.
+    shop = bool(wall.get("premise_front"))
+    for n, (bottom, storey) in enumerate(storeys):
+        if shop and n == 0:
+            sill = prior["shop_sill_m"]
+            wh = min(prior["shop_window_h_m"], storey - sill - prior["head_gap_m"])
+            sw = min(_rng(key, "shop").uniform(*prior["shop_window_m"]), bay * prior["shop_bay_fraction"])
+        else:
+            sill = min(prior["sill_m"], storey * 0.3)
+            wh = min(prior["window_h_m"], storey - sill - prior["head_gap_m"])
+            sw = ww
         if wh < 0.8:
             continue
         for i in range(count):
-            rectangles.append([round((i + 0.5) * bay - ww / 2, 3), round(bottom + sill, 3),
-                               round(ww, 3), round(wh, 3)])
+            rectangles.append([round((i + 0.5) * bay - sw / 2, 3), round(bottom + sill, 3),
+                               round(sw, 3), round(wh, 3)])
             roles.append("window")
     if knee >= prior["attic_knee_m"]:
         # A knee wall this tall has rooms behind it: one small attic light per bay.
@@ -149,8 +158,8 @@ def timber_wall(wall, vertices, building, program):
         t = _along(a, b, point)
         if t is not None and door_w / 2 <= t <= width - door_w / 2:
             doors.append(t)
-    if not doors and count >= 3 and field_value(wall["base"], "variant", "windows") == "doors":
-        doors.append(width / 2)  # the sampled street door, centred between window bays
+    if not doors and count >= 3 and (shop or field_value(wall["base"], "variant", "windows") == "doors"):
+        doors.append(width / 2)  # the sampled street door (a premise's own), centred between window bays
     w["doors"]["candidates"] = []
     for t in doors[:2]:
         left = t - door_w / 2
@@ -174,7 +183,8 @@ def timber_wall(wall, vertices, building, program):
     w["balconies"] = m([])
     w["bays"].update(count=0, support=0.6)
     w["timber_old"] = dict(plinth_m=round(plinth, 3), storeys=[round(s, 3) for _, s in storeys],
-                           knee_m=round(knee, 3), plinth_material=material, windows=len(rectangles))
+                           knee_m=round(knee, 3), plinth_material=material, windows=len(rectangles),
+                           shopfront=shop)
     w["paint_source"] = "old-wooden-house-class"
     return w
 

@@ -157,3 +157,37 @@ def test_spot_rebuild_class_is_the_surveyed_tile_list():
     assert not town_premises.affected(dict(tile="t0_40_40"))
     assert not town_premises.affected({})
     assert len(town_premises.TILES) == 35
+
+
+def test_an_old_wooden_house_opens_its_premise_wall_with_shop_windows():
+    import numpy as np
+    import shapely
+
+    from turku3d.coarse.inputs import Building
+    from turku3d.facade_kit import renderer
+    from turku3d.facade_timber import is_old_timber, timber_wall
+
+    renderer()
+    from turkutex.facade_archetypes import TIMBER_OLD, sample
+
+    eaves, width = 8.6, 16.0
+    b = Building("h", shapely.box(0, 0, width, 9), 10.0, 10.0 + eaves + 3.5, "facade_plaster")
+    b.facade_key = "h"
+    b.attributes = {"construction_year": 1890, "material_class": "wood", "levels": 2,
+                    "levels_source": "register", "use": "1010", "register_id": "h"}
+    walls = [dict(wall_id="h:0", outline=True, width_m=width, fragment_width_m=width, uv_offset=0,
+                  height_m=eaves, layout_height_m=eaves)]
+    program = sample("h", b.attributes, walls)
+    v = np.array([[0, 10.0, 0], [width, 10.0, 0], [width, 10.0 + eaves, 0], [0, 10.0 + eaves, 0]], float)
+    assert is_old_timber(b, program)
+    house = timber_wall(program["walls"][0], v, b, program)
+    cafe = timber_wall({**program["walls"][0], "premise_front": True}, v, b, program)
+    assert cafe["timber_old"]["shopfront"] and not house["timber_old"]["shopfront"]
+    assert cafe["timber_old"]["storeys"] == house["timber_old"]["storeys"]  # the same house
+    first = house["timber_old"]["plinth_m"] + house["timber_old"]["storeys"][0]
+    shop = [r for r in cafe["windows"]["rectangles_m"] if r[1] < first]
+    upper = [r for r in cafe["windows"]["rectangles_m"] if r[1] >= first]
+    assert shop and all(TIMBER_OLD["shop_window_m"][0] - 0.01 <= w <= 1.81 and h > 1.9 for _, _, w, h in shop)
+    assert all(abs(y - cafe["timber_old"]["plinth_m"] - TIMBER_OLD["shop_sill_m"]) < 0.01 for _, y, _, _ in shop)
+    assert upper == [r for r in house["windows"]["rectangles_m"] if r[1] >= first]  # the dwelling above
+    assert cafe["doors"]["candidates"] and not house["doors"]["candidates"]  # the premise's own door

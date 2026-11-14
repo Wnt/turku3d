@@ -403,6 +403,13 @@ TIMBER_OLD = dict(
     belt_m=0.12,
     door_m=(1.0, 2.2),
     min_wall_m=1.8,
+    # The street storey a mapped cafe or restaurant opens (coarse.premises, the town only): the
+    # wooden town's shop windows, wider and lower-silled than the dwelling's sashes, one per bay.
+    # Bounded estimates from the wooden town's corner shops, not a measured survey.
+    shop_window_m=(1.5, 1.8),
+    shop_bay_fraction=0.7,
+    shop_sill_m=0.45,
+    shop_window_h_m=2.1,
 )
 TIMBER_OLD_SOURCE = "reference-measured old wooden house"
 OLD_TIMBER_BEFORE = 1940
