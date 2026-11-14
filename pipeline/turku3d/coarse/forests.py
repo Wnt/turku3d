@@ -256,9 +256,13 @@ def structure_clearance(trees, inputs):
 
 def produce(tile, inputs, height_at, mapped, carried=None):
     """Reuse vegetation Tree/prototypes; only trees (never edge bushes) receive trunk collision."""
+    # A mapped basin is water too (``inputs.water`` leaves formal pools to the gardens): no trunk stands in
+    # it, and a fountain's centrepiece is not a lidar crown.
+    pools = [g for g, _, _ in (getattr(inputs, "gardens", None) or {}).get("pools", ())]
     blocked = shapely.union_all(
         [
             *inputs.water,
+            *pools,
             *(b.footprint.buffer(1) for b in inputs.buildings),
             *(g.buffer(1) for g, _ in inputs.streets),
         ]
@@ -283,7 +287,7 @@ def produce(tile, inputs, height_at, mapped, carried=None):
     # Register trees are surveyed street and park trees: they stand in verges, tree grates and
     # squares, so only buildings, water and transport corridors block them,
     # never the street-part areas around them.
-    surveyed = shapely.union_all([*inputs.water, *(b.footprint for b in inputs.buildings), *lanes])
+    surveyed = shapely.union_all([*inputs.water, *pools, *(b.footprint for b in inputs.buildings), *lanes])
     trees = [
         t
         for t in mapped

@@ -107,3 +107,46 @@ def test_generic_wall_uses_measured_crossfall_but_never_overlays_water_or_stairs
     assert retaining.produce(tile, records, lambda x, z: 3) == ([], [])
     assert retaining.produce(tile, records, sample, water=[line.buffer(1)]) == ([], [])
     assert retaining.produce(tile, records, sample, stairs=[line.buffer(1)]) == ([], [])
+
+
+def test_reviewed_fountain_draws_its_centrepiece_in_its_basin_and_tile_only():
+    import math
+
+    from turku3d.coarse.fountains import records
+
+    record = records()["osm:6316196323"]
+    octagon = shapely.Polygon([(100 + 4.2 * math.cos(a), 100 + 4.2 * math.sin(a))
+                               for a in np.linspace(0, math.tau, 8, endpoint=False) + math.pi / 8])
+    scene = dict(pools=[(octagon, 9.0, "osm:basin")], terraces=[],
+                 fountains=[(100.0, 100.0, 9.0, "osm:6316196323", record, octagon)])
+    tile = C.VisualTile(0, 0, 0)
+    p, ix = grid_mesh(tile, np.full((CELLS + 1, CELLS + 1), 9.0))
+    ground = Mesh(p, ix, np.full(len(ix), mat_id("grass"), np.uint8))
+    empty = Mesh(np.empty((0, 3)), np.empty((0, 3), np.uint32), np.empty(0, np.uint8))
+    plain_dry, plain_wet, _, _ = gardens.produce(tile, dict(scene, fountains=[]), ground, empty, empty, ground)
+    dry, wet, _, solid = gardens.produce(tile, scene, ground, empty, empty, ground)
+    added = dry.positions[dry.indices[len(plain_dry.indices):]]
+    assert len(added) and np.isfinite(added).all()
+    assert np.all(dry.material[len(plain_dry.indices):] == mat_id("quay"))
+    # Pedestal on the bed, bowl, crown and figure: about four metres of stone above the water.
+    assert np.isclose(added[:, :, 1].min(), 9.0 - 0.65)
+    assert 3.4 < added[:, :, 1].max() - 9.0 < 4.6
+    # Every centrepiece face is wound outward: nothing faces the pedestal's axis from outside it.
+    normals = np.cross(added[:, 1] - added[:, 0], added[:, 2] - added[:, 0])
+    radial = added.mean(axis=1)[:, [0, 2]] - [100, 100]
+    sides = np.abs(normals[:, 1]) < 1e-6 * np.linalg.norm(normals, axis=1)
+    # The footing, pedestal and stem (below the bowl), not the rim spheres or the figure's blocks.
+    near = (np.linalg.norm(radial, axis=1) < 1.5) & (added.mean(axis=1)[:, 1] < 9.0 + 1.35 + 0.7)
+    assert np.all((normals[sides & near][:, [0, 2]] * radial[sides & near]).sum(axis=1) > 0)
+    # The bowl holds water above the pool's surface; one sphere per rim corner.
+    bowl = wet.positions[wet.indices[len(plain_wet.indices):]]
+    assert len(bowl) and bowl[:, :, 1].min() > 9.0 + 2
+    spheres = added[np.linalg.norm(radial, axis=1) > 3.5]
+    corners = {tuple(np.round(t.mean(axis=0)[[0, 2]] - [100, 100], 0)) for t in spheres}
+    assert 8 <= len(shapely.MultiPoint([c for c in corners]).convex_hull.exterior.coords) <= 17
+    assert len(solid.indices) - len(ground.indices) >= len(dry.indices) - len(plain_dry.indices)
+    # Another tile draws the basin's rim but never the centrepiece.
+    far = C.VisualTile(0, 1, 0)
+    q, jx = grid_mesh(far, np.full((CELLS + 1, CELLS + 1), 9.0))
+    other = Mesh(q, jx, np.full(len(jx), mat_id("grass"), np.uint8))
+    assert len(gardens.produce(far, scene, other, empty, empty, other)[0].indices) == len(other.indices)

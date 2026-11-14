@@ -58,6 +58,7 @@ RESOURCES = {
     "quay_lighting": ("quay_lighting_observations.json",),
     "boats": ("vessel_observations.json",),
     "poles": ("../night_lighting.json",),
+    "gardens": ("fountains.json",),
 }
 
 

@@ -470,6 +470,7 @@ def build(
                 tile,
                 grid_pos,
                 inputs.water,
+                inputs.gardens,
                 inputs.buildings,
                 inputs.streets,
                 inputs.roads,

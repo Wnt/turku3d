@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "fountains": {
+    "osm:6316196323": {
+      "name": "Suihkukaivo Leijona (Gunnar Finne, Armas Lindgren, 1924), Vähätori",
+      "tile": "t0_1_-1",
+      "review": "issue #6 of the 2026-11-13 review: the basin stood empty. Parameters read from a street photograph at the review camera (local only), scaled by the mapped basin (OSM way 482895126, 53.6 m2 octagon); approximate, about 0.2 m.",
+      "pedestal": {"width_m": 1.4, "height_m": 1.35, "footing_m": 0.25},
+      "stem": {"radius_m": 0.32, "height_m": 0.7},
+      "bowl": {"radius_m": 1.2, "foot_radius_m": 0.35, "depth_m": 0.5, "lip_m": 0.1},
+      "crown": {"radius_m": 0.3, "height_m": 0.5},
+      "figure": {"kind": "seated lion", "height_m": 0.8, "length_m": 0.75, "width_m": 0.4, "facing_deg": 30},
+      "rim_spheres": {"radius_m": 0.25}
+    }
+  }
+}

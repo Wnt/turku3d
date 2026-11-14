@@ -18,11 +18,17 @@ def polygon(geom):
 def features(tile, path):
     from turku3d.spatial import rows
 
-    gardens, pools, lines, buildings = [], [], [], []
+    from .fountains import is_fountain, records
+
+    gardens, pools, lines, buildings, fountains = [], [], [], [], []
     seen = set()
+    reviewed = records()
     for key, row in rows(path, tile.bbox.buffered(60)):
         tags = json.loads(row["tags"] or "{}")
         geom = shapely.force_2d(row["geometry_local"])
+        artwork = "osm:" + str(row.get("osm_id", key))
+        if geom.geom_type == "Point" and is_fountain(tags) and artwork in reviewed:
+            fountains.append((geom, artwork, reviewed[artwork]))
         area = polygon(geom)
         if tags.get("building") not in (None, "no") and not area.is_empty:
             buildings.append(area)
@@ -58,6 +64,7 @@ def features(tile, path):
         pools,
         lines,
         shapely.union_all(buildings),
+        fountains,
     )
 
 
@@ -77,7 +84,7 @@ def flat_level(points, region, *, tolerance=0.65):
 def prepare(tile, osm, paths, water=None):
     from turku3d.ground.inputs import read_returns
 
-    gardens, pools, lines, blocked = features(tile, osm)
+    gardens, pools, lines, blocked, fountains = features(tile, osm)
     if water:
         from turku3d.spatial import frame
 
@@ -142,4 +149,11 @@ def prepare(tile, osm, paths, water=None):
             terraces.append((body.buffer(2, join_style="mitre"), level))
     # Stable source ordering, including overlapping patches at a visual tile seam.
     terraces = sorted(set(terraces), key=lambda row: (-row[0].area, row[0].wkb, row[1]))
-    return dict(pools=measured, terraces=terraces)
+    # Reviewed centrepieces stand in the measured basin holding their artwork point.
+    placed = [
+        (point.x, point.y, level, identity, record, body)
+        for point, identity, record in fountains
+        for body, level, _ in measured
+        if body.covers(point)
+    ]
+    return dict(pools=measured, terraces=terraces, fountains=placed)

@@ -8,6 +8,7 @@ from turku3d.ground.mesh import Mesh
 from turku3d.structures.geometry import Faces
 
 from .banks import join
+from .fountains import centrepiece
 
 
 def grade(positions, scene):
@@ -101,6 +102,16 @@ def produce(tile, scene, dry, wet, bank, solid):
         dry = join(dry, rim)
         wet = join(wet, surface)
         solid = join(solid, rim, surface, floor)
+    # A reviewed fountain's centrepiece belongs to the tile holding its artwork point.
+    for x, z, level, _, record, body in scene.get("fountains", ()):
+        if not window.covers(shapely.Point(x, z)):
+            continue
+        stone, water = Faces(), Faces()
+        centrepiece(stone, water, x, z, level, record, body)
+        masonry, surface = mesh(stone, "quay"), mesh(water, "water")
+        dry = join(dry, masonry)
+        wet = join(wet, surface)
+        solid = join(solid, masonry, surface)
     return dry, wet, bank, solid
 
 
@@ -118,4 +129,6 @@ def stats(tile, scene):
             if g.intersects(window)
         ],
         terraces=sum(g.intersects(window) for g, _ in scene.get("terraces", ())),
+        fountains=[identity for x, z, _, identity, _, _ in scene.get("fountains", ())
+                   if window.covers(shapely.Point(x, z))],
     )
