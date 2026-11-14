@@ -13,7 +13,7 @@
   "problem": "",
   "roof_line": "eaves",
   "storeys": 2,
-  "trim_colour": "#eeeeea",
+  "trim_colour": "#d0ccc4",
   "wall_colour": "#9a4a36",
   "wall_visible": true,
   "window_columns": 22,
@@ -21,6 +21,7 @@
   "window_width": 0.8239
  },
  "engine": "stored",
+ "frame_colour": "#eeeeea",
  "provenance": {
   "at": "2026-11-13T06:40:16Z",
   "by": "w2-observe",

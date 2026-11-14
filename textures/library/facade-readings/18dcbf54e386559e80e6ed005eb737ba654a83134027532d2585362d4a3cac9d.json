@@ -12,7 +12,7 @@
   "problem": "",
   "roof_line": "parapet",
   "storeys": 8,
-  "trim_colour": "#9aa3a2",
+  "trim_colour": "#e4ddd0",
   "wall_colour": "#2a2b2e",
   "wall_visible": true,
   "window_columns": 16,
@@ -20,6 +20,7 @@
   "window_width": 0.7653
  },
  "engine": "stored",
+ "frame_colour": "#9aa3a2",
  "provenance": {
   "at": "2026-11-13T12:08:32Z",
   "by": "w2-observe",

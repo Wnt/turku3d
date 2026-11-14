@@ -259,14 +259,14 @@ def convert(doc: dict) -> tuple[dict | None, str]:
     reference = max(walls, key=weight) if walls else None
     windows = main_window(walls, types)
     window = types.get(windows, {})
-    # Trim (cornices, bands, corners, window surrounds) from the read pilasters and cornices first;
-    # the window frames keep their own read colour on the row.
+    # Trim (cornices, bands, corners, window surrounds) from the read pilasters and cornices first,
+    # never from the window frames: those keep their own read colour on the row, and a dark frame
+    # colour on every surround and band turns a light facade dark.
     frame = (window.get("frame") or {}).get("colour")
     frame = frame.lower() if isinstance(frame, str) and len(frame) == 7 else None
     trim = (architectural_trim(walls, materials, wall_colour)
             or (window.get("surround") or {}).get("colour")
             or next((m.get("colour") for n, m in materials.items() if "trim" in n and m.get("colour")), None)
-            or frame
             or TRIM.get(material, TRIM["plaster"]))
 
     if reference is not None:

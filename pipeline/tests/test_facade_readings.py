@@ -62,7 +62,7 @@ def test_reading_converts_to_a_valid_description_row():
     d = row["description"]
     assert renderer().validate(d, d["facade_id"]) == []
     assert d["material"] == "brick" and d["wall_colour"] == "#8a4b3a"  # the larger, better-seen wall
-    assert d["trim_colour"] == "#ffffff"  # the main window's frame
+    assert d["trim_colour"] == conv.TRIM["brick"] and row["frame_colour"] == "#ffffff"
     assert d["storeys"] == 3 and d["window_columns"] == 4 and row["width_m"] == 12
     assert d["window_width"] == 0.4 and round(d["window_height"], 3) == round(1.5 / 2.8, 3)
     assert d["ground_floor"] == "doors" and d["ground_openings"] == 2
@@ -100,11 +100,11 @@ def test_read_pilasters_and_cornices_set_the_trim_and_frames_keep_their_colour()
     doc["materials"]["white"] = {"family": "plaster", "colour": "#E6E4DC"}
     row, _ = conv.convert(doc)
     assert row["description"]["trim_colour"] == "#e6e4dc" and row["frame_colour"] == "#4b3429"
-    # Pilasters in the wall's own colour are relief: the trim stays with the windows.
+    # Pilasters in the wall's own colour are relief, and a dark frame never becomes the trim.
     doc["materials"]["white"]["colour"] = "#8C4D3C"
     doc["walls"][0]["bands"] = []
     row, _ = conv.convert(doc)
-    assert row["description"]["trim_colour"] == "#4b3429" and "frame_colour" not in row
+    assert row["description"]["trim_colour"] == conv.TRIM["brick"] and row["frame_colour"] == "#4b3429"
 
 
 def test_a_rows_frame_colour_paints_only_the_window_frames():
@@ -115,7 +115,7 @@ def test_a_rows_frame_colour_paints_only_the_window_frames():
     p = sample("frames", dict(levels=3), [dict(width_m=12, height_m=9)])
     describe(p, row["description"], row["width_m"], frame_colour="#4b3429")
     wall = compile_wall(p["walls"][0], 3)
-    assert (wall["frame"], wall["trim"]) == ("#4b3429", "#ffffff")
+    assert (wall["frame"], wall["trim"]) == ("#4b3429", conv.TRIM["brick"])
 
 
 def test_unsure_or_unread_walls_are_not_converted():
