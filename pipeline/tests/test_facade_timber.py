@@ -282,3 +282,22 @@ def test_window_jambs_close_only_their_upright_edges():
     assert all("returns" not in s for f in faces for _, _, s in f)
     heads = [(p, uv, s) for p, uv, s in parts if s.get("relief_m") == 0.055 and "returns" not in s]
     assert all(len(list(relief_parts(p, uv, s))) == 5 for p, uv, s in heads)
+
+
+def test_the_band_over_the_heads_is_measured_before_the_plinth_lift():
+    """old-timber@3 (pp-wood2's evidence tiles: Tiilentekijankatu 9/11, Stalarminkatu 14/25 and four more):
+    one-storey houses on 6.4-6.6 m walls had their plinth lifted to 1.5-1.6 m first, which left a
+    2.15-2.35 m blank band over the window heads and no row under the eaves. The row is decided on the
+    band before the lift; a wall whose band is short before the lift keeps its plain frieze."""
+    from turku3d.facade_timber import timber_wall
+
+    for eaves in (6.4, 6.5, 6.6):
+        b, program, v = house(year=1906, levels=1, eaves=eaves, milieu="Puukaupunkimiljöö")
+        w = timber_wall(program["walls"][0], v, b, program)
+        t = w["timber_old"]
+        assert t["plinth_m"] >= 1.5 and t["eaves_windows"] >= 5  # the lift stays; the row comes
+        heads = max(y + h for _, y, _, h in w["windows"]["rectangles_m"] if y < 4)
+        assert eaves - heads < 2.4  # the band after the lift alone would not have earned it
+        assert all(y + h <= eaves - w["trim"]["cornice"]["value"] for _, y, _, h in w["windows"]["rectangles_m"])
+    b, program, v = house(year=1906, levels=1, eaves=6.0, milieu="Puukaupunkimiljöö")
+    assert timber_wall(program["walls"][0], v, b, program)["timber_old"]["eaves_windows"] == 0

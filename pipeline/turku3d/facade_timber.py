@@ -63,8 +63,9 @@ def plinth_area(attrs, prior):
     return "suburb" if year and year >= prior["plinth_suburb_from"] else "other"
 
 
-def layout(height, levels, plinth, prior):
+def layout(height, levels, plinth, prior, lifted=True):
     """(plinth, [(bottom, storey height)], knee, roof) of an eaves wall ``height`` m high.
+    ``lifted=False`` leaves out the plinth lift (the spare height stays in the knee wall).
 
     The register's storey count is kept where its storeys fit at 2.7-3.6 m. A count that does not
     fit falls to the storeys that do; the rest (``roof``) are the register's rooms in the roof, a
@@ -97,7 +98,7 @@ def layout(height, levels, plinth, prior):
         knee = max(0.0, available - low * count)
         each = (available - knee) / count
     spare = max(0.0, available - knee - each * count)
-    lift = min(spare, prior["plinth_lift_max_m"], max(0.0, prior["plinth_total_max_m"] - plinth))
+    lift = min(spare, prior["plinth_lift_max_m"], max(0.0, prior["plinth_total_max_m"] - plinth)) if lifted else 0.0
     plinth += lift
     knee += spare - lift
     return plinth, [(plinth + i * each, each) for i in range(count)], knee, roof
@@ -216,8 +217,12 @@ def timber_wall(wall, vertices, building, program, profile=None):
     plinths = prior["plinth_areas"].get(area) or dict(
         height_m=prior["plinth_m"], plinths=prior["plinths"], weights=prior["plinth_weights"],
         relief_m=prior["plinth_relief_m"])
-    plinth = _rng(key, "plinth").uniform(*plinths["height_m"])
-    plinth, storeys, knee, roof = layout(height, program["storeys"]["value"], plinth, prior)
+    sampled = _rng(key, "plinth").uniform(*plinths["height_m"])
+    plinth, storeys, knee, roof = layout(height, program["storeys"]["value"], sampled, prior)
+    # The plinth lift takes spare height from the band over the window heads; whether that band is
+    # tall enough for a row under the eaves is decided before it (old-timber@3: one-storey houses on
+    # 6.4-6.6 m walls lifted to 1.5-1.6 m kept a 2.15-2.35 m blank band and no eaves row).
+    lift = plinth - layout(height, program["storeys"]["value"], sampled, prior, lifted=False)[0]
     if storeys[0][1] < prior["storey_min_m"]:
         return wall  # Too low for a lived-in storey: a shed keeps its sampled treatment.
     m = lambda x: value(x, TIMBER_OLD_SOURCE, 0.6)  # noqa: E731
@@ -285,7 +290,7 @@ def timber_wall(wall, vertices, building, program, profile=None):
     # A gable whose roof storey got its windows beside the ridge has them in this band already.
     roof_lit = any(y < line for _x, y, _w, _h in gable)
     if (not roof_lit and count and side >= low
-            and (line - floor >= prior["eaves_room_knee_m"] if roof else height - head >= prior["eaves_band_m"])):
+            and (line - floor >= prior["eaves_room_knee_m"] if roof else height - head + lift >= prior["eaves_band_m"])):
         # The rooms behind a tall blank band over the window heads (the building's, so all its walls
         # agree; or the register's storey in the roof) look out under the eaves: one small window per
         # bay over the windows below, clear of this wall's eaves board. On a gable end too low for
