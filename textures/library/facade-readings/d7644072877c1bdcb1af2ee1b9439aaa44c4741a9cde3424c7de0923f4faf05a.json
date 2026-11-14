@@ -13,7 +13,7 @@
   "problem": "",
   "roof_line": "cornice",
   "storeys": 2,
-  "trim_colour": "#e8e4d8",
+  "trim_colour": "#f0ece0",
   "wall_colour": "#eadfae",
   "wall_visible": true,
   "window_columns": 4,
@@ -21,6 +21,7 @@
   "window_width": 0.4816
  },
  "engine": "stored",
+ "frame_colour": "#e8e4d8",
  "provenance": {
   "at": "2026-11-13T01:43:48Z",
   "by": "w2-observe",

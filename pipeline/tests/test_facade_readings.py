@@ -3,6 +3,7 @@ import json
 import numpy as np
 from turku3d import config as C
 from turku3d import facade_readings as fr
+from turku3d import facade_readings_convert as conv
 from turku3d.facade_assets import opaque
 from turku3d.facade_kit import read_description, renderer
 
@@ -56,7 +57,7 @@ def reading(key="b1", **extra):
 
 
 def test_reading_converts_to_a_valid_description_row():
-    row, why = fr.convert(reading())
+    row, why = conv.convert(reading())
     assert why == "converted"
     d = row["description"]
     assert renderer().validate(d, d["facade_id"]) == []
@@ -75,10 +76,10 @@ def test_light_reading_keeps_material_and_colour_and_a_regular_grid():
     doc = reading(walls=[], opening_types={})
     doc["materials"]["wall"]["family"] = "weatherboard"
     doc["style"] = {"type": "detached_house"}
-    row, _ = fr.convert(doc)
+    row, _ = conv.convert(doc)
     d = row["description"]
     assert d["material"] == "wood" and d["storeys"] == 0  # storeys stay the register's
-    assert d["window_columns"] == round(fr.NOMINAL_WIDTH_M / 2.6) and d["ground_floor"] == "windows"
+    assert d["window_columns"] == round(conv.NOMINAL_WIDTH_M / 2.6) and d["ground_floor"] == "windows"
     assert "walls" not in row
 
 
@@ -87,18 +88,44 @@ def test_sparse_bays_keep_the_read_window_size_at_the_drawn_pitch():
     # window is a quarter of that bay, not a fifth of the source's.
     doc = reading()
     doc["walls"][0]["bays"] = [{"u_m": 3.0}, {"u_m": 9.0}]
-    d = fr.convert(doc)[0]["description"]
+    d = conv.convert(doc)[0]["description"]
     assert d["window_columns"] == 2 and d["window_width"] == 0.25
+
+
+def test_read_pilasters_and_cornices_set_the_trim_and_frames_keep_their_colour():
+    doc = reading()
+    doc["opening_types"]["win"]["frame"] = {"colour": "#4B3429"}
+    doc["walls"][0]["bands"] = [{"kind": "cornice", "v_m": 8.6, "colour": "#E2E0D6"}]
+    doc["walls"][0]["verticals"] = [{"kind": "pilaster", "u_m": 0.2, "material": "white"}] * 2
+    doc["materials"]["white"] = {"family": "plaster", "colour": "#E6E4DC"}
+    row, _ = conv.convert(doc)
+    assert row["description"]["trim_colour"] == "#e6e4dc" and row["frame_colour"] == "#4b3429"
+    # Pilasters in the wall's own colour are relief: the trim stays with the windows.
+    doc["materials"]["white"]["colour"] = "#8C4D3C"
+    doc["walls"][0]["bands"] = []
+    row, _ = conv.convert(doc)
+    assert row["description"]["trim_colour"] == "#4b3429" and "frame_colour" not in row
+
+
+def test_a_rows_frame_colour_paints_only_the_window_frames():
+    from turku3d.facade_programs import compile_wall, describe
+    from turkutex.facade_archetypes import sample
+
+    row, _ = conv.convert(reading())
+    p = sample("frames", dict(levels=3), [dict(width_m=12, height_m=9)])
+    describe(p, row["description"], row["width_m"], frame_colour="#4b3429")
+    wall = compile_wall(p["walls"][0], 3)
+    assert (wall["frame"], wall["trim"]) == ("#4b3429", "#ffffff")
 
 
 def test_unsure_or_unread_walls_are_not_converted():
     doc = reading()
     doc["materials"]["wall"]["conf"] = {"*": 0.2}
     doc["materials"]["base"]["conf"] = {"*": 0.2}
-    assert fr.convert(doc)[0] is None
+    assert conv.convert(doc)[0] is None
     doc = reading()
     doc["materials"] = {"roof": {"family": "felt", "colour": "#333333"}}
-    assert fr.convert(doc) == (None, "no wall material read")
+    assert conv.convert(doc) == (None, "no wall material read")
 
 
 def test_reading_rows_rank_below_every_proven_description(tmp_path, monkeypatch):
@@ -112,7 +139,7 @@ def test_reading_rows_rank_below_every_proven_description(tmp_path, monkeypatch)
     (readings / "b2.json").write_text(json.dumps(reading("b2")))
     (readings / "b3.json").write_text(json.dumps({**reading("b3"), "provenance": [{"by": "w2-colour batch 1"}]}))
     proven = {"b1": dict(description=None, program=False), "b2": dict(description=None, program=True)}
-    report = fr.run_convert(readings, proven, fr.directory())
+    report = conv.run_convert(readings, proven, fr.directory())
     assert (report["read"], report["converted"], report["skipped_proven_program"]) == (2, 1, 1)
     assert fr.keys() == {"b1"}
     assert read_description("gis-b1")["material"] == "brick"
@@ -128,7 +155,7 @@ def test_reading_balconies_stay_on_their_own_wall_only():
     from turku3d.facade_programs import compile_wall, describe, described_balconies
     from turkutex.facade_archetypes import sample
 
-    row, _ = fr.convert(reading())
+    row, _ = conv.convert(reading())
     # Quad 0 is the read wall drawn from its far end; quad 1 faces another way.
     front = np.array([[12, 0, 0], [0, 0, 0], [0, 9, 0], [12, 9, 0]], float)
     side = np.array([[12, 0, 0], [12, 0, 5], [12, 9, 5], [12, 9, 0]], float)

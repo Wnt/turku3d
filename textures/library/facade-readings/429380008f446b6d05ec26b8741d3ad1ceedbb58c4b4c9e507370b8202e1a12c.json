@@ -12,7 +12,7 @@
   "problem": "",
   "roof_line": "cornice",
   "storeys": 5,
-  "trim_colour": "#efeadd",
+  "trim_colour": "#dcc8ac",
   "wall_colour": "#a57468",
   "wall_visible": true,
   "window_columns": 8,
@@ -20,6 +20,7 @@
   "window_width": 0.2768
  },
  "engine": "stored",
+ "frame_colour": "#efeadd",
  "provenance": {
   "at": "2026-11-12",
   "by": "w2-buildings",

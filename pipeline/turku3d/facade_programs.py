@@ -226,8 +226,10 @@ def described_balconies(vertices, row):
 DRAWN_PITCH_M = (1.5, 4.8)
 
 
-def describe(program, description, source_width, *, blank_walls=frozenset(), balconies=None):
-    """Keep existing AI/kit results, adapting only the bay count to each real wall."""
+def describe(program, description, source_width, *, blank_walls=frozenset(), balconies=None,
+             frame_colour=None):
+    """Keep existing AI/kit results, adapting only the bay count to each real wall. A row's own
+    ``frame_colour`` (a reading's window frames) outranks the trim colour on the frames."""
     from turkutex.facade_program import value
 
     d = description
@@ -264,7 +266,7 @@ def describe(program, description, source_width, *, blank_walls=frozenset(), bal
             w["windows"].update(
                 size_m=v([bay * max(0.1, d["window_width"]), upper * max(0.1, d["window_height"])]),
                 sill_fraction=v(0.21),
-                frame_colour=v(d["trim_colour"]),
+                frame_colour=v(frame_colour or d["trim_colour"]),
             )
         w["split"]["base_height_m"] = v(ground)
         w["base"].update(
@@ -486,7 +488,8 @@ def resolve(building, vertices, eaves, *, layout_height=None):
         row = description_row(building.facade_key) or {}
         describe(program, d, row.get("width_m") or attrs["frontage_m"],
                  blank_walls=described_blank_walls(building.facade_key, vertices, d, observed),
-                 balconies=described_balconies(vertices, row))
+                 balconies=described_balconies(vertices, row),
+                 frame_colour=row.get("frame_colour"))
         program["description_source"] = row.get("source", "existing")
     program["facade_material"] = family
     head = reading_head(observed)
