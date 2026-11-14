@@ -215721,7 +215721,7 @@
       {
         "wall_id": "103304638N_review_street",
         "width_m": 13.440000001144561,
-        "height_m": 3.6,
+        "height_m": 4.4,
         "geometry": {
           "p0": [
             23459266.48,
@@ -215739,7 +215739,7 @@
         },
         "structure": {
           "wall_id": "103304638N_review_street",
-          "floors_visible": 1,
+          "floors_visible": 2,
           "floors": [
             {
               "role": "base",
@@ -215772,12 +215772,31 @@
                 2,
                 1
               ],
+              "height_class": "tall",
               "confidence": {
                 "bay_count": 0.85,
                 "bay_kinds": 0.8,
                 "head": 0.8,
                 "surround": 0.75,
-                "bay_units": 0.8
+                "bay_units": 0.8,
+                "height_class": 0.8
+              }
+            },
+            {
+              "role": "top",
+              "bays": [
+                "blank"
+              ],
+              "bay_count": 1,
+              "head": "flat",
+              "surround": "none",
+              "height_class": "short",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.8,
+                "surround": 0.75,
+                "height_class": 0.8
               }
             }
           ],
@@ -215786,7 +215805,7 @@
           "cornice": "projecting",
           "string_courses": [],
           "balconies": [],
-          "occluded_parts": "One-storey boarded street wall with white pilasters; 4 windows and 2 doors (photos).",
+          "occluded_parts": "One-storey boarded street wall with white pilasters and a blank frieze under the eaves; 4 windows and 2 doors (photos).",
           "confidence": {
             "floors_visible": 0.85,
             "split": 0.8,
@@ -215802,23 +215821,23 @@
         "niches": [],
         "observation": {
           "needs_review": false,
-          "scope": "ground-only",
+          "scope": "full-wall",
           "visible_share": 1.0,
           "wall_share": 0,
-          "register_height_conflict": true,
+          "register_height_conflict": false,
           "colour_space": "unmeasured; preserve calibrated pigment",
           "excluded_rectangles_m": [],
-          "notes": "One-storey boarded street wall with white pilasters; 4 windows and 2 doors (photos).",
+          "notes": "One-storey boarded street wall with white pilasters and a blank frieze under the eaves; 4 windows and 2 doors (photos).",
           "opening_extent": "counted rows and bays; dimensions are layout priors, not measured rectangles",
           "dimension_source": "LOD2 wall extent, register storeys checked, qualitative row heights and counted bay units; dimensions remain layout priors"
         },
         "split": {
           "base_height_m": {
-            "value": 3.6,
+            "value": 3.0918918918918923,
             "source": "qualitative row-height layout prior",
             "support": 0.2
           },
-          "middle_repeats": null,
+          "middle_repeats": 0,
           "top_height_m": {
             "value": null,
             "source": "unmeasured",
@@ -215845,10 +215864,50 @@
           "support": 0.85
         },
         "windows": {
-          "rectangles_m": [],
-          "opening_roles": [],
-          "head_shapes": [],
-          "surround_shapes": [],
+          "rectangles_m": [
+            [
+              0.318,
+              0.526,
+              0.586,
+              1.701
+            ],
+            [
+              3.983,
+              0.526,
+              0.586,
+              1.701
+            ],
+            [
+              5.523,
+              0.526,
+              1.173,
+              1.701
+            ],
+            [
+              10.41,
+              0.526,
+              1.173,
+              1.701
+            ]
+          ],
+          "opening_roles": [
+            "base",
+            "base",
+            "base",
+            "base"
+          ],
+          "head_shapes": [
+            "flat",
+            "flat",
+            "flat",
+            "flat"
+          ],
+          "surround_shapes": [
+            "frame",
+            "frame",
+            "frame",
+            "pediment"
+          ],
           "head_shape": {
             "value": null,
             "source": "unmeasured",
@@ -215911,44 +215970,9 @@
             "source": "unmeasured",
             "support": 0.0
           },
-          "openings_m": [
-            [
-              0.318,
-              0.612,
-              0.586,
-              1.98
-            ],
-            [
-              3.983,
-              0.612,
-              0.586,
-              1.98
-            ],
-            [
-              5.523,
-              0.612,
-              1.173,
-              1.98
-            ],
-            [
-              10.41,
-              0.612,
-              1.173,
-              1.98
-            ]
-          ],
-          "head_shapes": [
-            "flat",
-            "flat",
-            "flat",
-            "flat"
-          ],
-          "surround_shapes": [
-            "frame",
-            "frame",
-            "frame",
-            "pediment"
-          ],
+          "openings_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
           "variant": {
             "value": null,
             "source": "unmeasured",
@@ -215962,7 +215986,7 @@
                 1.857,
                 0,
                 1.173,
-                2.736
+                2.35
               ],
               "opaque": false,
               "head_shape": "flat",
@@ -215975,7 +215999,7 @@
                 7.966,
                 0,
                 1.173,
-                2.736
+                2.35
               ],
               "opaque": false,
               "head_shape": "flat",

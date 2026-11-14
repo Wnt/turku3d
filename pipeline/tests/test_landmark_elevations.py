@@ -125,4 +125,9 @@ def test_review_patches_rebuild_the_reviewed_tiles_and_the_street_wall_keeps_its
     walls = {w["wall_id"].rsplit("_", 1)[-1]: w for w in measured("103304638N")["walls"] if "_review_" in w["wall_id"]}
     street = walls["street"]["structure"]["floors"][0]["bays"]
     assert street.count("door") == 2 and street.count("window") == 4
+    # The reviewed rectangle covers the whole eaves wall (4.37 m), so no sampled upper windows remain above it;
+    # the frieze under the eaves is a blank row.
+    assert walls["street"]["height_m"] >= 4.37
+    assert [f["bays"] for f in walls["street"]["structure"]["floors"][1:]] == [["blank"]]
+    assert len(walls["street"]["windows"]["rectangles_m"]) == 4 and len(walls["street"]["doors"]["candidates"]) == 2
     assert set(walls["gable"]["structure"]["floors"][0]["bays"]) == {"blank"}
