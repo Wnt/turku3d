@@ -156,7 +156,7 @@ def test_spot_rebuild_class_is_the_surveyed_tile_list():
     assert town_premises.affected(dict(tile="t0_-1_1", building_keys=["x"]))  # Linnankatu 27
     assert not town_premises.affected(dict(tile="t0_40_40"))
     assert not town_premises.affected({})
-    assert len(town_premises.TILES) == 35
+    assert len(town_premises.TILES) == 32
 
 
 def test_an_old_wooden_house_opens_its_premise_wall_with_shop_windows():
@@ -191,3 +191,20 @@ def test_an_old_wooden_house_opens_its_premise_wall_with_shop_windows():
     assert all(abs(y - cafe["timber_old"]["plinth_m"] - TIMBER_OLD["shop_sill_m"]) < 0.01 for _, y, _, _ in shop)
     assert upper == [r for r in house["windows"]["rectangles_m"] if r[1] >= first]  # the dwelling above
     assert cafe["doors"]["candidates"] and not house["doors"]["candidates"]  # the premise's own door
+
+
+def test_public_buildings_keep_their_own_front():
+    from turku3d.facade_kit import renderer
+    from turku3d.facade_programs import opens_premises
+
+    renderer()
+    fronts = dict(premise_fronts=[[0.0, 0.0, 12.0, 0.0]])
+    town_house = dict(archetype="jugend")
+    assert opens_premises(town_house, dict(fronts, use="1150"), None)  # flats over a cafe
+    assert not opens_premises(town_house, dict(fronts, use="1150"), {"ground_floor": "windows"})  # described
+    assert not opens_premises(town_house, dict(use="1150"), None)  # no premise
+    assert not opens_premises(dict(archetype="civic"), dict(fronts, use="1150"), None)
+    for use in ("theatre", "museum", "prison", "place_of_worship", "college", "community_centre"):
+        assert not opens_premises(town_house, dict(fronts, osm_use=use), None), use
+    assert not opens_premises(town_house, dict(fronts, use="2120"), None)  # the register's civic code
+    assert opens_premises(town_house, dict(fronts, osm_use="hotel"), None)  # a hotel's restaurant opens

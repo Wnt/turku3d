@@ -345,6 +345,15 @@ def classical(program, attrs, evidence):
 
 
 PREMISES = "mapped customer premises in the town"
+# Public buildings keep their own front: a cafe or restaurant inside a theatre, museum, church, school,
+# college, community house or the old prison opens no shopfront. Photographed (pp-town, 2026-11-14): the
+# museum's blank wall on Itainen Rantakatu, the park pavilion on Vartiovuori, the academy row on
+# Henrikinkatu; 11 of the town's 70 premise buildings. Values of turkutex ``building_use``.
+PREMISE_CLOSED_USES = frozenset({
+    "civic", "public", "townhall", "museum", "theatre", "library", "arts_centre", "concert_hall", "gallery",
+    "place_of_worship", "church", "chapel", "cathedral", "school", "college", "university", "kindergarten",
+    "hospital", "prison", "community_centre",
+})
 
 
 def on_front(points, front, tolerance=0.2):
@@ -359,6 +368,16 @@ def on_front(points, front, tolerance=0.2):
     along = float(middle @ edge) / length
     across = abs(float(middle[0] * edge[1] - middle[1] * edge[0])) / length
     return across <= tolerance and -tolerance <= along <= length + tolerance
+
+
+def opens_premises(program, attrs, description) -> bool:
+    """Whether the building's mapped premises open its walls: none describes it, its composition is not
+    a masonry, monolith or civic one, and no public use keeps its front closed."""
+    from turkutex.facade_archetypes import MASONRY, MONOLITH, building_use
+
+    return (bool(attrs.get("premise_fronts")) and not description
+            and program["archetype"] not in (MASONRY, MONOLITH, "civic")
+            and building_use(attrs) not in PREMISE_CLOSED_USES)
 
 
 def premise_shopfronts(program, vertices, fronts):
@@ -591,7 +610,7 @@ def resolve(building, vertices, eaves, *, layout_height=None):
                 ),
             )
         finish_material(wall, family, own, record, d, building.facade_key)
-    if attrs.get("premise_fronts") and not d and program["archetype"] not in (MASONRY, MONOLITH):
+    if opens_premises(program, attrs, d):
         premise_shopfronts(program, vertices, attrs["premise_fronts"])
     if program["archetype"] == MONOLITH:
         facade_monolith.apply(program, building.facade_key, vertices, observed, d,
