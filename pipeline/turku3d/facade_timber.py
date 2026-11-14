@@ -254,22 +254,26 @@ def timber_wall(wall, vertices, building, program, profile=None):
                                round(sw, 3), round(wh, 3)])
             roles.append("window")
     floor = storeys[-1][0] + storeys[-1][1]
-    is_gable = peak - height >= prior["gable_rise_m"]
-    gable = gable_windows(profile, height, floor, roof, ww, prior) if is_gable else []
+    # This edge's own eaves line: the lowest top along it (a long wall's top, a gable end's corners).
+    # The layout height is the building's and may stand above it (Portsa: 9.1 m over 7.4 m walls),
+    # so the row under the eaves and the gable are measured from the wall itself.
+    line = min([height] + [t for u0, u1, t0, t1 in profile if u1 - u0 >= 0.25 for t in (t0, t1)])
+    is_gable = peak - line >= prior["gable_rise_m"]
+    gable = gable_windows(profile, line, floor, roof, ww, prior) if is_gable else []
     cornice = field_value(w["trim"], "cornice", 0.0)
     cornice = float(cornice) if isinstance(cornice, (int, float)) else 0.0
     low, high = prior["eaves_window_m"]
-    side = min(high, knee - cornice - 2 * prior["eaves_gap_m"] - 0.12)
+    side = min(high, line - floor - cornice - 2 * prior["eaves_gap_m"] - 0.12)
     eaves = 0
     # A gable whose roof storey got its windows beside the ridge has them in this band already.
-    roof_lit = any(y < height for _x, y, _w, _h in gable)
+    roof_lit = any(y < line for _x, y, _w, _h in gable)
     if (not roof_lit and count and side >= low
-            and knee >= (prior["eaves_room_knee_m"] if roof else prior["eaves_knee_m"])):
+            and line - floor >= (prior["eaves_room_knee_m"] if roof else prior["eaves_knee_m"])):
         # The rooms behind a tall knee wall (or the register's storey in the roof) look out under
         # the eaves: one small window per bay over the windows below, clear of the eaves board. On a
         # gable end too low for windows of its own the row runs at the same height, and a window
-        # stands only where the wall is that high (a gable end's corners may sit under the eaves).
-        sill = height - cornice - prior["eaves_gap_m"] - side
+        # stands only where the wall is that high.
+        sill = line - cornice - prior["eaves_gap_m"] - side
         ew = min(side * 1.15, ww)
         for i in range(count):
             x = (i + 0.5) * bay - ew / 2
@@ -323,7 +327,7 @@ def timber_wall(wall, vertices, building, program, profile=None):
     w["timber_old"] = dict(plinth_m=round(plinth, 3), storeys=[round(s, 3) for _, s in storeys],
                            knee_m=round(knee, 3), plinth_material=material, windows=len(rectangles),
                            shopfront=shop, plinth_area=area, roof_storeys=roof, eaves_windows=eaves,
-                           gable_windows=len(gable))
+                           gable_windows=len(gable), eaves_m=round(line, 3))
     w["paint_source"] = "old-wooden-house-class"
     return w
 

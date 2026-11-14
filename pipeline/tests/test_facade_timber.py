@@ -168,10 +168,9 @@ def test_a_gable_over_storeys_that_fit_gets_one_attic_window_and_a_low_gable_non
 
 
 def test_a_low_gable_over_a_tall_knee_wall_keeps_the_row_under_the_eaves_inside_its_wall():
-    """Portsa (t0_-5_1, 103329807K): one 3.6 m storey on a 7.6 m eaves line, a gable rising 1.55 m
-    whose corners sit 0.65 m under the eaves. Its first build left the gable end's 2.4 m knee wall
-    blank (no roof storey, and no room for an attic light there) while the long walls looked out
-    under the eaves."""
+    """Portsa (t0_-5_1, 103329807K): one 3.6 m storey under a 7.6 m layout height, a gable end whose
+    corners stand 6.95 m and ridge 9.15 m. Its first build left the gable end's knee wall blank
+    while the long walls looked out under the eaves; the row runs under the corners' eaves line."""
     from turku3d.facade_timber import _top, edge_profiles, timber_wall
 
     b, program, _ = house(year=1906, levels=1, eaves=7.6)
@@ -180,13 +179,26 @@ def test_a_low_gable_over_a_tall_knee_wall_keeps_the_row_under_the_eaves_inside_
     profile = edge_profiles(quads, gprogram, b.base)[0]
     w = timber_wall(walls[0], quads[:4], b, gprogram, profile)
     t = w["timber_old"]
-    assert t["roof_storeys"] == 0 and t["knee_m"] >= 1.6 and t["eaves_windows"] >= 2
+    assert t["roof_storeys"] == 0 and t["eaves_m"] == 6.95 and t["gable_windows"] == 1
     rects = w["windows"]["rectangles_m"]
     head = min(y + h for _, y, _, h in rects)  # the storey's windows
-    upper = [r for r in rects if head < r[1] < 7.6]
-    assert len(upper) == t["eaves_windows"] and t["eaves_windows"] < len(rects) - len(upper) - t["gable_windows"]
-    for x, y, ww, wh in upper:  # the corner bays' row windows would stick out of the wall: left out
+    upper = [r for r in rects if head < r[1] < 6.95]
+    assert len(upper) == t["eaves_windows"] == len(rects) - len(upper) - 1  # one per bay, an attic light
+    for x, y, ww, wh in upper:  # under the corners' eaves line, so inside the wall
         assert y + wh <= min(_top(profile, x), _top(profile, x + ww))
+
+
+def test_the_row_under_the_eaves_follows_the_walls_own_top_under_a_taller_layout_height():
+    """Portsa (t0_-5_1, 103321749M): the building's layout height is 9.06 m, its long walls stand
+    7.4 m. Measured from 9.06 m the row sat above the wall (invisible, or cut by its top)."""
+    from turku3d.facade_timber import timber_wall
+
+    b, program, v = house(year=1906, levels=1, eaves=9.06, width=40.0)
+    v[2:, 1] = b.base + 7.4
+    w = timber_wall(program["walls"][0], v, b, program)
+    t = w["timber_old"]
+    assert t["eaves_m"] == 7.4 and t["eaves_windows"] >= 10
+    assert all(y + h <= 7.4 - w["trim"]["cornice"]["value"] for _, y, _, h in w["windows"]["rectangles_m"])
 
 
 def test_the_plinth_is_the_areas_granite_in_the_town_and_concrete_under_the_1920s_suburbs():
