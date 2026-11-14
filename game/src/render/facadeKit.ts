@@ -2,13 +2,16 @@ import { nightSurface } from './nightSurface';
 import { wetSurface } from './weather/surfaces';
 // A single shared atlas supplies upper-storey bays and a separate row at the building base.
 import * as THREE from 'three/webgpu';
-import { color, float, floor, fract, mix, normalMap, step, texture, uv, vec2, vec3 } from 'three/tsl';
+import { color, float, floor, fract, fwidth, max, mix, normalMap, smoothstep, step, texture, uv, vec2, vec3 } from 'three/tsl';
 import { programLayout, programPigment } from './facadeProgram';
 import { draftWindows, facadeKey, kitGlassMask, quantise, wallFrame, windowEmission } from './nightLights';
 import { facadeAttribute, facadePaintAttributes, interleaveProgram } from './facadeProgramAttributes';
 import type { SharedMaterials } from './sharedMaterials';
 import { addFacadeModules, facadeModuleMaterial } from './facadeModules';
 import { facadeProgramEmission, facadeProgramSurface } from './facadeProgramSurface';
+
+/** Weatherboard height (m) of the procedural board relief on wood walls (the atlas wood cell's board, Turku lap siding). */
+const BOARD_M = .13;
 
 export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPURenderer): THREE.MeshStandardNodeMaterial | null {
   const p = source.userData.facade_kit as { version?: number; module?: number; wall?: string; trim?: string } | undefined;
@@ -60,8 +63,21 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
   const frameColour = frameData?.rgb ?? trim;
   const glazingColour = program ? mix(frameColour.mul(.9),
     vec3(.016, .028, .04).mul(mix(.8, 1.35, program.rise)), program.glass) : albedo.mul(tint);
-  material.colorNode = mix(facadeColour, glazingColour, opening);
-  const normal = texture(original.normalMap, coord).grad(dx, dy).xyz;
+  // Weatherboards in wall metres. The atlas draws wood's 0.13 m boards into a 120 px cell per bay and storey, so they
+  // blur away at street distance; here each board gets the shadow under the next board's lip and a lit lip edge,
+  // anti-aliased by the pixel footprint and faded out where a board is under two pixels high. Trim strips (casings,
+  // corner boards, belts: painted in the trim colour) and openings stay plain.
+  const family = module.lessThan(42).select(module.div(6).floor(), module.sub(42));
+  const pixel = max(fwidth(metres.y), float(1e-4));
+  const board = fract(metres.y.div(BOARD_M));
+  const underLip = float(1).sub(smoothstep(pixel.negate().add(.02), pixel.add(.02), float(1).sub(board).mul(BOARD_M)));
+  const lipEdge = float(1).sub(smoothstep(pixel.negate().add(.025), pixel.add(.025), board.mul(BOARD_M)));
+  const plainTrim = step(wallColour.rgb.sub(trim.rgb).abs().dot(vec3(1)), float(.01));
+  const boards = float(family.equal(3)).mul(float(1).sub(smoothstep(.035, .07, pixel)))
+    .mul(float(1).sub(opening)).mul(paint ? float(1).sub(paint.band) : float(1)).mul(float(1).sub(plainTrim));
+  material.colorNode = mix(facadeColour, glazingColour, opening).mul(float(1).sub(underLip.mul(boards).mul(.45)));
+  const sampled = texture(original.normalMap, coord).grad(dx, dy).xyz;
+  const normal = sampled.add(vec3(0, lipEdge.mul(.3).sub(.05).mul(boards), 0));
   material.normalNode = normalMap(mix(paint ? mix(normal, vec3(.5, .5, 1), paint.band) : normal,
     vec3(.5, .5, 1), opening), vec2(0.65));
   material.roughnessNode = mix(paint ? mix(orm.g, float(.85), paint.band) : orm.g,
