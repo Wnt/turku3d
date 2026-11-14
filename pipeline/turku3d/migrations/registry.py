@@ -6,7 +6,7 @@ from . import (bridge_ends, chain_record, finished_ground, floodlights, furnitur
                monolith_walls, path_trees, racks, roadbed, shell_look, signals, signs, span_lamps,
                square_lights, stand_roofs, structure_materials, trees_lidar, wires, facade_reality,
                forest_cover, centred_paint, pole_support, measured_walls, facade_readings, old_timber,
-               town_premises)
+               town_premises, block_balconies)
 
 CHAIN = (
     chain_record.MIGRATION,
@@ -56,4 +56,6 @@ CHAIN = (
     old_timber.MIGRATION,
     # Spot rebuild of the tiles holding a town building opened by its mapped customer premises.
     town_premises.MIGRATION,
+    # Spot rebuild of the tiles holding a block of flats: sun-facing balcony stacks, single lights since 1980.
+    block_balconies.MIGRATION,
 )

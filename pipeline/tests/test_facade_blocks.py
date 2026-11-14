@@ -153,3 +153,13 @@ def test_a_described_building_keeps_its_description(monkeypatch):
     assert is_block(b, sampled)
     assert not is_block(b, {**sampled, "description_source": "existing"})
     assert not is_block(b, {**sampled, "archetype": "civic"})
+
+
+def test_block_balconies_rebuilds_only_tiles_holding_a_block_of_flats():
+    from turku3d.migrations import block_balconies, registry, town_premises
+
+    assert registry.CHAIN.index(block_balconies.MIGRATION) > registry.CHAIN.index(town_premises.MIGRATION)
+    keys = sorted(block_balconies.keys())
+    assert len(keys) > 2000 and len(set(keys)) == len(keys)
+    assert block_balconies.affected({"building_keys": ["x", keys[0]]})
+    assert not block_balconies.affected({"building_keys": ["x"]}) and not block_balconies.affected({})

@@ -36,8 +36,11 @@ quads batched per material; a loggia moves its stack's wall back (``facade_compo
 
 from __future__ import annotations
 
+import collections
+import json
 import math
 import zlib
+from pathlib import Path
 
 import numpy as np
 
@@ -308,3 +311,66 @@ def _stacks(wall, quad, building, part, every, first, floors):
             glazed=part["type"] == "glazed",
         ))
     return result
+
+
+KEYS = Path(__file__).parent / "migrations" / "block_balconies_keys.json"
+
+
+def build(city: Path, described: list[Path]) -> dict:
+    """Write the spot-rebuild key list from a city-wide building table (key, cls, year, storeys, E, N):
+    every dated block of flats from 1940 on with three or more register storeys (the class's superset:
+    descriptions, reading rows and OSM tags are decided in the build). Returns counts."""
+    import pyarrow.parquet as pq
+
+    rows = pq.read_table(city, columns=["key", "cls", "year", "storeys", "E", "N"]).to_pylist()
+    keys = sorted(
+        r["key"] for r in rows
+        if str(r["cls"] or "") == RESIDENTIAL_CLASS and r["year"] and r["year"] == r["year"]
+        and r["year"] >= FROM_YEAR and (r["storeys"] or 0) >= MIN_LEVELS
+    )
+    KEYS.write_text(json.dumps(dict(format="turku3d-block-balconies-keys", version=1, keys=keys),
+                               separators=(",", ":")) + "\n")
+    known = set()
+    for path in described:
+        data = json.loads(path.read_text())
+        ids = data.get("buildings", data) if isinstance(data, dict) else [r.get("building_id") for r in data]
+        known |= {str(k).removeprefix("gis-") for k in ids}
+    by_key = {r["key"]: r for r in rows}
+    counts = collections.Counter()
+    tiles, ring = set(), set()
+    for key in keys:
+        r = by_key[key]
+        i = math.floor((r["E"] - C.ORIGIN_E) / C.VISUAL_TILE_SIZE)
+        j = math.floor((C.ORIGIN_N - r["N"]) / C.VISUAL_TILE_SIZE)
+        tiles.add((i, j))
+        near = max(abs(i), abs(j)) <= 4  # about 1 km round Kauppatori
+        if near:
+            ring.add((i, j))
+        y = int(r["year"])
+        part = None if key in known else balcony(key, y)
+        for scope in ("city", "ring1km") if near else ("city",):
+            counts[f"{scope}:blocks"] += 1
+            counts[f"{scope}:described"] += key in known
+            counts[f"{scope}:{band(y)}"] += 1
+            counts[f"{scope}:with-balconies"] += part is not None
+            counts[f"{scope}:single-lights"] += key not in known and y >= 1980
+            if part:
+                counts[f"{scope}:type:{part['type']}"] += 1
+    return dict(keys=len(keys), tiles=len(tiles), ring1km_tiles=len(ring), **dict(sorted(counts.items())))
+
+
+def main(argv=None):
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest="action", required=True)
+    b = sub.add_parser("build", help="write migrations/block_balconies_keys.json and print counts")
+    b.add_argument("--city", type=Path, required=True)
+    b.add_argument("--described", type=Path, nargs="*", default=[],
+                   help="indexes of described or read buildings (facade-assets, facade-readings)")
+    args = parser.parse_args(argv)
+    print(json.dumps(build(args.city, args.described), indent=1))
+
+
+if __name__ == "__main__":
+    main()
