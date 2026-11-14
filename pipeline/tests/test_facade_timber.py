@@ -50,6 +50,12 @@ def test_register_storeys_are_kept_where_they_fit_and_later_or_undated_timber_is
     # second is a storey in the roof whose windows need a knee wall under the eaves.
     plinth, storeys, knee, roof = layout(5.2, 2, 0.7, TIMBER_OLD)
     assert len(storeys) == 1 and roof == 1 and knee >= 1.0
+    # Portsa (t0_-6_2, 103329775J: register 3 storeys on 6.64 m): the town's 1.2 m plinth left room
+    # for one storey where the earlier 0.7 m plinth had two; the register's storey wins.
+    plinth, storeys, knee, roof = layout(6.64, 3, 1.2, TIMBER_OLD)
+    assert len(storeys) == 2 and roof == 1 and 0.6 <= plinth < 1.0
+    plinth, storeys, knee, roof = layout(7.0, 1, 1.2, TIMBER_OLD)  # a one-storey house keeps its plinth
+    assert len(storeys) == 1 and roof == 0 and plinth >= 1.2
     b, program, v = house(year=1930, levels=2, eaves=8.6)
     w = timber_wall(program["walls"][0], v, b, program)
     rows = sorted({round(y, 2) for _, y, _, _ in w["windows"]["rectangles_m"]})
@@ -218,6 +224,24 @@ def test_the_row_follows_the_blank_band_over_the_heads_and_a_lower_wing_draws_no
     w = timber_wall(program["walls"][0], v, b, program)
     assert len(w["timber_old"]["storeys"]) == 2 and w["windows"]["rectangles_m"]
     assert all(y + h <= 5.36 for _, y, _, h in w["windows"]["rectangles_m"])
+
+
+def test_a_top_sloping_to_one_end_is_no_gable_and_a_low_annex_piece_sets_no_eaves_line():
+    """Itaharju (t0_9_-1, 103399308J): a long wall whose single shell quad slopes from 5.23 m to
+    7.31 m drew one roof-storey window at its high end (and one past it); its gable end carries a
+    2.54 m porch piece on the same edge, which set the eaves line to 2.54 m."""
+    from turku3d.facade_timber import timber_wall
+
+    b, program, v = house(year=1927, levels=2, eaves=5.23, width=10.35)
+    v[2, 1] = b.base + 7.31
+    w = timber_wall(program["walls"][0], v, b, program)
+    t = w["timber_old"]
+    assert t["gable_windows"] == 0 and t["eaves_m"] == 5.23
+    assert all(0 <= x and x + ww <= 10.35 for x, _, ww, _ in w["windows"]["rectangles_m"])
+    b, program, v = house(year=1927, levels=2, eaves=5.23, width=10.2)
+    profile = [(0.0, 4.0, 5.23, 9.23), (4.0, 8.0, 9.23, 5.23), (8.0, 10.2, 2.54, 2.54)]
+    w = timber_wall(program["walls"][0], v, b, program, profile)
+    assert w["timber_old"]["eaves_m"] == 5.23 and w["timber_old"]["gable_windows"] == 3
 
 
 def test_the_plinth_is_the_areas_granite_in_the_town_and_concrete_under_the_1920s_suburbs():

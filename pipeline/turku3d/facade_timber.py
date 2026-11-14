@@ -71,9 +71,16 @@ def layout(height, levels, plinth, prior):
     storey and a half: their floor is the top storey's ceiling, so the knee wall keeps room for
     their windows under the eaves and the gables carry theirs (``timber_wall``). What is left over
     lifts the plinth (at most ``plinth_lift_max_m``, never past ``plinth_total_max_m``) and then
-    becomes the knee wall.
+    becomes the knee wall. A register storey outranks a high plinth: when the area's plinth leaves
+    no room for a storey the class's lowest plinth would fit, the plinth gives way to it.
     """
     low, high = prior["storey_m"]
+    fit = max(1, int((height - plinth - prior["knee_low_m"]) // low))
+    if isinstance(levels, (int, float)) and levels > fit:
+        lowest = min(prior["plinth_m"])
+        want = min(int(levels), max(1, int((height - lowest - prior["knee_low_m"]) // low)))
+        if want > fit:
+            plinth = max(lowest, height - prior["knee_low_m"] - low * want - 1e-6)
     available = height - plinth
     knee = prior["knee_m"] if available >= high + prior["knee_m"] else prior["knee_low_m"]
     fit = max(1, int((available - prior["knee_low_m"]) // low))
@@ -147,9 +154,11 @@ def gable_windows(profile, height, floor, roof, ww, prior):
         return []
     peak_u, peak = max(((u, t) for u0, u1, t0, t1 in profile for u, t in ((u0, t0), (u1, t1))),
                        key=lambda item: item[1])
-    if peak - height < prior["gable_rise_m"]:
-        return []
+    lo, hi = min(u0 for u0, *_ in profile), max(u1 for _, u1, *_ in profile)
+    if peak - height < prior["gable_rise_m"] or min(peak_u - lo, hi - peak_u) < prior["gable_end_m"]:
+        return []  # no gable: a low pitch, or a top sloping to one end (a shell quad under a roof step)
     margin = prior["gable_margin_m"]
+    inside = lambda x, w: lo + 0.1 <= x and x + w <= hi - 0.1  # noqa: E731
     result, head = [], height
     if roof:
         low, high = prior["gable_window_h_m"]
@@ -157,7 +166,8 @@ def gable_windows(profile, height, floor, roof, ww, prior):
         for h in (high, (low + high) / 2, low):
             for centres in ((peak_u - prior["gable_pair_m"] / 2, peak_u + prior["gable_pair_m"] / 2), (peak_u,)):
                 rects = [(c - ww / 2, sill, ww, h) for c in centres]
-                if all(_under(profile, x - 0.1, x + w + 0.1, y + h + margin) for x, y, w, h in rects):
+                if all(inside(x, w) and _under(profile, x - 0.1, x + w + 0.1, y + h + margin)
+                       for x, y, w, h in rects):
                     result, head = rects, sill + h
                     break
             if result:
@@ -166,7 +176,7 @@ def gable_windows(profile, height, floor, roof, ww, prior):
     for side in (large, small):
         sill = max(head, height) + prior["attic_gap_m"]
         rect = (peak_u - side / 2, sill, side, side)
-        if _under(profile, rect[0] - 0.1, rect[0] + side + 0.1, sill + side + margin):
+        if inside(rect[0], side) and _under(profile, rect[0] - 0.1, rect[0] + side + 0.1, sill + side + margin):
             result.append(rect)
             break
     return [[round(x, 3), round(y, 3), round(w, 3), round(h, 3)] for x, y, w, h in result]
@@ -262,7 +272,9 @@ def timber_wall(wall, vertices, building, program, profile=None):
     # This edge's own eaves line: the lowest top along it (a long wall's top, a gable end's corners).
     # The layout height is the building's and may stand above it (Portsa: 9.1 m over 7.4 m walls),
     # so the row under the eaves and the gable are measured from the wall itself.
-    line = min([height] + [t for u0, u1, t0, t1 in profile if u1 - u0 >= 0.25 for t in (t0, t1)])
+    # Pieces far under the layout (a porch or annex roof, a 0.1 m strip the shell cut) do not set it.
+    line = min([height] + [t for u0, u1, t0, t1 in profile
+                           if u1 - u0 >= 0.25 and max(t0, t1) >= 0.6 * height for t in (t0, t1)])
     is_gable = peak - line >= prior["gable_rise_m"]
     gable = gable_windows(profile, line, floor, roof, ww, prior) if is_gable else []
     cornice = field_value(w["trim"], "cornice", 0.0)

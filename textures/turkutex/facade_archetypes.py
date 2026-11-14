@@ -417,6 +417,7 @@ TIMBER_OLD = dict(
     # the ridge; a gable without a roof storey gets one attic window. Clear of the verges by
     # ``gable_margin_m``; nothing where the gable has no room.
     gable_rise_m=1.5,
+    gable_end_m=1.5,  # a gable's ridge stands at least this far from both ends of its wall
     gable_margin_m=0.35,
     gable_sill_m=0.8,
     gable_window_h_m=(0.9, 1.3),
