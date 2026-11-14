@@ -543,6 +543,13 @@ def build(
     )
     stair_meshes = [*stair_meshes, *seam_meshes]
     seconds["surface_closure"] = cache.metrics["surface_closure"]["seconds"]
+    # Reviewed fountain centrepieces stand in their basins as structures, after the seams are closed.
+    stair_meshes = [*stair_meshes, *cache.run(
+        "fountains",
+        source_key(Path(gardens.__file__), Path(__file__).with_name("fountains.py"), base / "structures/geometry.py"),
+        [tile, inputs.gardens],
+        lambda: gardens.centrepieces(tile, inputs.gardens),
+    )]
     # Near-vertical faces never keep a lawn or paving id, in visuals and collision alike.
     from turku3d.ground.mesh import HeightQuery
 

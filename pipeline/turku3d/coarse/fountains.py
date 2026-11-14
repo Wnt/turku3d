@@ -4,8 +4,12 @@ A mapped basin (``garden_inputs``) draws only its rim, water and bed. A fountain
 point (OSM ``artwork_type=fountain`` or ``amenity=fountain``) has a reviewed record in
 ``fountains.json`` also draws its centrepiece from that record's parameters: a stone pedestal on a
 footing in the water, a stem, a bowl holding water, a crown and a seated figure, and stone spheres
-on the basin rim's corners. Every part is a convex block of the pool's masonry; no mesh is modelled
-by hand and no photograph becomes geometry. Records are keyed by the artwork's OSM identity.
+on the basin rim's corners. Every part is a convex block; no mesh is modelled by hand and no
+photograph becomes geometry. Records are keyed by the artwork's OSM identity.
+
+The masonry (granite) and the figure (bronze) are structures, like stairs: the ground's finish pass
+repaints the flat faces of ground meshes from the lawn and paving regions around them, which would
+grow grass on the bowl. Only the water in the bowl joins the garden's water.
 """
 
 import json
@@ -108,9 +112,25 @@ def _figure(faces, x, z, y, spec, facing):
         _box(faces, at(0.3 * length, 0.26 * h, side * width), (0.06 * length, 0.26 * h, 0.12 * width), (f, s))
 
 
-def centrepiece(stone, water, x, z, level, record, body):
-    """Add a reviewed fountain's centrepiece at (x, z) in a basin of terrace ``level`` to the ``stone``
-    and ``water`` faces; ``body`` is the basin polygon (its rim corners carry the spheres)."""
+def _rim(level, record):
+    """Height of the bowl's lip above a basin of terrace ``level``."""
+    return level + record["pedestal"]["height_m"] + record["stem"]["height_m"] + record["bowl"]["depth_m"]
+
+
+def bowl_water(water, x, z, level, record):
+    """The water the bowl holds just under its stone lip."""
+    bowl, rim = record["bowl"], _rim(level, record)
+    inner = bowl["radius_m"] - bowl["lip_m"]
+    ring = [(x + inner * math.cos(a), z + inner * math.sin(a)) for a in np.linspace(0, math.tau, 20, False)]
+    disc = [(px, rim + 0.005, pz) for px, pz in ring]
+    if np.cross(np.subtract(disc[1], disc[0]), np.subtract(disc[2], disc[0]))[1] < 0:
+        disc = disc[::-1]
+    water.face(disc, np.asarray(ring))
+
+
+def centrepiece(stone, bronze, x, z, level, record, body):
+    """Add a reviewed fountain's masonry at (x, z) in a basin of terrace ``level`` to ``stone`` and its
+    figure to ``bronze``; ``body`` is the basin polygon (its rim corners carry the spheres)."""
     bed, surface = level - 0.65, level - 0.12
     rectangle = np.asarray(body.minimum_rotated_rectangle.exterior.coords)[:3]
     u = rectangle[1] - rectangle[0]
@@ -125,15 +145,8 @@ def centrepiece(stone, water, x, z, level, record, body):
     stem = record["stem"]
     _frustum(stone, x, z, stem["radius_m"] * 1.25, top, stem["radius_m"], top + stem["height_m"])
     bowl = record["bowl"]
-    low, rim = top + stem["height_m"], top + stem["height_m"] + bowl["depth_m"]
+    low, rim = top + stem["height_m"], _rim(level, record)
     _frustum(stone, x, z, bowl["foot_radius_m"], low, bowl["radius_m"], rim, 20)
-    # The bowl holds water just under its lip; the stone lip rings it.
-    inner = bowl["radius_m"] - bowl["lip_m"]
-    ring = [(x + inner * math.cos(a), z + inner * math.sin(a)) for a in np.linspace(0, math.tau, 20, False)]
-    disc = [(px, rim + 0.005, pz) for px, pz in ring]
-    if np.cross(np.subtract(disc[1], disc[0]), np.subtract(disc[2], disc[0]))[1] < 0:
-        disc = disc[::-1]
-    water.face(disc, np.asarray(ring))
     crown = record["crown"]
     _frustum(stone, x, z, crown["radius_m"], rim - 0.1, crown["radius_m"] * 0.8, rim + crown["height_m"])
     _frustum(stone, x, z, crown["radius_m"] * 1.2, rim + crown["height_m"], crown["radius_m"] * 1.2,
@@ -143,7 +156,7 @@ def centrepiece(stone, water, x, z, level, record, body):
         angle = math.radians(figure.get("facing_deg", 0.0))
         # Compass bearing to local x/z (x east, z south).
         facing = (math.sin(angle), -math.cos(angle))
-        _figure(stone, x, z, rim + crown["height_m"] + 0.1, figure, facing)
+        _figure(bronze, x, z, rim + crown["height_m"] + 0.1, figure, facing)
     spheres = record.get("rim_spheres")
     if spheres:
         outer = shapely.orient_polygons(body.buffer(0.3, join_style="mitre")).simplify(0.2)

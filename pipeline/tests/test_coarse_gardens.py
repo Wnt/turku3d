@@ -125,28 +125,36 @@ def test_reviewed_fountain_draws_its_centrepiece_in_its_basin_and_tile_only():
     empty = Mesh(np.empty((0, 3)), np.empty((0, 3), np.uint32), np.empty(0, np.uint8))
     plain_dry, plain_wet, _, _ = gardens.produce(tile, dict(scene, fountains=[]), ground, empty, empty, ground)
     dry, wet, _, solid = gardens.produce(tile, scene, ground, empty, empty, ground)
-    added = dry.positions[dry.indices[len(plain_dry.indices):]]
+    # The ground keeps only the basin: the finish pass repaints flat ground faces from the lawn around them.
+    assert len(dry.indices) == len(plain_dry.indices)
+    meshes = {m.object_id: m for m in gardens.centrepieces(tile, scene)}
+    assert set(meshes) == {"fountain:osm:6316196323:masonry", "fountain:osm:6316196323:figure"}
+    masonry, figure = meshes["fountain:osm:6316196323:masonry"], meshes["fountain:osm:6316196323:figure"]
+    assert (masonry.metadata["surface"], figure.metadata["surface"]) == ("granite", "bronze")
+    assert masonry.visual and figure.visual and {masonry.material, figure.material} <= {"quay", "wall"}
+    added = masonry.positions[masonry.indices]
     assert len(added) and np.isfinite(added).all()
-    assert np.all(dry.material[len(plain_dry.indices):] == mat_id("quay"))
-    # Pedestal on the bed, bowl, crown and figure: about four metres of stone above the water.
+    # Pedestal on the bed, bowl and crown, the figure on top: about four metres above the water.
     assert np.isclose(added[:, :, 1].min(), 9.0 - 0.65)
-    assert 3.4 < added[:, :, 1].max() - 9.0 < 4.6
+    assert 3.4 < figure.positions[:, 1].max() - 9.0 < 4.6
+    assert figure.positions[:, 1].min() > added[:, :, 1].max() - 0.2
     # Every centrepiece face is wound outward: nothing faces the pedestal's axis from outside it.
     normals = np.cross(added[:, 1] - added[:, 0], added[:, 2] - added[:, 0])
     radial = added.mean(axis=1)[:, [0, 2]] - [100, 100]
     sides = np.abs(normals[:, 1]) < 1e-6 * np.linalg.norm(normals, axis=1)
-    # The footing, pedestal and stem (below the bowl), not the rim spheres or the figure's blocks.
+    # The footing, pedestal and stem (below the bowl), not the rim spheres.
     near = (np.linalg.norm(radial, axis=1) < 1.5) & (added.mean(axis=1)[:, 1] < 9.0 + 1.35 + 0.7)
     assert np.all((normals[sides & near][:, [0, 2]] * radial[sides & near]).sum(axis=1) > 0)
     # The bowl holds water above the pool's surface; one sphere per rim corner.
     bowl = wet.positions[wet.indices[len(plain_wet.indices):]]
     assert len(bowl) and bowl[:, :, 1].min() > 9.0 + 2
+    assert len(solid.indices) - len(ground.indices) > 0
     spheres = added[np.linalg.norm(radial, axis=1) > 3.5]
     corners = {tuple(np.round(t.mean(axis=0)[[0, 2]] - [100, 100], 0)) for t in spheres}
     assert 8 <= len(shapely.MultiPoint([c for c in corners]).convex_hull.exterior.coords) <= 17
-    assert len(solid.indices) - len(ground.indices) >= len(dry.indices) - len(plain_dry.indices)
-    # Another tile draws the basin's rim but never the centrepiece.
+    # Another tile draws the basin's rim but never the centrepiece or its water.
     far = C.VisualTile(0, 1, 0)
     q, jx = grid_mesh(far, np.full((CELLS + 1, CELLS + 1), 9.0))
     other = Mesh(q, jx, np.full(len(jx), mat_id("grass"), np.uint8))
     assert len(gardens.produce(far, scene, other, empty, empty, other)[0].indices) == len(other.indices)
+    assert gardens.centrepieces(far, scene) == []

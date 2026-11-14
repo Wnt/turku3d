@@ -8,7 +8,7 @@ from turku3d.ground.mesh import Mesh
 from turku3d.structures.geometry import Faces
 
 from .banks import join
-from .fountains import centrepiece
+from .fountains import bowl_water, centrepiece
 
 
 def grade(positions, scene):
@@ -102,17 +102,34 @@ def produce(tile, scene, dry, wet, bank, solid):
         dry = join(dry, rim)
         wet = join(wet, surface)
         solid = join(solid, rim, surface, floor)
-    # A reviewed fountain's centrepiece belongs to the tile holding its artwork point.
-    for x, z, level, _, record, body in scene.get("fountains", ()):
+    # A reviewed fountain's bowl water belongs to the tile holding its artwork point (``centrepieces``).
+    for x, z, level, _, record, _ in scene.get("fountains", ()):
         if not window.covers(shapely.Point(x, z)):
             continue
-        stone, water = Faces(), Faces()
-        centrepiece(stone, water, x, z, level, record, body)
-        masonry, surface = mesh(stone, "quay"), mesh(water, "water")
-        dry = join(dry, masonry)
+        water = Faces()
+        bowl_water(water, x, z, level, record)
+        surface = mesh(water, "water")
         wet = join(wet, surface)
-        solid = join(solid, masonry, surface)
+        solid = join(solid, surface)
     return dry, wet, bank, solid
+
+
+def centrepieces(tile, scene):
+    """Structure meshes of the reviewed fountains whose artwork point this tile holds: granite masonry
+    and a bronze figure, outside the ground so no lawn or paving region repaints them."""
+    window = shapely.box(*tile.bbox.as_tuple())
+    meshes = []
+    for x, z, level, identity, record, body in scene.get("fountains", ()):
+        if not window.covers(shapely.Point(x, z)):
+            continue
+        stone, bronze = Faces(), Faces()
+        centrepiece(stone, bronze, x, z, level, record, body)
+        for faces, part, material, surface in ((stone, "masonry", "quay", "granite"),
+                                               (bronze, "figure", "wall", "bronze")):
+            if faces.indices:
+                meshes.append(faces.mesh(f"fountain:{identity}:{part}", material,
+                                         metadata=dict(surface=surface, kind="fountain")))
+    return meshes
 
 
 def stats(tile, scene):
