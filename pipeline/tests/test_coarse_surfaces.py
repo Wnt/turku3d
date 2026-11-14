@@ -764,3 +764,28 @@ def test_boundary_cut_local_windows_preserve_complex_region_holes_and_precedence
         pieces = polys[mat == mat_id(key)]
         assert abs(shapely.area(pieces).sum() - expected.area) < 1e-8
         assert shapely.union_all(pieces).symmetric_difference(expected).area < 1e-8
+
+
+def test_boundary_cut_skips_a_complex_region_whose_triangles_a_later_region_took_whole():
+    """t0_-5_0 (Rauhankatu 23): every boundary triangle under a winding region was already taken whole by a
+    later region (last wins), so its local windows had no rows left and the visual finish failed the tile."""
+    from turku3d.coarse.surfaces import split_boundaries
+
+    x, z = np.meshgrid(np.arange(0, 101., 5), np.arange(0, 101., 5))
+    p = np.c_[x.ravel(), .1 * x.ravel() + .2 * z.ravel(), z.ravel()]
+    cells = [r * 21 + c for r in range(20) for c in range(20)]
+    ix = np.asarray([[a, a + 21, a + 1] for a in cells]
+                    + [[a + 1, a + 21, a + 22] for a in cells], np.uint32)
+    angle = np.linspace(0, 2 * np.pi, 1024, endpoint=False)
+    radius = 45 + 4 * np.sin(angle * 19)
+    region = shapely.Polygon(np.c_[50 + radius * np.cos(angle), 50 + radius * np.sin(angle)])
+    cover = shapely.box(-10, -10, 110, 110)
+    material = np.full(len(ix), mat_id('grass'), np.uint8)
+    pos, idx, mat, _ = split_boundaries(
+        p, ix, material, np.ones(len(ix), bool),
+        [(region, mat_id('gravel')), (cover, mat_id('road'))], material,
+        keep_steep=True,
+    )
+    polys = shapely.polygons(pos[idx][:, :, [0, 2]])
+    assert set(mat.tolist()) == {mat_id('road')}
+    assert abs(shapely.area(polys).sum() - 100 * 100) < 1e-8

@@ -877,7 +877,10 @@ def split_boundaries(
         bounds = shapely.bounds(remaining[hits])
         nonempty = np.isfinite(bounds).all(axis=1)
         hits, bounds = hits[nonempty], bounds[nonempty]
-        cells = np.floor((bounds[:, :2] + bounds[:, 2:]) / 32).astype(np.int64)
+        if not len(hits):
+            # Later regions (last wins) already took every hit triangle whole: nothing is left to cut.
+            return
+        cells =np.floor((bounds[:, :2] + bounds[:, 2:]) / 32).astype(np.int64)
         _, groups = np.unique(cells, axis=0, return_inverse=True)
         order = np.argsort(groups, kind="stable")
         starts = np.r_[0, np.flatnonzero(np.diff(groups[order])) + 1, len(order)]
