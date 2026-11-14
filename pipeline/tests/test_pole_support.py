@@ -140,9 +140,10 @@ def test_whole_runtime_cylinder_base_requires_support_and_cannot_straddle_a_curb
 def test_support_migration_is_last_after_finished_terrain_and_sign_stacking():
     from turku3d.migrations.registry import CHAIN
 
-    assert CHAIN[-1].key == "pole-support@1"
-    assert next(i for i, m in enumerate(CHAIN) if m.name == "signs") < len(CHAIN) - 1
-    assert next(i for i, m in enumerate(CHAIN) if m.name == "finished-ground") < len(CHAIN) - 1
+    # Spot rebuilds appended later replace whole products; pole support runs after the terrain and signs it reads.
+    support = next(i for i, m in enumerate(CHAIN) if m.key == "pole-support@1")
+    assert next(i for i, m in enumerate(CHAIN) if m.name == "signs") < support
+    assert next(i for i, m in enumerate(CHAIN) if m.name == "finished-ground") < support
 
 
 def test_unavailable_neighbour_is_unresolved_and_does_not_delete_or_move_post(tmp_path):

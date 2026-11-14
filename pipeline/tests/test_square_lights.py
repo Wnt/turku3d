@@ -87,4 +87,4 @@ def test_the_migration_adds_dark_squares_to_the_tile_floodlights(tmp_path, monke
     record = manifest["lights"]["floodlights"]
     assert [v["id"] for v in record["venues"]] == ["osm:way:9", "square:osm:way:1"]
     assert record["masts"] and all(m["venue"] == "square:osm:way:1" for m in record["masts"])
-    assert registry.CHAIN[-1] is migration.MIGRATION
+    assert migration.MIGRATION in registry.CHAIN
