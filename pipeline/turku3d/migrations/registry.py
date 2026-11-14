@@ -6,7 +6,8 @@ from . import (bridge_ends, chain_record, finished_ground, floodlights, furnitur
                monolith_walls, path_trees, racks, roadbed, shell_look, signals, signs, span_lamps,
                square_lights, stand_roofs, structure_materials, trees_lidar, wires, facade_reality,
                forest_cover, centred_paint, pole_support, measured_walls, facade_readings, old_timber,
-               town_premises, block_balconies, street_edges, block_windows, review_patches, shell_eaves)
+               town_premises, block_balconies, street_edges, block_windows, review_patches, shell_eaves,
+               slab_ends, shell_eaves_outer)
 
 CHAIN = (
     chain_record.MIGRATION,
@@ -67,4 +68,8 @@ CHAIN = (
     review_patches.MIGRATION,
     # Spot rebuild of the ring 0-3 tiles whose trimmed walls lost their eave: windows on 0.1 m walls, floor grids.
     shell_eaves.MIGRATION,
+    # Spot rebuild of the tiles holding a 1940-1979 slab block of flats: blank or one-column end walls.
+    slab_ends.MIGRATION,
+    # shell-eaves@1's rebuild for the tiles with buildings beyond rings 0-3 (fed after them).
+    shell_eaves_outer.MIGRATION,
 )

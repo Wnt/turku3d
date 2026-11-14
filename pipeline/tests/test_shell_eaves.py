@@ -63,3 +63,14 @@ def test_shell_eaves_rebuilds_the_surveyed_ring_tiles_after_review_patches():
     for tile in ("t0_-4_-11", "t0_-4_1", "t0_-3_0", "t0_-5_1"):
         assert shell_eaves.affected({"tile": tile})
     assert not shell_eaves.affected({"tile": "t0_-30_30"}) and not shell_eaves.affected({})
+
+
+def test_shell_eaves_outer_rebuilds_the_tiles_beyond_rings_0_3_after_them():
+    from turku3d.migrations import registry, shell_eaves, shell_eaves_outer, slab_ends
+
+    assert registry.CHAIN[-1] is shell_eaves_outer.MIGRATION
+    assert registry.CHAIN.index(shell_eaves_outer.MIGRATION) > registry.CHAIN.index(slab_ends.MIGRATION)
+    tiles = shell_eaves_outer.tiles()
+    assert len(tiles) == 2367 and tiles.isdisjoint(shell_eaves.TILES)
+    assert shell_eaves_outer.affected({"tile": "t0_-15_-6"}) and shell_eaves_outer.affected({"tile": "t0_37_-119"})
+    assert not shell_eaves_outer.affected({"tile": "t0_-4_1"}) and not shell_eaves_outer.affected({})
