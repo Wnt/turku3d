@@ -22,6 +22,19 @@ W2's readings rule (w2-rules 6c0a8090 on local/loop-integration, ``world/kinds/b
   1980-2022; a vent leaf 3), about 1.4 m wide, 1.5 m tall in the eighties, 1.7 m since 2000. A
   block with a surveyed wall keeps its windows on every wall (one window type a building).
 
+- End walls (pp-facades3, 2026-11-14): the short end walls of a slab block dated 1940-1979 carry at
+  most one column of windows. The sampled grid put a full window grid on them (Heikkilankatu 2 at
+  blocks-02, whose real end wall is blank). Ground end walls of 1940-1979 slab blocks (footprint at
+  least 1.8 times as long as deep) in the W2 full readings and the street photos: of the 9 whole ends
+  10 m wide or more, 4 are blank, 1 has one column of windows, 4 a few or full windows; of the 6
+  narrower end pieces (stepped ends, ends beside a stair tower), 5 have one column and 1 is blank. The
+  long walls of the same blocks all have their windows. So a wide end wall is drawn blank and a
+  narrower one with one column of windows in its middle (a stair or kitchen column). Since 1980, 7 of
+  12 such end walls are windowed, so later blocks keep the grid. An end wall runs across the slab
+  (within 30 degrees of square to the long side of the footprint's minimum rectangle) and is no wider
+  than the slab's depth + 1 m and 16.5 m. Scope: city-wide like the rest of the rule (the evidence is
+  from the centre's open blocks and wooden town, VII-VIII, and from Runosmaki, Luolavuori, Varissuo).
+
 Against the readings W2's automatic tier drew the balconies right on 139 -> 155 of 184 read buildings
 with this rule (and the instrument fix); lights 75 -> 79, window width 66 -> 73.
 
@@ -64,6 +77,12 @@ TALL_WIDTH_M, TALL_SHARE, TALL_HEIGHT_M = 9.0, 0.6, 7.5
 SUNWARD_DEG = 45.0
 # Single-light windows since 1980: width, height by band (metres).
 SINGLE_LIGHT = {"eighties": (1.4, 1.5), "new": (1.4, 1.7)}
+# Short end walls of slabs before 1980: footprint length / depth, the widest end wall (m), how far a
+# wall may turn from square to the long side (|cos| to the long axis), the width from which it is blank.
+END_UNTIL = 1980
+SLAB_RATIO, END_MAX_M, END_ACROSS = 1.8, 16.5, 0.5
+END_BLANK_FROM_M = 10.0
+END_SOURCE = "slab end-wall rule from W2 readings and street photos (pp-facades3)"
 
 
 def band(year: int) -> str:
@@ -197,6 +216,69 @@ def _single_lights(wall, prior, v):
     windows["pane_split_fraction"] = v(0)
 
 
+def slab_axis(footprint):
+    """(long unit axis in local x/z, length m, depth m) of the footprint's minimum rotated rectangle."""
+    rect = np.asarray(footprint.minimum_rotated_rectangle.exterior.coords, float)[:, :2]
+    if len(rect) < 3:
+        return None
+    first, second = rect[1] - rect[0], rect[2] - rect[1]
+    a, b = float(np.linalg.norm(first)), float(np.linalg.norm(second))
+    if min(a, b) < 1e-6:
+        return None
+    return (first / a, a, b) if a >= b else (second / b, b, a)
+
+
+def end_walls(building, program, quads, edges, free) -> list:
+    """Indices of a slab's short end walls among ``free``: ground walls on the outline that run across
+    the footprint's long side (within 30 degrees of square to it), no wider than the depth + 1 m."""
+    axis = slab_axis(building.footprint.buffer(0))
+    if axis is None:
+        return []
+    along, length, depth = axis
+    if length < SLAB_RATIO * depth or depth > END_MAX_M:
+        return []
+    widest = min(depth + 1.0, END_MAX_M)
+    walls = program["walls"]
+    result = []
+    for i in free:
+        if not edges[i] or not edges[i][2] or not walls[i].get("outline", True):
+            continue
+        run = quads[i][1, [0, 2]] - quads[i][0, [0, 2]]
+        size = float(np.linalg.norm(run))
+        if size < 1e-6 or abs(float(run @ along)) / size > END_ACROSS:
+            continue
+        if float(walls[i]["width_m"]) <= widest:
+            result.append(i)
+    return result
+
+
+def end_kind(width: float) -> str:
+    """An end wall ``width`` m wide: "blank" from 10 m, else "column" (one column of windows)."""
+    return "blank" if width >= END_BLANK_FROM_M else "column"
+
+
+def end_wall(wall, kind):
+    """A slab end wall, in place: blank, or one column of the wall's windows in its middle."""
+    from turkutex.facade_program import value
+
+    width = float(wall["width_m"])
+    count = 0 if kind == "blank" or width < 2.2 else 1
+    wall["bays"].update(count=count, pitch_m=width, centers_m=[width / 2] * count, rhythm="regular",
+                        support=SUPPORT)
+    # A learned layout's positioned openings (``facade_learned_layout``) give way to the procedural
+    # wall: no window grid, door, rail or component is left from the sampled layout.
+    wall["windows"]["rectangles_m"] = []
+    for name in ("head_shapes", "surround_shapes", "opening_roles"):
+        wall["windows"].pop(name, None)
+    for name in ("measured_geometry", "measured_size"):
+        wall.pop(name, None)
+    wall["base"]["openings_m"] = []
+    wall["doors"]["candidates"] = []
+    wall["geometry_components"] = []
+    wall["balconies"] = value([], END_SOURCE, SUPPORT)
+    wall["end_wall"] = kind
+
+
 def apply(building, program, vertices) -> dict:
     """Balconies and windows of the block-of-flats rule on the program's rule-sampled walls, in place.
 
@@ -224,10 +306,17 @@ def apply(building, program, vertices) -> dict:
     part = balcony(key, year)
     stats = dict(walls=0, stacks=0, balconies=0, type=part["type"] if part else None)
     program["block_of_flats"] = stats
+    edges = _edges(building, quads)
+    # A slab's short end walls before 1980: blank or one column (a surveyed block keeps its windows).
+    if year < END_UNTIL and len(free) == len(program["walls"]):
+        ends = end_walls(building, program, quads, edges, free)
+        for i in ends:
+            kind = end_kind(float(program["walls"][i]["width_m"]))
+            end_wall(program["walls"][i], kind)
+            stats[f"end_{kind}"] = stats.get(f"end_{kind}", 0) + 1
     floors = program["storeys"]["value"]
     if not part or not floors or floors < 2:
         return stats
-    edges = _edges(building, quads)
     walls = program["walls"]
     candidates = [i for i in free if edges[i] and edges[i][2] and walls[i].get("outline", True)]
     if not candidates:
@@ -366,6 +455,38 @@ def build(city: Path, described: list[Path]) -> dict:
     return dict(keys=len(keys), tiles=len(tiles), ring1km_tiles=len(ring), **dict(sorted(counts.items())))
 
 
+END_KEYS = Path(__file__).parent / "migrations" / "slab_ends_keys.json"
+
+
+def build_ends(city: Path) -> dict:
+    """Write the slab-ends spot-rebuild key list from the city building table (key, cls, year, storeys,
+    geometry): every block of flats dated 1940-1979 with three or more register storeys whose footprint
+    is a slab (``end_walls``' test on the table's footprint), a superset of the rule's class. Returns counts."""
+    import pyarrow.parquet as pq
+    import shapely
+
+    rows = pq.read_table(city, columns=["key", "cls", "year", "storeys", "geometry", "E", "N"]).to_pylist()
+    keys, counts, tiles = [], collections.Counter(), set()
+    for r in rows:
+        year = r["year"]
+        if (str(r["cls"] or "") != RESIDENTIAL_CLASS or not year or year != year or not FROM_YEAR <= year < END_UNTIL
+                or (r["storeys"] or 0) < MIN_LEVELS):
+            continue
+        counts["blocks"] += 1
+        axis = slab_axis(shapely.from_wkb(r["geometry"]).buffer(0))
+        if axis is None or axis[1] < SLAB_RATIO * axis[2] or axis[2] > END_MAX_M:
+            continue
+        keys.append(r["key"])
+        counts[f"slabs:{band(int(year))}"] += 1
+        counts[f"end:{end_kind(min(axis[2], END_MAX_M))}"] += 1
+        tiles.add((math.floor((r["E"] - C.ORIGIN_E) / C.VISUAL_TILE_SIZE),
+                   math.floor((C.ORIGIN_N - r["N"]) / C.VISUAL_TILE_SIZE)))
+    keys.sort()
+    END_KEYS.write_text(json.dumps(dict(format="turku3d-slab-ends-keys", version=1, keys=keys),
+                                   separators=(",", ":")) + "\n")
+    return dict(keys=len(keys), centroid_tiles=len(tiles), **dict(sorted(counts.items())))
+
+
 def main(argv=None):
     import argparse
 
@@ -375,8 +496,10 @@ def main(argv=None):
     b.add_argument("--city", type=Path, required=True)
     b.add_argument("--described", type=Path, nargs="*", default=[],
                    help="indexes of described or read buildings (facade-assets, facade-readings)")
+    e = sub.add_parser("ends", help="write migrations/slab_ends_keys.json and print counts")
+    e.add_argument("--city", type=Path, required=True)
     args = parser.parse_args(argv)
-    print(json.dumps(build(args.city, args.described), indent=1))
+    print(json.dumps(build(args.city, args.described) if args.action == "build" else build_ends(args.city), indent=1))
 
 
 if __name__ == "__main__":
