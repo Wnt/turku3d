@@ -206,23 +206,37 @@ def test_block_windows_rebuilds_only_tiles_holding_a_surveyed_later_block():
     assert not block_windows.affected({"building_keys": ["x"]}) and not block_windows.affected({})
 
 
-def test_a_slabs_short_end_walls_before_1980_are_blank_or_one_column(monkeypatch):
+def test_a_slabs_short_end_walls_before_1980_are_blank_one_column_or_windowed_per_building(monkeypatch):
     """Heikkilankatu 2 (1957, 8 storeys, 15.5 x 42 m) at blocks-02: the real end wall is blank, the rule
     drew a full grid. Of the read or photographed whole end walls of 1940-1979 slabs 10 m wide or more 4
-    are blank and 1 has one column; of the narrower end pieces 5 have one column. Since 1980 7 of 12 end
+    are blank, 1 has one column and 4 are windowed: each building draws its wide ends by a stable pick in
+    those proportions (slab-ends@2). Of the narrower end pieces 5 have one column. Since 1980 7 of 12 end
     walls are windowed and keep the grid."""
+    import collections
+
     from turku3d.coarse.stored_facades import wall_meshes
     from turku3d.facade_blocks import end_kind
 
-    assert end_kind(15.5) == end_kind(10.0) == "blank" and end_kind(9.9) == end_kind(8.0) == "column"
-    for depth, kind in ((15.5, "blank"), (9.0, "column")):
-        b, walls = block(monkeypatch, year=1957, levels=8, length=42.0, depth=depth)
+    assert end_kind(9.9, "a") == end_kind(8.0, "b") == "column"
+    # Stable per building (a crc of its id, never Python's salted hash) and in the evidence's 4 : 1 : 4.
+    picks = collections.Counter(end_kind(12.0, f"10{n:07d}X") for n in range(9000))
+    assert {k: round(v / 1000) for k, v in picks.items()} == {"blank": 4, "column": 1, "windowed": 4}
+    assert all(end_kind(15.5, f"10{n:07d}X") == end_kind(10.0, f"10{n:07d}X") for n in range(50))
+    keys = {}
+    for n in range(100):
+        keys.setdefault(end_kind(15.5, f"10{n:07d}X"), f"10{n:07d}X")
+    for depth, kind, key in ((15.5, "blank", keys["blank"]), (15.5, "column", keys["column"]),
+                             (15.5, "windowed", keys["windowed"]), (9.0, "column", keys["windowed"])):
+        b, walls = block(monkeypatch, year=1957, levels=8, length=42.0, depth=depth, key=key)
         prog = program(wall_meshes(b, walls, np.zeros(3)))
         ends = [w for w in prog["walls"] if w["width_m"] < 20]
         longs = [w for w in prog["walls"] if w["width_m"] > 40]
         assert len(ends) == 2 and len(longs) == 2
-        assert all(w["bays"]["count"] == (0 if kind == "blank" else 1) for w in ends)
-        assert all(w.get("end_wall") == kind and not w["windows"]["rectangles_m"] for w in ends)
+        if kind == "windowed":
+            assert all(w["bays"]["count"] >= 3 and "end_wall" not in w for w in ends)
+        else:
+            assert all(w["bays"]["count"] == (0 if kind == "blank" else 1) for w in ends)
+            assert all(w.get("end_wall") == kind and not w["windows"]["rectangles_m"] for w in ends)
         assert all(w["bays"]["count"] >= 8 and "end_wall" not in w for w in longs)
         assert prog["block_of_flats"][f"end_{kind}"] == 2
     # Since 1980, a compact block, and a deep slab (a business block's 23 m end) keep their windows.
@@ -238,7 +252,7 @@ def test_slab_ends_rebuilds_only_tiles_holding_a_pre_1980_slab_block():
 
     # Appended after shell-eaves: earlier trains stay a prefix of the chain; old-timber moved to @3.
     assert registry.CHAIN.index(slab_ends.MIGRATION) > registry.CHAIN.index(shell_eaves.MIGRATION)
-    assert old_timber.MIGRATION.key == "old-timber@3"
+    assert old_timber.MIGRATION.key == "old-timber@3" and slab_ends.MIGRATION.key == "slab-ends@2"
     keys = slab_ends.keys()
     assert 500 < len(keys) < 1000 and keys <= block_balconies.keys()
     assert "103321758X" in keys  # Heikkilankatu 2 (blocks-02)

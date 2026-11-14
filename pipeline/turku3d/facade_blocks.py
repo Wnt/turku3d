@@ -34,6 +34,10 @@ W2's readings rule (w2-rules 6c0a8090 on local/loop-integration, ``world/kinds/b
   (within 30 degrees of square to the long side of the footprint's minimum rectangle) and is no wider
   than the slab's depth + 1 m and 16.5 m. Scope: city-wide like the rest of the rule (the evidence is
   from the centre's open blocks and wooden town, VII-VIII, and from Runosmaki, Luolavuori, Varissuo).
+  slab-ends@2 (pp-facades4, 2026-11-14): a wide end wall is no longer always blank. Each building draws
+  its wide ends in the evidence's proportions, 4 blank : 1 one column : 4 windowed (the sampled grid),
+  by a stable pick on its register id, so a rebuild never changes it (Fable on pp-facades3's stills:
+  blank on every wide end overstates the 4 of 9). Narrower end pieces keep one column.
 
 Against the readings W2's automatic tier drew the balconies right on 139 -> 155 of 184 read buildings
 with this rule (and the instrument fix); lights 75 -> 79, window width 66 -> 73.
@@ -78,10 +82,12 @@ SUNWARD_DEG = 45.0
 # Single-light windows since 1980: width, height by band (metres).
 SINGLE_LIGHT = {"eighties": (1.4, 1.5), "new": (1.4, 1.7)}
 # Short end walls of slabs before 1980: footprint length / depth, the widest end wall (m), how far a
-# wall may turn from square to the long side (|cos| to the long axis), the width from which it is blank.
+# wall may turn from square to the long side (|cos| to the long axis), the width from which it is wide.
 END_UNTIL = 1980
 SLAB_RATIO, END_MAX_M, END_ACROSS = 1.8, 16.5, 0.5
 END_BLANK_FROM_M = 10.0
+# A wide end wall per building, in the evidence's proportions (9 whole ends: 4 blank, 1 column, 4 windowed).
+END_WIDE_KINDS = ("blank",) * 4 + ("column",) + ("windowed",) * 4
 END_SOURCE = "slab end-wall rule from W2 readings and street photos (pp-facades3)"
 
 
@@ -252,9 +258,12 @@ def end_walls(building, program, quads, edges, free) -> list:
     return result
 
 
-def end_kind(width: float) -> str:
-    """An end wall ``width`` m wide: "blank" from 10 m, else "column" (one column of windows)."""
-    return "blank" if width >= END_BLANK_FROM_M else "column"
+def end_kind(width: float, key: str) -> str:
+    """An end wall ``width`` m wide of building ``key``: "column" (one column of windows) when narrower
+    than 10 m, else the building's stable pick of "blank", "column" or "windowed" (keeps the grid)."""
+    if width < END_BLANK_FROM_M:
+        return "column"
+    return _pick(key, "end-wall", END_WIDE_KINDS)
 
 
 def end_wall(wall, kind):
@@ -307,12 +316,13 @@ def apply(building, program, vertices) -> dict:
     stats = dict(walls=0, stacks=0, balconies=0, type=part["type"] if part else None)
     program["block_of_flats"] = stats
     edges = _edges(building, quads)
-    # A slab's short end walls before 1980: blank or one column (a surveyed block keeps its windows).
+    # A slab's short end walls before 1980: blank, one column or the grid (a surveyed block keeps its windows).
     if year < END_UNTIL and len(free) == len(program["walls"]):
         ends = end_walls(building, program, quads, edges, free)
         for i in ends:
-            kind = end_kind(float(program["walls"][i]["width_m"]))
-            end_wall(program["walls"][i], kind)
+            kind = end_kind(float(program["walls"][i]["width_m"]), key)
+            if kind != "windowed":
+                end_wall(program["walls"][i], kind)
             stats[f"end_{kind}"] = stats.get(f"end_{kind}", 0) + 1
     floors = program["storeys"]["value"]
     if not part or not floors or floors < 2:
@@ -478,7 +488,7 @@ def build_ends(city: Path) -> dict:
             continue
         keys.append(r["key"])
         counts[f"slabs:{band(int(year))}"] += 1
-        counts[f"end:{end_kind(min(axis[2], END_MAX_M))}"] += 1
+        counts[f"end:{end_kind(min(axis[2], END_MAX_M), str(r['key']))}"] += 1
         tiles.add((math.floor((r["E"] - C.ORIGIN_E) / C.VISUAL_TILE_SIZE),
                    math.floor((C.ORIGIN_N - r["N"]) / C.VISUAL_TILE_SIZE)))
     keys.sort()
