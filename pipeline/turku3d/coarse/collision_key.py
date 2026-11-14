@@ -32,6 +32,8 @@ VISUAL_ONLY = {
     "open_ground.py",
     "facade_garage.py",
     "facade_slab.py",
+    # Balconies are visual components above the street storey; collision keeps the shell.
+    "facade_blocks.py",
     "facade_apertures.py",
     "facade_learning.py",
     "facade_monolith.py",

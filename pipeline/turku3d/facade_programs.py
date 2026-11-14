@@ -36,6 +36,7 @@ def source_paths():
         Path(__file__).with_name("facade_garage.py"),
         Path(__file__).with_name("facade_slab.py"),
         Path(__file__).with_name("facade_timber.py"),
+        Path(__file__).with_name("facade_blocks.py"),
         Path(__file__).parent / "coarse" / "register_timber.py",
         Path(__file__).parent / "coarse" / "register_timber.json",
         Path(__file__).with_name("facade_apertures.py"),

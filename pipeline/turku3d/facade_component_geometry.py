@@ -420,6 +420,45 @@ def geometry(vertices, plans, building, origin):
         for x in np.linspace(left + 0.03, r - 0.03, count + 1):
             box(x - 0.025, y + 0.07, d - 0.055, x + 0.025, y + 0.93, d - 0.005, "rail", False)
 
+    def stack(p, left, y, r, t, d):
+        """A stack of rule balconies (``turku3d.facade_blocks``), one per storey, kept cheap: a slab and a
+        parapet front (with two sides on a projecting balcony) as boxes that packaging instances, and a
+        glazed balcony's panes as single outward quads batched per material. A loggia's recess and
+        returns are the plan's cut; its slab and front stand in the recess at the wall plane."""
+        kind, rows = p["kind"], p["rows"]
+        slab, height = p.get("slab_m", 0.18), p.get("parapet_m", 1.0)
+        slab_colour, front = p.get("slab_colour"), p.get("parapet_colour")
+        front_material = "glass" if p.get("parapet") == "glass" else "slab"
+        for row in range(rows):
+            bottom = y + (t - y) * row / rows
+            top = y + (t - y) * (row + 1) / rows
+            if top - bottom < 2.0:
+                continue
+            last = row == rows - 1
+            if kind == "loggia":
+                box(left, bottom, -d + 0.02, r, bottom + slab, 0.0, colour=slab_colour, solid=False)
+                box(left, bottom + slab, -0.1, r, bottom + slab + height, 0.02, front_material,
+                    colour=front, solid=False)
+                continue
+            a, b = left + 0.03, r - 0.03
+            box(a, bottom, 0.02, b, bottom + slab, d, colour=slab_colour, solid=False)
+            low, high = bottom + slab, bottom + slab + height
+            box(a, low, d - 0.06, b, high, d, front_material, colour=front, solid=False)
+            for x0, x1 in ((a, a + 0.06), (b - 0.06, b)):
+                box(x0, low, 0.02, x1, high, d - 0.06, front_material, colour=front, solid=False)
+            if kind != "glazed_balcony":
+                continue
+            # Panes from the parapet to the slab above; the top storey gets its own roof slab.
+            ceiling = top - slab if last else top
+            if last:
+                box(a, ceiling, 0.02, b, top, d, colour=slab_colour, solid=False)
+            if ceiling - high < 0.3:
+                continue
+            z = d - 0.03
+            face([[b, ceiling, z], [a, ceiling, z], [a, high, z], [b, high, z]], "glass")
+            face([[a, ceiling, d - 0.06], [a, ceiling, 0.02], [a, high, 0.02], [a, high, d - 0.06]], "glass")
+            face([[b, ceiling, 0.02], [b, ceiling, d - 0.06], [b, high, d - 0.06], [b, high, 0.02]], "glass")
+
     for p in plans:
         p["origin"] = reference
         left, y, r, t = p["metric"]
@@ -491,6 +530,9 @@ def geometry(vertices, plans, building, origin):
                                     [x0, t - 0.1, 0.34],
                                 ]
                             )
+        if kind in {"balcony", "glazed_balcony", "loggia"} and p.get("parapet") in {"solid", "glass"}:
+            stack(p, left, y, r, t, d)
+            continue
         if kind in {"balcony", "glazed_balcony", "loggia", "veranda"}:
             rows, count = p["rows"], p["count"]
             for row in range(rows):
