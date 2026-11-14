@@ -275,3 +275,27 @@ def test_migration_selects_only_tiles_holding_a_read_building(monkeypatch):
     assert facade_readings.affected(dict(building_keys=["x", "gis-b1"]))
     assert not facade_readings.affected(dict(building_keys=["x"]))
     assert not facade_readings.affected({})
+
+
+def test_a_read_walls_upper_columns_carry_blank_and_single_column_end_walls():
+    """slab-ends@3: the window columns read above a wall's ground storey ride on its row entry (0 blank,
+    1 one column, n windows) so the slab end-wall rule can draw a read end wall as read; a blank read wall
+    gets an entry that ``described_walls`` (the reading's own rhythm) ignores."""
+    from turku3d.facade_programs import described_walls
+
+    doc = reading()
+    side = {"id": "w01", "material": "wall", "observed": {"visible_share": 0.6}, "conf": {"*": 0.6},
+            "frame": {"p0": [E + 12, N], "p1": [E + 12, N - 5], "base_h": 0, "height_m": 9},
+            "storeys": [{"kind": "ground", "height_m": 3.0, "openings": [{"type": "door", "u_m": 2.5}]},
+                        {"kind": "upper", "height_m": 2.8, "count": 2}]}
+    doc["walls"][1] = side
+    row, _ = conv.convert(doc)
+    assert row["walls"][0]["upper_columns"] == 4  # the front: four bays of windows on its upper storeys
+    assert row["walls"][1] == dict(coordinates=[[E + 12, N], [E + 12, N - 5]], base_height=0, upper_columns=0)
+    assert set(described_walls(np.concatenate([FRONT, SIDE]), row)) == {0}
+    side["storeys"][1]["openings"] = [{"type": "window", "u_m": 2.5}]
+    row, _ = conv.convert(doc)
+    assert row["walls"][1]["upper_columns"] == 1
+    side["observed"]["visible_share"] = 0.1  # hardly seen: unread
+    row, _ = conv.convert(doc)
+    assert all("upper_columns" not in w for w in row["walls"][1:])

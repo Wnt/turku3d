@@ -38,6 +38,14 @@ W2's readings rule (w2-rules 6c0a8090 on local/loop-integration, ``world/kinds/b
   its wide ends in the evidence's proportions, 4 blank : 1 one column : 4 windowed (the sampled grid),
   by a stable pick on its register id, so a rebuild never changes it (Fable on pp-facades3's stills:
   blank on every wide end overstates the 4 of 9). Narrower end pieces keep one column.
+  slab-ends@3 (pp-facades5, 2026-11-14): an observed end wall is drawn as observed, in proven's
+  priority order. A reviewed program wall (``facade-programs.json``) on an end wall draws itself; a
+  W2 reading's end wall draws blank, one column or its grid from the window columns read above its
+  ground storey (``upper_columns`` of the reading row); the pick is only for slabs nobody observed.
+  A slab whose wide end is observed draws its unobserved wide ends of the same kind (the evidence's
+  slabs mostly repeat one end kind) instead of the pick. AI-described buildings keep their
+  description (none of the slab keys has one). The read slab is drawn by its reading; only its end
+  walls change here.
 
 Against the readings W2's automatic tier drew the balconies right on 139 -> 155 of 184 read buildings
 with this rule (and the instrument fix); lights 75 -> 79, window width 66 -> 73.
@@ -266,6 +274,101 @@ def end_kind(width: float, key: str) -> str:
     return _pick(key, "end-wall", END_WIDE_KINDS)
 
 
+def observed_kind(columns: int) -> str:
+    """The end-wall kind of ``columns`` window columns seen above the ground storey."""
+    return "blank" if columns <= 0 else "column" if columns == 1 else "windowed"
+
+
+def reviewed_columns(wall) -> int | None:
+    """Window columns a reviewed program wall shows above its ground storey (its upper rows' window
+    bays), or None when it states no upper row or reads them as unknown."""
+    floors = (wall.get("structure") or {}).get("floors") or []
+    upper = [f.get("bays") or [] for f in floors if f.get("role") != "base"]
+    if not upper or all(set(bays) <= {"unknown"} for bays in upper):
+        return None
+    return max(sum(1 for b in bays if b == "window") for bays in upper)
+
+
+def read_columns(building, vertices) -> dict:
+    """{wall index: window columns read above the ground storey} from the building's W2 reading row
+    (``upper_columns`` of its read walls), matched to the generated walls as ``described_walls``."""
+    from turku3d.facade_assets import description_row
+    from turku3d.facade_readings import SOURCE as READING
+
+    row = description_row(building.facade_key) or {}
+    walls = [w for w in row.get("walls") or [] if "upper_columns" in w]
+    if row.get("source") != READING or not walls:
+        return {}
+    from turku3d.coarse.stored_facades import match_prepared, prepare_walls
+
+    prepared = prepare_walls([dict(coordinates=w["coordinates"], normal=None, metadata={},
+                                   base_height=w.get("base_height") or 0, read=w) for w in walls])
+    result = {}
+    for index, points in enumerate(np.asarray(vertices).reshape(-1, 4, 3)):
+        matched = match_prepared(points, prepared, min_coverage=0.5)
+        if matched:
+            result[index] = int(matched[0]["read"]["upper_columns"])
+    return result
+
+
+def draw_ends(building, program, quads, edges, key, observed, reviewed, stats, *, pick, narrow=True):
+    """A slab's end walls, in place. ``observed`` {index: kind} draws as observed (a reviewed wall in
+    ``reviewed`` draws itself); a slab with an observed wide end draws its other wide ends of that
+    kind and, when ``narrow``, its narrower pieces with one column; when ``pick`` (nobody observed it)
+    the building's stable pick (narrower pieces one column)."""
+    walls = program["walls"]
+    ends = end_walls(building, program, quads, edges, range(len(walls)))
+    # The widest observed wide end speaks for the building's other wide ends.
+    seen = max(((float(walls[i]["width_m"]), observed[i]) for i in ends
+                if i in observed and float(walls[i]["width_m"]) >= END_BLANK_FROM_M), default=None)
+    for i in ends:
+        width = float(walls[i]["width_m"])
+        if i in reviewed and i not in observed:
+            continue  # a reviewed wall that states no upper row draws itself, unclassified
+        if i in observed:
+            kind, how = observed[i], "observed"
+        elif seen and width >= END_BLANK_FROM_M:
+            kind, how = seen[1], "as_observed"
+        elif pick or (narrow and seen):
+            kind, how = end_kind(width, key), "rule"
+        else:
+            continue
+        if i not in reviewed and kind != "windowed":
+            end_wall(walls[i], kind)
+        stats[f"end_{kind}"] = stats.get(f"end_{kind}", 0) + 1
+        if how != "rule":
+            stats[f"ends_{how}"] = stats.get(f"ends_{how}", 0) + 1
+
+
+def is_read_slab(building, program) -> bool:
+    """A block of flats dated 1940-1979 drawn from its W2 reading (the end walls follow the reading)."""
+    from turku3d.facade_readings import SOURCE as READING
+
+    if program.get("description_source") != READING or program.get("archetype") not in ARCHETYPES:
+        return False
+    attrs = program.get("attributes") or building.attributes or {}
+    year = _year(attrs)
+    return block_of_flats(attrs) and year is not None and year < END_UNTIL
+
+
+def read_ends(building, program, vertices) -> dict:
+    """A read slab's end walls drawn as read (``draw_ends``, no pick), in place. Returns counts."""
+    attrs = program.get("attributes") or building.attributes or {}
+    key = str(attrs.get("register_id") or building.facade_key)
+    quads = np.asarray(vertices, float).reshape(-1, 4, 3)
+    reviewed = {i for i, w in enumerate(program["walls"]) if w.get("measured_wall_id")}
+    observed = {i: observed_kind(c) for i, c in read_columns(building, vertices).items() if i not in reviewed}
+    for i in reviewed:
+        if (c := reviewed_columns(program["walls"][i])) is not None:
+            observed[i] = observed_kind(c)
+    stats = dict(read=len(observed))
+    if observed:
+        draw_ends(building, program, quads, _edges(building, quads), key, observed, reviewed, stats, pick=False,
+                  narrow=False)
+    program["slab_ends"] = stats
+    return stats
+
+
 def end_wall(wall, kind):
     """A slab end wall, in place: blank, or one column of the wall's windows in its middle."""
     from turkutex.facade_program import value
@@ -316,14 +419,14 @@ def apply(building, program, vertices) -> dict:
     stats = dict(walls=0, stacks=0, balconies=0, type=part["type"] if part else None)
     program["block_of_flats"] = stats
     edges = _edges(building, quads)
-    # A slab's short end walls before 1980: blank, one column or the grid (a surveyed block keeps its windows).
-    if year < END_UNTIL and len(free) == len(program["walls"]):
-        ends = end_walls(building, program, quads, edges, free)
-        for i in ends:
-            kind = end_kind(float(program["walls"][i]["width_m"]), key)
-            if kind != "windowed":
-                end_wall(program["walls"][i], kind)
-            stats[f"end_{kind}"] = stats.get(f"end_{kind}", 0) + 1
+    # A slab's short end walls before 1980: as observed on a reviewed end wall, else blank, one column or
+    # the grid by the building's pick (a surveyed block without a reviewed end keeps its windows).
+    if year < END_UNTIL:
+        reviewed = set(range(len(program["walls"]))) - set(free)
+        observed = {i: observed_kind(c) for i in reviewed
+                    if (c := reviewed_columns(program["walls"][i])) is not None}
+        if not reviewed or observed:
+            draw_ends(building, program, quads, edges, key, observed, reviewed, stats, pick=not reviewed)
     floors = program["storeys"]["value"]
     if not part or not floors or floors < 2:
         return stats

@@ -202,7 +202,8 @@ def described_walls(vertices, row):
     """What the description's source read on each generated wall quad: the matched read wall's own
     layout fields (``WALL_LAYOUT``) and its balcony rails (``rails``: ``[[x, y, w, h], ...]`` with x
     along the quad from its first vertex), as ``{index: {...}}``."""
-    walls = (row or {}).get("walls") or []
+    # A read wall's ``upper_columns`` alone (a blank read wall) is for the slab end-wall rule only.
+    walls = [w for w in (row or {}).get("walls") or [] if w.get("balconies") or any(k in w for k in WALL_LAYOUT)]
     if not walls:
         return {}
     from turku3d.coarse.stored_facades import match_prepared, prepare_walls

@@ -189,6 +189,7 @@
     ]
    ],
    "ground_floor": "windows",
+   "upper_columns": 2,
    "width_m": 24.99,
    "window_columns": 2,
    "window_height": 0.5401,
@@ -207,6 +208,7 @@
     ]
    ],
    "ground_floor": "windows",
+   "upper_columns": 1,
    "width_m": 10.2,
    "window_columns": 1,
    "window_height": 0.5382,
@@ -275,6 +277,7 @@
     ]
    ],
    "ground_floor": "windows",
+   "upper_columns": 1,
    "width_m": 6.399,
    "window_columns": 1,
    "window_height": 0.5208,
@@ -293,6 +296,7 @@
     ]
    ],
    "ground_floor": "windows",
+   "upper_columns": 2,
    "width_m": 20.001,
    "window_columns": 2,
    "window_height": 0.5479,

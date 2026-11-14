@@ -41,6 +41,7 @@
     ]
    ],
    "ground_floor": "doors",
+   "upper_columns": 11,
    "width_m": 64.714,
    "window_columns": 17,
    "window_height": 0.3458,
@@ -59,6 +60,7 @@
     ]
    ],
    "ground_floor": "doors",
+   "upper_columns": 1,
    "width_m": 45.484,
    "window_columns": 12,
    "window_height": 0.6471,
@@ -77,6 +79,7 @@
     ]
    ],
    "ground_floor": "plain",
+   "upper_columns": 1,
    "width_m": 8.428,
    "window_columns": 2,
    "window_height": 0.2,
@@ -95,6 +98,7 @@
     ]
    ],
    "ground_floor": "shops",
+   "upper_columns": 1,
    "width_m": 5.316,
    "window_columns": 1,
    "window_height": 0.85,
@@ -113,6 +117,7 @@
     ]
    ],
    "ground_floor": "shops",
+   "upper_columns": 1,
    "width_m": 4.06,
    "window_columns": 1,
    "window_height": 0.3214,
@@ -131,6 +136,7 @@
     ]
    ],
    "ground_floor": "doors",
+   "upper_columns": 1,
    "width_m": 56.389,
    "window_columns": 15,
    "window_height": 0.3429,

@@ -28,5 +28,21 @@
   "tier": "observed"
  },
  "source": "w2-reading",
+ "walls": [
+  {
+   "base_height": 18.34,
+   "coordinates": [
+    [
+     23458337.206,
+     6706604.434
+    ],
+    [
+     23458322.197,
+     6706608.304
+    ]
+   ],
+   "upper_columns": 2
+  }
+ ],
  "width_m": 15.5
 }

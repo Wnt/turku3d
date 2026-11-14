@@ -53,10 +53,25 @@
     ]
    ],
    "ground_floor": "shops",
+   "upper_columns": 7,
    "width_m": 14.691,
    "window_columns": 7,
    "window_height": 0.4756,
    "window_width": 0.405
+  },
+  {
+   "base_height": 12.98,
+   "coordinates": [
+    [
+     23459110.52,
+     6704642.76
+    ],
+    [
+     23459120.356,
+     6704649.611
+    ]
+   ],
+   "upper_columns": 2
   }
  ],
  "width_m": 14.691

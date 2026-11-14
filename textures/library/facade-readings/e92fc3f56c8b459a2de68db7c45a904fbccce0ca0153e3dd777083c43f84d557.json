@@ -41,6 +41,7 @@
     ]
    ],
    "ground_floor": "windows",
+   "upper_columns": 1,
    "width_m": 7.9,
    "window_columns": 1,
    "window_height": 0.7,
@@ -59,6 +60,7 @@
     ]
    ],
    "ground_floor": "windows",
+   "upper_columns": 2,
    "width_m": 10.5,
    "window_columns": 2,
    "window_height": 0.4844,

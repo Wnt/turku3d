@@ -213,6 +213,7 @@
     ]
    ],
    "ground_floor": "doors",
+   "upper_columns": 4,
    "width_m": 21.96,
    "window_columns": 4,
    "window_height": 0.4504,
@@ -231,6 +232,7 @@
     ]
    ],
    "ground_floor": "doors",
+   "upper_columns": 2,
    "width_m": 14.97,
    "window_columns": 2,
    "window_height": 0.5517,

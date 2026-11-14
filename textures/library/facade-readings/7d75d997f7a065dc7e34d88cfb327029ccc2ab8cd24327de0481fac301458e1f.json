@@ -43,6 +43,7 @@
     ]
    ],
    "ground_floor": "shops",
+   "upper_columns": 9,
    "width_m": 51.684,
    "window_columns": 9,
    "window_height": 0.3438,
@@ -61,6 +62,7 @@
     ]
    ],
    "ground_floor": "shops",
+   "upper_columns": 2,
    "width_m": 35.988,
    "window_columns": 7,
    "window_height": 0.2444,

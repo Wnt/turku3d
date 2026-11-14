@@ -333,6 +333,29 @@ def wall_layout(wall, own, types, wood, size) -> dict:
     return out
 
 
+def upper_columns(wall, own) -> int | None:
+    """Window columns read above a wall's ground storey: 0 blank, 1 one column, 2+ windows; None where
+    the wall's own reading (``own``: ``like`` resolved, no building defaults) states no upper storey or
+    the wall was hardly seen. The slab end-wall rule draws a read end wall by it (pp-facades3's count of
+    1940-1979 slab ends in these readings)."""
+    if conf(wall, 0.3) < MIN_CONF or (wall.get("observed") or {}).get("visible_share", 0.5) < MIN_WALL_VISIBLE:
+        return None
+    uppers = [s for s in own.get("storeys") or [] if s.get("kind") not in ("ground", "basement")]
+    high = [o for o in own.get("openings") or [] if o.get("type") not in ("door", "garage") and (o.get("v_m") or 0) > 2.5]
+    if not uppers and not high:
+        return None
+    bays = bay_count(own, wall_width(wall)) or 1
+    columns = 0
+    for s in uppers:
+        row = [x for x in s.get("row") or [] if x]
+        found = len(row) if row else bays if s.get("window") else 0
+        found += sum(1 for o in s.get("openings") or [] if o.get("type") not in ("door", "garage"))
+        columns = max(columns, found)
+    if high:
+        columns = max(columns, len({round(o.get("u_m", 0)) for o in high}))
+    return columns
+
+
 def balcony_rects(wall):
     """Positioned balcony rails [x, y, w, h] in the reading wall's frame (x from p0, y above its base)."""
     rects = []
@@ -501,6 +524,8 @@ def convert(doc: dict) -> tuple[dict | None, str]:
                      **wall_layout(w, own, types, wood, size))
         if rects := balcony_rects(w):
             entry["balconies"] = rects
+        if (columns := upper_columns(w, own)) is not None:
+            entry["upper_columns"] = columns
         if len(entry) > 2:
             read_walls.append(entry)
     reading = next(p for p in doc.get("provenance", []) if p.get("by") in READERS)

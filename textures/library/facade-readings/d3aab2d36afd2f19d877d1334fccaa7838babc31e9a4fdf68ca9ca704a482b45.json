@@ -93,6 +93,7 @@
     ]
    ],
    "ground_floor": "doors",
+   "upper_columns": 4,
    "width_m": 16.018,
    "window_columns": 4,
    "window_height": 0.4574,
@@ -160,6 +161,7 @@
      6704277.127
     ]
    ],
+   "upper_columns": 4,
    "width_m": 15.124,
    "window_columns": 4,
    "window_height": 0.4589,
@@ -227,6 +229,7 @@
      6704264.55
     ]
    ],
+   "upper_columns": 4,
    "width_m": 15.1,
    "window_columns": 4,
    "window_height": 0.4574,
@@ -289,6 +292,7 @@
     ]
    ],
    "ground_floor": "doors",
+   "upper_columns": 4,
    "width_m": 15.1,
    "window_columns": 4,
    "window_height": 0.4574,
@@ -307,6 +311,7 @@
     ]
    ],
    "ground_floor": "doors",
+   "upper_columns": 0,
    "width_m": 12.3,
    "window_columns": 1,
    "window_height": 0.3281,
@@ -325,6 +330,7 @@
     ]
    ],
    "ground_floor": "doors",
+   "upper_columns": 2,
    "width_m": 16.0,
    "window_columns": 2,
    "window_height": 0.4603,
@@ -343,6 +349,7 @@
     ]
    ],
    "ground_floor": "doors",
+   "upper_columns": 4,
    "width_m": 15.101,
    "window_columns": 4,
    "window_height": 0.4531,

@@ -12,6 +12,13 @@ the photo, drew a grid since shell-eaves@1 restored its walls.
 evidence's proportions, 4 blank : 1 one column : 4 windowed (the sampled grid), by a stable pick on its
 register id, so rebuilds never change it; narrower end pieces keep one column. The class is unchanged.
 
+@3 (pp-facades5): an observed end wall is drawn as observed (``facade_blocks.draw_ends``): a reviewed
+program wall on it draws itself, a W2 reading's end wall draws blank, one column or its grid by the window
+columns read above its ground storey (``upper_columns`` in the reading rows), and the slab's unobserved
+wide ends take the observed kind instead of the pick. New reviewed patch: Heikkilankatu 2's south-east end
+wall, blank in the blocks-02 street photo (``textures/library/facade-programs.json``). Same class: every
+observed slab is a slab-ends key.
+
 The affected class is the tiles whose manifest lists a building of ``slab_ends_keys.json`` (written by
 ``python -m turku3d.facade_blocks ends`` from the city building table): every block of flats dated
 1940-1979 with three or more register storeys and a slab footprint (at least 1.8 times as long as deep,
@@ -38,4 +45,4 @@ def affected(manifest: dict) -> bool:
     return not keys().isdisjoint(manifest.get("building_keys") or ())
 
 
-MIGRATION = Rebuild("slab-ends", 2, affected=affected)
+MIGRATION = Rebuild("slab-ends", 3, affected=affected)

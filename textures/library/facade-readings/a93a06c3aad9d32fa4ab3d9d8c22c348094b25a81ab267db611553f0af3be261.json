@@ -41,6 +41,7 @@
     ]
    ],
    "ground_floor": "doors",
+   "upper_columns": 3,
    "width_m": 13.03,
    "window_columns": 4,
    "window_height": 0.3824,
@@ -59,6 +60,7 @@
     ]
    ],
    "ground_floor": "windows",
+   "upper_columns": 2,
    "width_m": 8.703,
    "window_columns": 3,
    "window_height": 0.3455,
@@ -77,6 +79,7 @@
     ]
    ],
    "ground_floor": "windows",
+   "upper_columns": 1,
    "width_m": 3.102,
    "window_columns": 1,
    "window_height": 0.2903,
@@ -113,6 +116,7 @@
     ]
    ],
    "ground_floor": "windows",
+   "upper_columns": 3,
    "width_m": 4.943,
    "window_columns": 2,
    "window_height": 0.5645,

@@ -41,6 +41,7 @@
     ]
    ],
    "ground_floor": "windows",
+   "upper_columns": 30,
    "width_m": 67.845,
    "window_columns": 29,
    "window_height": 0.4148,
@@ -59,6 +60,7 @@
     ]
    ],
    "ground_floor": "windows",
+   "upper_columns": 20,
    "width_m": 33.584,
    "window_columns": 20,
    "window_height": 0.4519,
@@ -77,6 +79,7 @@
     ]
    ],
    "ground_floor": "windows",
+   "upper_columns": 20,
    "width_m": 31.115,
    "window_columns": 20,
    "window_height": 0.4519,
@@ -95,6 +98,7 @@
     ]
    ],
    "ground_floor": "windows",
+   "upper_columns": 1,
    "width_m": 13.226,
    "window_columns": 10,
    "window_height": 0.3544,
@@ -113,6 +117,7 @@
     ]
    ],
    "ground_floor": "doors",
+   "upper_columns": 1,
    "width_m": 9.301,
    "window_columns": 7,
    "window_height": 0.471,
@@ -130,6 +135,7 @@
      6704367.16
     ]
    ],
+   "upper_columns": 0,
    "width_m": 6.375,
    "window_columns": 5,
    "window_height": 0.5518,
@@ -148,6 +154,7 @@
     ]
    ],
    "ground_floor": "windows",
+   "upper_columns": 1,
    "width_m": 4.73,
    "window_columns": 4,
    "window_height": 0.4952,
@@ -165,6 +172,7 @@
      6704370.417
     ]
    ],
+   "upper_columns": 1,
    "width_m": 3.58,
    "window_columns": 3,
    "window_height": 0.4952,
@@ -182,6 +190,7 @@
      6704366.393
     ]
    ],
+   "upper_columns": 0,
    "width_m": 3.38,
    "window_columns": 3,
    "window_height": 0.446,
@@ -199,6 +208,7 @@
      6704437.087
     ]
    ],
+   "upper_columns": 0,
    "width_m": 2.62,
    "window_columns": 2,
    "window_height": 0.4889,

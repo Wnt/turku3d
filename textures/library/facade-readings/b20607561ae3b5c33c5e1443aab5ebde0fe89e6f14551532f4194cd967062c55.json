@@ -42,6 +42,7 @@
     ]
    ],
    "ground_floor": "doors",
+   "upper_columns": 4,
    "width_m": 8.092,
    "window_columns": 1,
    "window_height": 0.5,
@@ -60,6 +61,7 @@
     ]
    ],
    "ground_floor": "shops",
+   "upper_columns": 2,
    "width_m": 7.957,
    "window_columns": 1,
    "window_height": 0.5,

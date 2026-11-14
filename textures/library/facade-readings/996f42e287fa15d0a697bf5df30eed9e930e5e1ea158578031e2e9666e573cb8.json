@@ -95,6 +95,7 @@
     ]
    ],
    "ground_floor": "plain",
+   "upper_columns": 1,
    "width_m": 11.038,
    "window_columns": 3,
    "window_height": 0.3919,

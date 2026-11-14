@@ -81,6 +81,7 @@
     ]
    ],
    "ground_floor": "windows",
+   "upper_columns": 2,
    "width_m": 14.69,
    "window_columns": 4,
    "window_height": 0.7938,
@@ -172,6 +173,7 @@
      6702543.108
     ]
    ],
+   "upper_columns": 0,
    "width_m": 10.022,
    "window_columns": 3,
    "window_height": 0.7314,
@@ -189,6 +191,7 @@
      6702561.19
     ]
    ],
+   "upper_columns": 1,
    "width_m": 15.056,
    "window_columns": 1,
    "window_height": 0.6441,
@@ -238,6 +241,7 @@
      6702549.21
     ]
    ],
+   "upper_columns": 0,
    "width_m": 6.951,
    "window_columns": 2,
    "window_height": 0.7314,
@@ -287,6 +291,7 @@
      6702525.705
     ]
    ],
+   "upper_columns": 0,
    "width_m": 7.448,
    "window_columns": 2,
    "window_height": 0.7314,
@@ -343,6 +348,7 @@
     ]
    ],
    "ground_floor": "windows",
+   "upper_columns": 2,
    "width_m": 10.304,
    "window_columns": 2,
    "window_height": 0.4915,
@@ -398,6 +404,7 @@
      6702544.371
     ]
    ],
+   "upper_columns": 1,
    "width_m": 10.765,
    "window_columns": 1,
    "window_height": 0.6441,

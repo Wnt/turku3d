@@ -117,6 +117,7 @@
     ]
    ],
    "ground_floor": "windows",
+   "upper_columns": 1,
    "width_m": 4.577,
    "window_columns": 1,
    "window_height": 0.3816,

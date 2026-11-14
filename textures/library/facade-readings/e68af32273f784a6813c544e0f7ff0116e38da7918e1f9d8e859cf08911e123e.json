@@ -47,6 +47,7 @@
    ],
    "ground_floor": "doors",
    "lights": 2,
+   "upper_columns": 11,
    "width_m": 30.065,
    "window_columns": 6,
    "window_height": 0.4337,
@@ -66,6 +67,7 @@
    ],
    "ground_floor": "doors",
    "lights": 2,
+   "upper_columns": 0,
    "width_m": 25.678,
    "window_columns": 6,
    "window_height": 0.4842,
@@ -84,6 +86,7 @@
     ]
    ],
    "ground_floor": "doors",
+   "upper_columns": 3,
    "width_m": 16.154,
    "window_columns": 3,
    "window_height": 0.48,

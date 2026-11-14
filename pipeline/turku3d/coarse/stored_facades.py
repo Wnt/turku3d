@@ -496,11 +496,14 @@ def wall_meshes(b, walls, origin, layout=None, shell_walls=None):
 
     timber = not garage and not slab and is_old_timber(b, program)
     profiles = edge_profiles(walls, program, float(b.base)) if timber else {}
-    from turku3d.facade_blocks import apply as block_rule, is_block
+    from turku3d.facade_blocks import apply as block_rule, is_block, is_read_slab, read_ends
 
     if not garage and not slab and not timber and is_block(b, program):
         # Rule-sampled blocks of flats: sun-facing balcony stacks by period, single lights since 1980.
         block_rule(b, program, walls)
+    elif not garage and not slab and not timber and is_read_slab(b, program):
+        # A read 1940-1979 slab's end walls as read above the ground storey (slab-ends@3).
+        read_ends(b, program, walls)
     from turku3d.night_lighting import use_class
     night_use = use_class(getattr(owner, "attributes", {}))
     apertures = volumes(measured(b.facade_key))

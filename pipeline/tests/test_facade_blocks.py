@@ -247,12 +247,76 @@ def test_a_slabs_short_end_walls_before_1980_are_blank_one_column_or_windowed_pe
         assert all(w["bays"]["count"] >= 2 for w in prog["walls"])
 
 
+def _end_row(columns):
+    """A reviewed or read end wall on the east end (local x = 42, z 0..15.5) of ``block``'s slab."""
+    return dict(coordinates=[[C.ORIGIN_E + 42.0, C.ORIGIN_N], [C.ORIGIN_E + 42.0, C.ORIGIN_N - 15.5]],
+                base_height=0.0, upper_columns=columns)
+
+
+def _ends(prog):
+    return {round(w["width_m"], 1): w for w in prog["walls"] if w["width_m"] < 20}
+
+
+def test_an_observed_slab_end_wall_draws_as_observed_and_speaks_for_the_other_end(monkeypatch):
+    """slab-ends@3: Heikkilankatu 2's photographed end wall is blank where the pick drew windows. A reviewed
+    end wall draws itself and the slab's other wide end takes its kind; a read end wall draws as read."""
+    import copy
+    import json
+
+    from turku3d import facade_assets, facade_programs as fp
+    from turku3d.coarse.stored_facades import wall_meshes
+    from turku3d.facade_blocks import end_kind
+    from turku3d.facade_readings import SOURCE
+    from turku3d.facade_sections import prepare
+
+    key = next(f"10{n:07d}X" for n in range(100) if end_kind(15.5, f"10{n:07d}X") == "windowed")
+    # A reviewed patch in proven's format: Heikkilankatu 2's blank end wall, moved onto the east end.
+    rows = json.loads((C.REPO_ROOT / "textures/library/facade-programs.json").read_text())
+    patch = copy.deepcopy(next(r for r in rows if r["building_id"] == "103321758X"))
+    patch["building_id"] = key
+    end = _end_row(0)["coordinates"]
+    patch["walls"][0]["geometry"].update(p0=end[0], p1=end[1], normal=[1.0, 0.0], base_h=0.0)
+    patch["walls"][0].update(width_m=15.5, height_m=24.0)
+    b, walls = block(monkeypatch, year=1957, levels=8, length=42.0, depth=15.5, key=key)
+    monkeypatch.setattr(fp, "measured", lambda k: prepare(copy.deepcopy(patch)) if str(k) == key else None)
+    prog = program(wall_meshes(b, walls, np.zeros(3)))
+    east, west = (w for w in prog["walls"] if w["width_m"] < 20 and w.get("measured_wall_id")), \
+        (w for w in prog["walls"] if w["width_m"] < 20 and not w.get("measured_wall_id"))
+    (east,), (west,) = list(east), list(west)
+    assert east["paint_source"] == "reviewed-program" and not east["windows"]["rectangles_m"]
+    assert west["end_wall"] == "blank" and west["bays"]["count"] == 0
+    assert prog["block_of_flats"]["ends_observed"] == 1 and prog["block_of_flats"]["ends_as_observed"] == 1
+    assert all(w["bays"]["count"] >= 8 for w in prog["walls"] if w["width_m"] > 40)
+    # Nobody observed it: the building's pick (windowed for this key).
+    monkeypatch.setattr(fp, "measured", lambda k: None)
+    prog = program(wall_meshes(b, walls, np.zeros(3)))
+    assert all("end_wall" not in w and w["bays"]["count"] >= 3 for w in _ends(prog).values())  # the pick
+
+    # A W2 reading of the slab: the east end read with one column above its ground storey, the west end
+    # unread. The reading draws the building; its read end draws one column, the other end follows it.
+    from turku3d.facade_readings import row as reading_row
+
+    reading = reading_row("103329830A")  # Rauhankatu 23's reading (a rendered 1952 slab)
+    row = dict(reading, building_key=key, source=SOURCE, walls=[_end_row(1)])
+    monkeypatch.setattr(fp, "read_description", lambda k: row["description"] if str(k) == key else None)
+    monkeypatch.setattr(facade_assets, "description_row", lambda k: row if str(k) == key else None)
+    prog = program(wall_meshes(b, walls, np.zeros(3)))
+    assert prog["description_source"] == SOURCE and "block_of_flats" not in prog
+    assert [w.get("end_wall") for w in prog["walls"] if w["width_m"] < 20] == ["column", "column"]
+    assert prog["slab_ends"] == dict(read=1, end_column=2, ends_observed=1, ends_as_observed=1)
+    # Read windowed (three columns): the reading's own grid stays on both ends.
+    row["walls"] = [_end_row(3)]
+    prog = program(wall_meshes(b, walls, np.zeros(3)))
+    assert all("end_wall" not in w and w["bays"]["count"] >= 2 for w in prog["walls"] if w["width_m"] < 20)
+    assert prog["slab_ends"]["end_windowed"] == 2
+
+
 def test_slab_ends_rebuilds_only_tiles_holding_a_pre_1980_slab_block():
     from turku3d.migrations import block_balconies, old_timber, registry, shell_eaves, slab_ends
 
     # Appended after shell-eaves: earlier trains stay a prefix of the chain; old-timber moved to @3.
     assert registry.CHAIN.index(slab_ends.MIGRATION) > registry.CHAIN.index(shell_eaves.MIGRATION)
-    assert old_timber.MIGRATION.key == "old-timber@3" and slab_ends.MIGRATION.key == "slab-ends@2"
+    assert old_timber.MIGRATION.key == "old-timber@3" and slab_ends.MIGRATION.key == "slab-ends@3"
     keys = slab_ends.keys()
     assert 500 < len(keys) < 1000 and keys <= block_balconies.keys()
     assert "103321758X" in keys  # Heikkilankatu 2 (blocks-02)

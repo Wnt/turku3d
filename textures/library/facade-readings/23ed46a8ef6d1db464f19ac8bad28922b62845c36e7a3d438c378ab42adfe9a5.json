@@ -58,6 +58,7 @@
      6704400.265
     ]
    ],
+   "upper_columns": 2,
    "width_m": 10.654,
    "window_columns": 2,
    "window_height": 0.4054,
@@ -75,6 +76,7 @@
      6704393.42
     ]
    ],
+   "upper_columns": 1,
    "width_m": 8.588,
    "window_columns": 1,
    "window_height": 0.3421,
@@ -92,6 +94,7 @@
      6704406.721
     ]
    ],
+   "upper_columns": 4,
    "width_m": 25.75,
    "window_columns": 4,
    "window_height": 0.4054,

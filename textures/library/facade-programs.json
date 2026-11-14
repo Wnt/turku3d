@@ -216336,5 +216336,397 @@
       "scope": "matched walls only",
       "independent": false
     }
+  },
+  {
+    "schema": "facade-program-prototype-1",
+    "building_id": "103321758X",
+    "seed": "0",
+    "source": "photographed",
+    "needs_review": false,
+    "attributes": {
+      "year": 1957,
+      "era": "1940-1979",
+      "levels": 8,
+      "address": "Heikkilankatu 2"
+    },
+    "storeys": {
+      "value": 8,
+      "source": "register",
+      "support": 1.0
+    },
+    "material": {
+      "value": null,
+      "source": "unmeasured",
+      "support": 0.0
+    },
+    "style_era": {
+      "value": "1940-1979",
+      "source": "register year band",
+      "support": 0.4
+    },
+    "representative_wall": null,
+    "walls": [
+      {
+        "wall_id": "103321758X_review_end_se",
+        "width_m": 10.61,
+        "height_m": 24.0,
+        "geometry": {
+          "p0": [
+            23458508.863,
+            6704037.126
+          ],
+          "p1": [
+            23458500.064,
+            6704031.198
+          ],
+          "normal": [
+            0.5587,
+            -0.8293
+          ],
+          "base_h": 11.0
+        },
+        "structure": {
+          "wall_id": "103321758X_review_end_se",
+          "floors_visible": 8,
+          "floors": [
+            {
+              "role": "base",
+              "bays": [
+                "blank"
+              ],
+              "bay_count": 1,
+              "head": "flat",
+              "surround": "none",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.8,
+                "surround": 0.75
+              }
+            },
+            {
+              "role": "middle",
+              "bays": [
+                "blank"
+              ],
+              "bay_count": 1,
+              "head": "flat",
+              "surround": "none",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.8,
+                "surround": 0.75
+              }
+            },
+            {
+              "role": "middle",
+              "bays": [
+                "blank"
+              ],
+              "bay_count": 1,
+              "head": "flat",
+              "surround": "none",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.8,
+                "surround": 0.75
+              }
+            },
+            {
+              "role": "middle",
+              "bays": [
+                "blank"
+              ],
+              "bay_count": 1,
+              "head": "flat",
+              "surround": "none",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.8,
+                "surround": 0.75
+              }
+            },
+            {
+              "role": "middle",
+              "bays": [
+                "blank"
+              ],
+              "bay_count": 1,
+              "head": "flat",
+              "surround": "none",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.8,
+                "surround": 0.75
+              }
+            },
+            {
+              "role": "middle",
+              "bays": [
+                "blank"
+              ],
+              "bay_count": 1,
+              "head": "flat",
+              "surround": "none",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.8,
+                "surround": 0.75
+              }
+            },
+            {
+              "role": "middle",
+              "bays": [
+                "blank"
+              ],
+              "bay_count": 1,
+              "head": "flat",
+              "surround": "none",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.8,
+                "surround": 0.75
+              }
+            },
+            {
+              "role": "top",
+              "bays": [
+                "blank"
+              ],
+              "bay_count": 1,
+              "head": "flat",
+              "surround": "none",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.8,
+                "surround": 0.75
+              }
+            }
+          ],
+          "material": null,
+          "ornament": "none",
+          "cornice": "none",
+          "string_courses": [],
+          "balconies": [],
+          "occluded_parts": "South-east end wall of the 1957 slab, seen from Heikkilankatu at the blocks-02 camera: plain render from the ground to the eaves, no window on any storey (street photo).",
+          "confidence": {
+            "floors_visible": 0.85,
+            "split": 0.8,
+            "material": 0,
+            "ornament": 0.7,
+            "cornice": 0.7,
+            "string_courses": 0.8,
+            "balconies": 0.8,
+            "occluded_parts": 0.8
+          }
+        },
+        "material_bands": [],
+        "niches": [],
+        "observation": {
+          "needs_review": false,
+          "scope": "full-wall",
+          "visible_share": 0.4,
+          "wall_share": 0,
+          "register_height_conflict": false,
+          "colour_space": "unmeasured; preserve calibrated pigment",
+          "excluded_rectangles_m": [],
+          "notes": "South-east end wall of the 1957 slab, seen from Heikkilankatu at the blocks-02 camera: plain render from the ground to the eaves, no window on any storey (street photo).",
+          "opening_extent": "counted rows and bays: none on any storey",
+          "dimension_source": "LoD2 wall extent and eave of the generated shell; register storeys checked"
+        },
+        "split": {
+          "base_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "middle_repeats": null,
+          "top_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "bays": {
+          "count": 1,
+          "centers_m": [],
+          "pitch_m": null,
+          "symmetry": null,
+          "support": 0.85
+        },
+        "windows": {
+          "rectangles_m": [],
+          "opening_roles": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "head_shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "size_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "aspect": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "sill_fraction": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "frame_colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "divisions": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "recess_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "base": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "plinth_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "glazing_share": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shopfront": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "openings_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "variant": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "doors": {
+          "candidates": [],
+          "type": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "canopy": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "trim": {
+          "cornice": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "string_courses": {
+            "value": [],
+            "source": "counted floor boundaries",
+            "support": 0.8
+          },
+          "window_surrounds": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "ornament_level": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "corners": {
+          "quoins": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "tower": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "balconies": {
+          "value": [],
+          "source": "direct structure-only review",
+          "support": 0.8
+        },
+        "bay_windows": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "style_era": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        }
+      }
+    ],
+    "review": {
+      "method": "structure-only review of the street photo at the blocks-02 judge camera (slab-ends@3: the end wall is blank, the rule's pick drew windows)",
+      "scope": "matched walls only",
+      "independent": false
+    }
   }
 ]

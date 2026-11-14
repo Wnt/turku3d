@@ -41,6 +41,7 @@
     ]
    ],
    "ground_floor": "windows",
+   "upper_columns": 3,
    "width_m": 8.94,
    "window_columns": 3,
    "window_height": 0.3387,
@@ -59,10 +60,25 @@
     ]
    ],
    "ground_floor": "windows",
+   "upper_columns": 1,
    "width_m": 6.1,
    "window_columns": 2,
    "window_height": 0.3359,
    "window_width": 0.9
+  },
+  {
+   "base_height": 21.76,
+   "coordinates": [
+    [
+     23456118.467,
+     6702121.792
+    ],
+    [
+     23456123.965,
+     6702121.165
+    ]
+   ],
+   "upper_columns": 2
   },
   {
    "base_height": 21.76,
