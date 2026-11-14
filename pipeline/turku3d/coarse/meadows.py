@@ -14,6 +14,7 @@ the grass class. Paths, paving, mapped finishes and the terrain stage's natural 
 """
 import json
 
+import pandas as pd
 import shapely
 
 from turku3d.spatial import frame, rows
@@ -26,6 +27,13 @@ OSM_MEADOWS = {"landuse": ("meadow",), "natural": ("grassland",)}
 OSM_FIELDS = {"landuse": ("farmland",)}
 FIELD_MARGIN = 2.5  # m: the unmown strip a mower leaves along a field's ditch, road or hedge (Kurala panoramas)
 MIN_AREA = 25.0  # m2: smaller register slivers are edge strips, not meadows
+
+
+def _text(row, column):
+    """A register attribute as text; '' where the part has none (None, NaN or pandas NA: the register leaves some parts
+    unclassified)."""
+    value = getattr(row, column, None)
+    return "" if value is None or pd.isna(value) else str(value)
 
 
 def _polygonal(geom):
@@ -48,8 +56,8 @@ def prepare(tile, register, osm):
     areas = []
     if register is not None:
         for row in frame(register, tile.bbox.buffered(1)).itertuples():
-            unmown = str(getattr(row, "Kunnossapitoluokka_koodi", "") or "") in MEADOW_CLASSES
-            if unmown or str(getattr(row, "Viheralueosalaji", "") or "") in MEADOW_PARTS:
+            unmown = _text(row, "Kunnossapitoluokka_koodi") in MEADOW_CLASSES
+            if unmown or _text(row, "Viheralueosalaji") in MEADOW_PARTS:
                 areas.append((MEADOW, _area(row.geometry_local)))
     if osm is not None:
         for _, row in rows(osm, tile.bbox.buffered(1), columns=("tags", "geometry_local")):

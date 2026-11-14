@@ -36,6 +36,26 @@ def test_unmown_register_parts_and_osm_meadows_are_meadows(tmp_path, monkeypatch
     assert meadows.regions(TILE, [], None) == [] and meadows.prepare(TILE, None, None) == []
 
 
+def test_unclassified_register_parts_are_no_meadows(tmp_path, monkeypatch):
+    # The register's text columns are pandas strings: an unclassified part reads as pandas NA (t0_-2_2 crashed on it).
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path))
+    path = world.write_wfs("GIS_Viheralueet", [
+        {"feature_key": "a", "Kunnossapitoluokka_koodi": None, "Viheralueosalaji": "# Ei tietoa"},  # unclassified
+        {"feature_key": "b", "Kunnossapitoluokka_koodi": None, "Viheralueosalaji": "Niitty"},  # surveyed as meadow
+        {"feature_key": "c", "Kunnossapitoluokka_koodi": "A2", "Viheralueosalaji": None},  # use meadow
+    ], [shapely.box(0, 0, 60, 60), shapely.box(60, 0, 120, 60), shapely.box(0, 60, 60, 120)],
+        columns=("feature_key", "Kunnossapitoluokka_koodi", "Viheralueosalaji"))
+    import geopandas as gpd
+    data = gpd.read_parquet(path)
+    data = data.astype({"Kunnossapitoluokka_koodi": "string", "Viheralueosalaji": "string"})
+    data.to_parquet(path)
+    assert gpd.read_parquet(path)["Kunnossapitoluokka_koodi"].isna().sum() == 2
+    areas = meadows.prepare(TILE, path, None)
+    meadow = shapely.union_all([a for _, a in areas])
+    assert meadow.contains(shapely.Point(90, 30)) and meadow.contains(shapely.Point(30, 90))
+    assert not meadow.contains(shapely.Point(30, 30))
+
+
 def test_meadow_is_a_procedural_visual_finish_the_client_grows_grass_on():
     assert FINISH_KEYS[MEADOW] == "grass_meadow"  # 'grass' in the key: the client's grass surface style
     albedo = ground_finishes.maps("grass_meadow", 128)["albedo"].astype(float) / 255
