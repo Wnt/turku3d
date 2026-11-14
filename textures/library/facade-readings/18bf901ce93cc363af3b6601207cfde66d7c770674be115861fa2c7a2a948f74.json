@@ -14,8 +14,8 @@
   "wall_colour": "#d5d4cb",
   "wall_visible": true,
   "window_columns": 5,
-  "window_height": 0.2,
-  "window_width": 0.5833
+  "window_height": 0.2589,
+  "window_width": 0.4547
  },
  "engine": "stored",
  "frame_colour": "#9da5ab",

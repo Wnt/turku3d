@@ -164,6 +164,27 @@ def main_window(walls, types):
     return max(votes, key=votes.get) if votes else None
 
 
+def window_size(walls, types):
+    """(w_m, h_m): the mean size of every window the storeys place, weighted by wall size, so a row
+    of wide and narrow windows draws its average, not its most frequent narrow light. Attic lights
+    count only when no full storey places a window."""
+    for kinds in (("ground", "upper", "mezzanine"), ("attic",)):
+        total = wsum = hsum = 0.0
+        for w in walls:
+            for st in expand(w.get("storeys")):
+                if st.get("kind") not in kinds:
+                    continue
+                for name in storey_openings(st, types):
+                    t = types[name]
+                    if t.get("kind") == "window" and t.get("w_m") and t.get("h_m"):
+                        total += weight(w)
+                        wsum += weight(w) * float(t["w_m"])
+                        hsum += weight(w) * float(t["h_m"])
+        if total:
+            return wsum / total, hsum / total
+    return None
+
+
 def ground_floor(wall, types, wood):
     """(ground_floor, openings) of the ground storey of the reference wall, when it was read."""
     storeys = expand(wall.get("storeys"))
@@ -294,9 +315,11 @@ def convert(doc: dict) -> tuple[dict | None, str]:
     pitch = min(DRAWN_PITCH_M[1], max(DRAWN_PITCH_M[0], width / max(columns, 1)))
     upper = next((s for s in storeys if s.get("kind") == "upper"), None) or next(
         (s for s in storeys if s.get("kind") == "ground"), None)
-    window_width = min(0.9, max(0.1, window["w_m"] / pitch)) if window.get("w_m") else 0.45
-    window_height = (min(0.85, max(0.2, window["h_m"] / float(upper["height_m"])))
-                     if window.get("h_m") and upper and upper.get("height_m") else 0.5)
+    size = window_size(walls, types) or (
+        (float(window["w_m"]), float(window["h_m"])) if window.get("w_m") and window.get("h_m") else None)
+    window_width = min(0.9, max(0.1, size[0] / pitch)) if size else 0.45
+    window_height = (min(0.85, max(0.2, size[1] / float(upper["height_m"])))
+                     if size and upper and upper.get("height_m") else 0.5)
 
     if reference is not None:
         ground, openings = ground_floor(reference, types, wood)

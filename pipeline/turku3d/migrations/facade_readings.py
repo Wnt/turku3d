@@ -1,4 +1,4 @@
-"""facade-readings@2: spot rebuild of the tiles holding a building with a converted W2 reading.
+"""facade-readings@3: spot rebuild of the tiles holding a building with a converted W2 reading.
 
 W2's vision readings (wall material and colour, storeys, bays and window sizes, ground storey,
 plinth, roof line, bands, pilasters, balconies) of buildings that proven neither describes nor
@@ -23,4 +23,5 @@ def affected(manifest: dict) -> bool:
 
 
 # @2: trim from the read pilasters and cornices, windows sized to the drawn pitch (2026-11-14).
-MIGRATION = Rebuild("facade-readings", 2, affected=affected)
+# @3: windows at the mean size of the read rows, not the most frequent light (2026-11-14).
+MIGRATION = Rebuild("facade-readings", 3, affected=affected)

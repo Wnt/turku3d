@@ -118,6 +118,16 @@ def test_a_rows_frame_colour_paints_only_the_window_frames():
     assert (wall["frame"], wall["trim"]) == ("#4b3429", conv.TRIM["brick"])
 
 
+def test_a_row_of_wide_and_narrow_windows_draws_their_mean_size():
+    doc = reading()
+    doc["opening_types"]["wide"] = {"kind": "window", "w_m": 2.4, "h_m": 1.5}
+    doc["walls"][0]["storeys"][1] = {"kind": "upper", "height_m": 2.8, "count": 2,
+                                     "row": ["win", "wide", "wide", "win"]}
+    # One ground window and two rows of four: 5 x 1.2 m and 4 x 2.4 m over 3 m bays.
+    d = conv.convert(doc)[0]["description"]
+    assert d["window_width"] == round((5 * 1.2 + 4 * 2.4) / 9 / 3, 4)
+
+
 def test_unsure_or_unread_walls_are_not_converted():
     doc = reading()
     doc["materials"]["wall"]["conf"] = {"*": 0.2}

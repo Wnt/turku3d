@@ -17,8 +17,8 @@
   "wall_colour": "#e2d8ad",
   "wall_visible": true,
   "window_columns": 12,
-  "window_height": 0.2,
-  "window_width": 0.216
+  "window_height": 0.4762,
+  "window_width": 0.4516
  },
  "engine": "stored",
  "provenance": {
