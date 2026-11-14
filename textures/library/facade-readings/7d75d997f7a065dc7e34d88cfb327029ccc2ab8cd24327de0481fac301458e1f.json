@@ -29,5 +29,61 @@
   "tier": "reviewed"
  },
  "source": "w2-reading",
+ "walls": [
+  {
+   "base_height": 12.05,
+   "coordinates": [
+    [
+     23459105.979,
+     6704702.117
+    ],
+    [
+     23459134.93,
+     6704659.302
+    ]
+   ],
+   "ground_floor": "shops",
+   "width_m": 51.684,
+   "window_columns": 9,
+   "window_height": 0.3438,
+   "window_width": 0.9
+  },
+  {
+   "base_height": 12.05,
+   "coordinates": [
+    [
+     23459135.76,
+     6704722.322
+    ],
+    [
+     23459105.979,
+     6704702.117
+    ]
+   ],
+   "ground_floor": "shops",
+   "width_m": 35.988,
+   "window_columns": 7,
+   "window_height": 0.2444,
+   "window_width": 0.9
+  },
+  {
+   "base_height": 12.05,
+   "coordinates": [
+    [
+     23459144.974,
+     6704708.863
+    ],
+    [
+     23459135.76,
+     6704722.322
+    ]
+   ],
+   "ground_floor": "shops",
+   "width_m": 16.311,
+   "window_columns": 3,
+   "window_height": 0.2292,
+   "window_width": 0.9
+  }
+ ],
  "width_m": 51.684
 }

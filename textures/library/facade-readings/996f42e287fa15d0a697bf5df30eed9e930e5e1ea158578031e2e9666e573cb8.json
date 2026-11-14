@@ -27,5 +27,131 @@
   "tier": "observed"
  },
  "source": "w2-reading",
+ "walls": [
+  {
+   "base_height": 27.32,
+   "coordinates": [
+    [
+     23462836.055,
+     6706695.147
+    ],
+    [
+     23462829.46,
+     6706725.543
+    ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 31.103,
+   "window_columns": 7,
+   "window_height": 0.3259,
+   "window_width": 0.299
+  },
+  {
+   "base_height": 27.32,
+   "coordinates": [
+    [
+     23462832.343,
+     6706726.169
+    ],
+    [
+     23462828.877,
+     6706742.143
+    ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 16.346,
+   "window_columns": 4,
+   "window_height": 0.35,
+   "window_width": 0.3279
+  },
+  {
+   "base_height": 27.32,
+   "coordinates": [
+    [
+     23462824.984,
+     6706741.268
+    ],
+    [
+     23462821.68,
+     6706756.381
+    ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 15.47,
+   "window_columns": 4,
+   "window_height": 0.3661,
+   "window_width": 0.2623
+  },
+  {
+   "base_height": 27.32,
+   "coordinates": [
+    [
+     23462821.68,
+     6706756.381
+    ],
+    [
+     23462810.895,
+     6706754.029
+    ]
+   ],
+   "ground_floor": "plain",
+   "width_m": 11.038,
+   "window_columns": 3,
+   "window_height": 0.3919,
+   "window_width": 0.3351
+  },
+  {
+   "base_height": 27.32,
+   "coordinates": [
+    [
+     23462824.036,
+     6706689.054
+    ],
+    [
+     23462830.379,
+     6706690.48
+    ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 6.501,
+   "window_columns": 2,
+   "window_height": 0.4771,
+   "window_width": 0.3794
+  },
+  {
+   "base_height": 27.32,
+   "coordinates": [
+    [
+     23462828.877,
+     6706742.143
+    ],
+    [
+     23462824.984,
+     6706741.268
+    ]
+   ],
+   "width_m": 3.99,
+   "window_columns": 1,
+   "window_height": 0.2743,
+   "window_width": 0.3091
+  },
+  {
+   "base_height": 27.32,
+   "coordinates": [
+    [
+     23462830.379,
+     6706690.48
+    ],
+    [
+     23462829.661,
+     6706693.739
+    ]
+   ],
+   "width_m": 3.337,
+   "window_columns": 1,
+   "window_height": 0.422,
+   "window_width": 0.3695
+  }
+ ],
  "width_m": 31.103
 }

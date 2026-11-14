@@ -31,6 +31,24 @@
  "source": "w2-reading",
  "walls": [
   {
+   "base_height": 8.93,
+   "coordinates": [
+    [
+     23458583.316,
+     6704204.429
+    ],
+    [
+     23458546.172,
+     6704179.433
+    ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 44.771,
+   "window_columns": 15,
+   "window_height": 0.4545,
+   "window_width": 0.3853
+  },
+  {
    "balconies": [
     [
      10.98,
@@ -121,7 +139,66 @@
      23458589.446,
      6704195.319
     ]
-   ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 44.771,
+   "window_columns": 7,
+   "window_height": 0.4513,
+   "window_width": 0.4194
+  },
+  {
+   "base_height": 8.93,
+   "coordinates": [
+    [
+     23458589.446,
+     6704195.319
+    ],
+    [
+     23458583.316,
+     6704204.429
+    ]
+   ],
+   "ground_floor": "shops",
+   "width_m": 10.98,
+   "window_columns": 4,
+   "window_height": 0.4308,
+   "window_width": 0.6011
+  },
+  {
+   "base_height": 8.93,
+   "coordinates": [
+    [
+     23458549.315,
+     6704174.762
+    ],
+    [
+     23458552.313,
+     6704170.307
+    ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 5.37,
+   "window_columns": 1,
+   "window_height": 0.4639,
+   "window_width": 0.3958
+  },
+  {
+   "base_height": 8.93,
+   "coordinates": [
+    [
+     23458546.172,
+     6704179.433
+    ],
+    [
+     23458548.684,
+     6704175.699
+    ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 4.5,
+   "window_columns": 1,
+   "window_height": 0.4464,
+   "window_width": 0.2222
   }
  ],
  "width_m": 44.771

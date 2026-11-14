@@ -210,12 +210,19 @@ def reading_materials(observed):
     return result
 
 
-def building_material(attrs, record, observed, description=None):
-    """Owner evidence, unopposed reviewed wall readings, register/OSM cladding, the AI
-    description's material, then the register's pre-1940 timber table (``register_timber``).
+BUILDING_READING = "building reading"
+
+
+def building_material(attrs, record, observed, description=None, *, reading=False):
+    """Owner evidence, unopposed reviewed wall readings, a W2 building reading's wall material,
+    register/OSM cladding, the AI description's material, then the register's pre-1940 timber
+    table (``register_timber``).
 
     Register and OSM cladding are source data and outrank a description's material
-    guess (the description itself is kept). An inferred family supplies unobserved
+    guess (the description itself is kept). A W2 reading (``reading``: the description is a
+    converted ``turku3d.facade_readings`` row) is an observation of this very building, so its
+    material outranks the register's cladding class; proven's own descriptions and reviewed
+    walls never reach this branch with ``reading`` set. An inferred family supplies unobserved
     zones only. Confident wall/zone readings still override it; colours and layouts
     are never copied between walls.
     """
@@ -230,6 +237,8 @@ def building_material(attrs, record, observed, description=None):
             support=min(r["support"] for r in readings),
             source="unopposed reviewed facade material; unobserved-zone prior",
         )
+    if description and reading:
+        return dict(value=material(description["material"]), support=0.4, source=BUILDING_READING)
     if attrs.get("material_class"):
         return dict(
             value=material(attrs["material_class"]), support=0.4, source="register cladding"

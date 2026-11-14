@@ -115,7 +115,28 @@
      23459489.51,
      6708716.649
     ]
-   ]
+   ],
+   "width_m": 37.692,
+   "window_columns": 10,
+   "window_height": 0.365,
+   "window_width": 0.5837
+  },
+  {
+   "base_height": 36.59,
+   "coordinates": [
+    [
+     23459495.785,
+     6708677.463
+    ],
+    [
+     23459506.792,
+     6708683.153
+    ]
+   ],
+   "width_m": 12.391,
+   "window_columns": 4,
+   "window_height": 0.3333,
+   "window_width": 0.7102
   }
  ],
  "width_m": 37.692

@@ -5,7 +5,7 @@
   "features": [
    "balconies"
   ],
-  "ground_floor": "doors",
+  "ground_floor": "shops",
   "ground_openings": 8,
   "material": "concrete",
   "plinth": false,
@@ -211,7 +211,30 @@
      23459025.111,
      6704673.568
     ]
-   ]
+   ],
+   "ground_floor": "shops",
+   "width_m": 21.95,
+   "window_columns": 12,
+   "window_height": 0.5064,
+   "window_width": 0.8209
+  },
+  {
+   "base_height": 10.19,
+   "coordinates": [
+    [
+     23458996.045,
+     6704677.335
+    ],
+    [
+     23459006.901,
+     6704661.313
+    ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 19.353,
+   "window_columns": 3,
+   "window_height": 0.5173,
+   "window_width": 0.3604
   }
  ],
  "width_m": 21.95

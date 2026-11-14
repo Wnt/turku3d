@@ -19,10 +19,11 @@
   "wall_visible": true,
   "window_columns": 6,
   "window_height": 0.4358,
-  "window_width": 0.2001
+  "window_width": 0.376
  },
  "engine": "stored",
  "frame_colour": "#e9e3d3",
+ "lights": 2,
  "provenance": {
   "at": "2026-11-12T21:52:41Z",
   "by": "w2-observe",
@@ -31,5 +32,63 @@
   "tier": "observed"
  },
  "source": "w2-reading",
+ "walls": [
+  {
+   "base_height": 9.64,
+   "coordinates": [
+    [
+     23459189.242,
+     6704396.953
+    ],
+    [
+     23459214.197,
+     6704413.72
+    ]
+   ],
+   "ground_floor": "doors",
+   "lights": 2,
+   "width_m": 30.065,
+   "window_columns": 6,
+   "window_height": 0.4337,
+   "window_width": 0.383
+  },
+  {
+   "base_height": 9.64,
+   "coordinates": [
+    [
+     23459214.197,
+     6704413.72
+    ],
+    [
+     23459199.876,
+     6704435.034
+    ]
+   ],
+   "ground_floor": "doors",
+   "lights": 2,
+   "width_m": 25.678,
+   "window_columns": 6,
+   "window_height": 0.4842,
+   "window_width": 0.4217
+  },
+  {
+   "base_height": 9.64,
+   "coordinates": [
+    [
+     23459180.233,
+     6704410.361
+    ],
+    [
+     23459189.242,
+     6704396.953
+    ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 16.154,
+   "window_columns": 3,
+   "window_height": 0.48,
+   "window_width": 0.2292
+  }
+ ],
  "width_m": 30.065
 }

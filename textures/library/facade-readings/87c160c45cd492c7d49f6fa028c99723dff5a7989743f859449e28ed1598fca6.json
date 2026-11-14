@@ -157,6 +157,24 @@
    ]
   },
   {
+   "base_height": 18.22,
+   "coordinates": [
+    [
+     23459948.689,
+     6700477.402
+    ],
+    [
+     23459950.549,
+     6700479.906
+    ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 3.119,
+   "window_columns": 1,
+   "window_height": 0.6071,
+   "window_width": 0.4328
+  },
+  {
    "balconies": [
     [
      0.02,

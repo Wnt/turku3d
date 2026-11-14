@@ -27,5 +27,61 @@
   "tier": "observed"
  },
  "source": "w2-reading",
+ "walls": [
+  {
+   "base_height": 6.36,
+   "coordinates": [
+    [
+     23456818.274,
+     6699549.665
+    ],
+    [
+     23456805.867,
+     6699538.96
+    ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 16.387,
+   "window_columns": 5,
+   "window_height": 0.5246,
+   "window_width": 0.292
+  },
+  {
+   "base_height": 6.36,
+   "coordinates": [
+    [
+     23456805.867,
+     6699538.96
+    ],
+    [
+     23456811.426,
+     6699532.557
+    ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 8.479,
+   "window_columns": 3,
+   "window_height": 0.6207,
+   "window_width": 0.4599
+  },
+  {
+   "base_height": 6.36,
+   "coordinates": [
+    [
+     23456825.545,
+     6699541.251
+    ],
+    [
+     23456818.274,
+     6699549.665
+    ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 11.12,
+   "window_columns": 4,
+   "window_height": 0.2796,
+   "window_width": 0.3237
+  }
+ ],
  "width_m": 16.387
 }

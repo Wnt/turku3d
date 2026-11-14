@@ -187,7 +187,46 @@
      23460555.504,
      6703952.413
     ]
-   ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 24.951,
+   "window_columns": 4,
+   "window_height": 0.375,
+   "window_width": 0.8598
+  },
+  {
+   "base_height": 17.63,
+   "coordinates": [
+    [
+     23460549.27,
+     6703961.853
+    ],
+    [
+     23460528.45,
+     6703948.104
+    ]
+   ],
+   "width_m": 24.95,
+   "window_columns": 3,
+   "window_height": 0.4107,
+   "window_width": 0.4167
+  },
+  {
+   "base_height": 17.63,
+   "coordinates": [
+    [
+     23460528.45,
+     6703948.104
+    ],
+    [
+     23460534.704,
+     6703938.632
+    ]
+   ],
+   "width_m": 11.35,
+   "window_columns": 1,
+   "window_height": 0.4151,
+   "window_width": 0.25
   }
  ],
  "width_m": 24.951

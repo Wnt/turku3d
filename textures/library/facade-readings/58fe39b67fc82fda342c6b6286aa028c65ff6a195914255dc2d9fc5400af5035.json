@@ -153,7 +153,48 @@
      23458402.45,
      6704071.627
     ]
-   ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 55.552,
+   "window_columns": 10,
+   "window_height": 0.4864,
+   "window_width": 0.4891
+  },
+  {
+   "base_height": 9.16,
+   "coordinates": [
+    [
+     23458408.788,
+     6704061.584
+    ],
+    [
+     23458475.511,
+     6704106.631
+    ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 80.506,
+   "window_columns": 14,
+   "window_height": 0.4727,
+   "window_width": 0.4167
+  },
+  {
+   "base_height": 9.16,
+   "coordinates": [
+    [
+     23458475.511,
+     6704106.631
+    ],
+    [
+     23458465.662,
+     6704121.278
+    ]
+   ],
+   "ground_floor": "shops",
+   "width_m": 17.65,
+   "window_columns": 1,
+   "window_height": 0.413,
+   "window_width": 0.9
   }
  ],
  "width_m": 55.552

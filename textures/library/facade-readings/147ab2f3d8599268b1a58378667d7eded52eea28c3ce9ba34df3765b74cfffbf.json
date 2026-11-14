@@ -19,10 +19,11 @@
   "wall_visible": true,
   "window_columns": 4,
   "window_height": 0.4511,
-  "window_width": 0.1869
+  "window_width": 0.3251
  },
  "engine": "stored",
  "frame_colour": "#5b4b42",
+ "lights": 2,
  "provenance": {
   "at": "2026-11-13T11:56:26Z",
   "by": "w2-observe",
@@ -63,7 +64,12 @@
      23459421.45,
      6704854.512
     ]
-   ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 19.818,
+   "window_columns": 4,
+   "window_height": 0.371,
+   "window_width": 0.261
   },
   {
    "balconies": [
@@ -96,7 +102,12 @@
      23459440.205,
      6704867.289
     ]
-   ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 12.385,
+   "window_columns": 3,
+   "window_height": 0.4493,
+   "window_width": 0.218
   },
   {
    "balconies": [
@@ -123,7 +134,13 @@
      23459449.878,
      6704809.162
     ]
-   ]
+   ],
+   "ground_floor": "doors",
+   "lights": 2,
+   "width_m": 51.036,
+   "window_columns": 12,
+   "window_height": 0.5197,
+   "window_width": 0.4314
   }
  ],
  "width_m": 19.818

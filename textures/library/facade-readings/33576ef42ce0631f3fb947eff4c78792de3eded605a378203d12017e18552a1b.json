@@ -30,6 +30,23 @@
  "source": "w2-reading",
  "walls": [
   {
+   "base_height": 25.79,
+   "coordinates": [
+    [
+     23460649.314,
+     6700583.318
+    ],
+    [
+     23460652.118,
+     6700583.126
+    ]
+   ],
+   "width_m": 2.811,
+   "window_columns": 1,
+   "window_height": 0.3871,
+   "window_width": 0.5337
+  },
+  {
    "balconies": [
     [
      0.11,
@@ -48,7 +65,11 @@
      23460656.945,
      6700579.098
     ]
-   ]
+   ],
+   "width_m": 4.134,
+   "window_columns": 1,
+   "window_height": 0.48,
+   "window_width": 0.3628
   }
  ],
  "width_m": 4.134

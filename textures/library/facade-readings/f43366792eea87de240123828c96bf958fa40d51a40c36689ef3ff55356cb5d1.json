@@ -211,7 +211,30 @@
      23460619.484,
      6704087.418
     ]
-   ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 21.96,
+   "window_columns": 4,
+   "window_height": 0.4504,
+   "window_width": 0.6901
+  },
+  {
+   "base_height": 18.27,
+   "coordinates": [
+    [
+     23460619.484,
+     6704087.418
+    ],
+    [
+     23460611.269,
+     6704099.933
+    ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 14.97,
+   "window_columns": 2,
+   "window_height": 0.5517,
+   "window_width": 0.5
   }
  ],
  "width_m": 21.96

@@ -27,5 +27,133 @@
   "tier": "observed"
  },
  "source": "w2-reading",
+ "walls": [
+  {
+   "base_height": 20.6,
+   "coordinates": [
+    [
+     23461262.11,
+     6704375.597
+    ],
+    [
+     23461315.806,
+     6704411.717
+    ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 64.714,
+   "window_columns": 17,
+   "window_height": 0.3458,
+   "window_width": 0.9
+  },
+  {
+   "base_height": 20.6,
+   "coordinates": [
+    [
+     23461225.018,
+     6704400.927
+    ],
+    [
+     23461260.107,
+     6704371.987
+    ]
+   ],
+   "ground_floor": "shops",
+   "width_m": 45.484,
+   "window_columns": 12,
+   "window_height": 0.6471,
+   "window_width": 0.9
+  },
+  {
+   "base_height": 20.6,
+   "coordinates": [
+    [
+     23461223.698,
+     6704412.014
+    ],
+    [
+     23461228.406,
+     6704405.023
+    ]
+   ],
+   "ground_floor": "plain",
+   "width_m": 8.428,
+   "window_columns": 2,
+   "window_height": 0.2,
+   "window_width": 0.9
+  },
+  {
+   "base_height": 20.6,
+   "coordinates": [
+    [
+     23461228.406,
+     6704405.023
+    ],
+    [
+     23461225.018,
+     6704400.927
+    ]
+   ],
+   "ground_floor": "shops",
+   "width_m": 5.316,
+   "window_columns": 1,
+   "window_height": 0.85,
+   "window_width": 0.5
+  },
+  {
+   "base_height": 20.6,
+   "coordinates": [
+    [
+     23461260.107,
+     6704371.987
+    ],
+    [
+     23461262.675,
+     6704375.132
+    ]
+   ],
+   "ground_floor": "shops",
+   "width_m": 4.06,
+   "window_columns": 1,
+   "window_height": 0.3214,
+   "window_width": 0.6896
+  },
+  {
+   "base_height": 20.6,
+   "coordinates": [
+    [
+     23461324.791,
+     6704412.163
+    ],
+    [
+     23461293.29,
+     6704458.933
+    ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 56.389,
+   "window_columns": 15,
+   "window_height": 0.3429,
+   "window_width": 0.9
+  },
+  {
+   "base_height": 20.6,
+   "coordinates": [
+    [
+     23461318.868,
+     6704408.248
+    ],
+    [
+     23461324.791,
+     6704412.163
+    ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 7.1,
+   "window_columns": 2,
+   "window_height": 0.2842,
+   "window_width": 0.9
+  }
+ ],
  "width_m": 64.714
 }

@@ -161,20 +161,95 @@ def test_reading_rows_rank_below_every_proven_description(tmp_path, monkeypatch)
     assert read_description("b1") == d
 
 
+FRONT = np.array([[12, 0, 0], [0, 0, 0], [0, 9, 0], [12, 9, 0]], float)  # the read wall w00, reversed
+SIDE = np.array([[12, 0, 0], [12, 0, 5], [12, 9, 5], [12, 9, 0]], float)  # faces another way
+
+
 def test_reading_balconies_stay_on_their_own_wall_only():
-    from turku3d.facade_programs import compile_wall, describe, described_balconies
+    from turku3d.facade_programs import compile_wall, describe, described_walls
     from turkutex.facade_archetypes import sample
 
     row, _ = conv.convert(reading())
-    # Quad 0 is the read wall drawn from its far end; quad 1 faces another way.
-    front = np.array([[12, 0, 0], [0, 0, 0], [0, 9, 0], [12, 9, 0]], float)
-    side = np.array([[12, 0, 0], [12, 0, 5], [12, 9, 5], [12, 9, 0]], float)
-    rails = described_balconies(np.concatenate([front, side]), row)
-    assert list(rails) == [0] and rails[0][0] == [6.5, 3.3, 2.0, 1.1]
+    walls = described_walls(np.concatenate([FRONT, SIDE]), row)
+    assert list(walls) == [0] and walls[0]["rails"][0] == [6.5, 3.3, 2.0, 1.1]
     p = sample("rails", dict(levels=3), [dict(width_m=12, height_m=9)] * 2)
-    describe(p, row["description"], row["width_m"], balconies=rails)
+    describe(p, row["description"], row["width_m"], walls=walls)
     assert compile_wall(p["walls"][0], 3)["detail"][1] == 1
     assert compile_wall(p["walls"][1], 3)["detail"][1] == 0
+
+
+def test_a_read_wall_draws_its_own_rhythm_and_ground_storey():
+    from turku3d.facade_programs import compile_wall, describe, described_walls
+    from turkutex.facade_archetypes import sample
+
+    doc = reading()
+    # The large wall reads doors; a well-seen street front of 3 bays has shops.
+    doc["walls"][1] = {
+        "id": "w01", "material": "wall", "observed": {"visible_share": 0.6}, "conf": {"*": 0.6},
+        "frame": {"p0": [E + 12, N], "p1": [E + 12, N - 5], "base_h": 0, "height_m": 9},
+        "bays": [{"u_m": 0.8}, {"u_m": 2.5}, {"u_m": 4.2}],
+        "storeys": [{"kind": "ground", "height_m": 3.0, "row": ["shop", "shop", "door"]},
+                    {"kind": "upper", "height_m": 2.8, "count": 2, "window": "win"}],
+    }
+    row, _ = conv.convert(doc)
+    assert row["description"]["ground_floor"] == "doors" and row["description"]["window_columns"] == 4
+    side = row["walls"][1]
+    assert (side["ground_floor"], side["window_columns"], side["width_m"]) == ("shops", 3, 5.0)
+    walls = described_walls(np.concatenate([FRONT, SIDE]), row)
+    p = sample("own", dict(levels=3), [dict(width_m=12, height_m=9), dict(width_m=5, height_m=9)])
+    describe(p, row["description"], row["width_m"], walls=walls)
+    front, end = p["walls"]
+    assert (front["bays"]["count"], front["base"]["variant"]["value"]) == (4, "doors")
+    assert (end["bays"]["count"], end["base"]["variant"]["value"]) == (3, "shops")
+    # One floor grid: the shop storey keeps the building's ground split.
+    assert end["split"]["base_height_m"] == front["split"]["base_height_m"]
+    assert compile_wall(end, 3)["module"] % 3 == 2
+    # A wall seen too little keeps the building's reference rhythm.
+    doc["walls"][1]["observed"]["visible_share"] = 0.1
+    row, _ = conv.convert(doc)
+    assert "walls" not in row or all("window_columns" not in w for w in row["walls"][1:])
+
+
+def test_shop_glass_read_as_windows_opens_shops_but_dwelling_windows_do_not():
+    doc = reading()
+    doc["opening_types"]["glass"] = {"kind": "window", "w_m": 2.3, "h_m": 1.9, "glass": {"interior": "dark"}}
+    doc["walls"][0]["storeys"][0] = {"kind": "ground", "height_m": 3.0, "sill_m": 0.2,
+                                     "row": ["glass", "door", "glass", "glass"]}
+    assert conv.convert(doc)[0]["description"]["ground_floor"] == "shops"
+    doc["opening_types"]["glass"]["glass"]["interior"] = "dwelling"
+    assert conv.convert(doc)[0]["description"]["ground_floor"] == "doors"
+    doc["opening_types"]["glass"]["glass"]["interior"] = "dark"
+    doc["walls"][0]["storeys"][0]["sill_m"] = 0.9
+    assert conv.convert(doc)[0]["description"]["ground_floor"] == "doors"
+
+
+def test_grouped_windows_draw_at_their_group_width_with_their_lights():
+    from turku3d.facade_programs import compile_wall, describe, described_walls
+    from turkutex.facade_archetypes import sample
+
+    doc = reading()
+    doc["opening_types"]["win"]["multiple"] = {"count": 3, "gap_m": 0.3}
+    row, _ = conv.convert(doc)
+    # 3 x 1.2 m lights and two 0.3 m piers in each 3 m bay.
+    assert row["description"]["window_width"] == 0.9 and row["lights"] == 3
+    assert row["walls"][0]["lights"] == 3
+    p = sample("groups", dict(levels=3), [dict(width_m=12, height_m=9)])
+    describe(p, row["description"], row["width_m"], walls=described_walls(FRONT, row), lights=row["lights"])
+    assert compile_wall(p["walls"][0], 3)["glazing"][0] == 3
+
+
+def test_a_reading_material_outranks_register_cladding_but_not_proven_descriptions():
+    from turku3d.facade_inference import BUILDING_READING, building_material
+
+    d = conv.convert(reading())[0]["description"]
+    found = building_material(dict(material_class="render"), {}, None, d, reading=True)
+    assert (found["value"], found["source"]) == ("brick", BUILDING_READING)
+    # A proven AI description keeps ranking below the register's cladding.
+    assert building_material(dict(material_class="render"), {}, None, d)["value"] == "plaster"
+    # Reviewed walls keep ranking above a reading.
+    observed = dict(walls=[dict(observation=dict(needs_review=False),
+                                wall=dict(material=dict(value="granite", support=0.9)))])
+    assert building_material({}, {}, observed, d, reading=True)["value"] == "stone"
 
 
 def test_migration_selects_only_tiles_holding_a_read_building(monkeypatch):

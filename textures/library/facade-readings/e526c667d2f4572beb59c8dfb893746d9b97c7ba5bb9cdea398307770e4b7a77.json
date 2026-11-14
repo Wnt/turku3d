@@ -29,5 +29,25 @@
   "tier": "reviewed"
  },
  "source": "w2-reading",
+ "walls": [
+  {
+   "base_height": 8.6,
+   "coordinates": [
+    [
+     23458533.314,
+     6704192.206
+    ],
+    [
+     23458562.8,
+     6704212.074
+    ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 35.555,
+   "window_columns": 14,
+   "window_height": 0.4884,
+   "window_width": 0.4348
+  }
+ ],
  "width_m": 35.555
 }

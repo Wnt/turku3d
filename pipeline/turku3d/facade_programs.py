@@ -193,16 +193,21 @@ def described_blank_walls(key, vertices, description, observed=None):
     return result
 
 
-def described_balconies(vertices, row):
-    """Balcony rails the description's source saw on its walls, per generated wall quad:
-    ``{index: [[x, y, w, h], ...]}`` with x along the quad from its first vertex."""
-    walls = [w for w in (row or {}).get("walls") or [] if w.get("balconies")]
+# Description fields a read wall states for itself (``facade_readings_convert.wall_layout``).
+WALL_LAYOUT = ("window_columns", "width_m", "window_width", "window_height", "ground_floor", "lights")
+
+
+def described_walls(vertices, row):
+    """What the description's source read on each generated wall quad: the matched read wall's own
+    layout fields (``WALL_LAYOUT``) and its balcony rails (``rails``: ``[[x, y, w, h], ...]`` with x
+    along the quad from its first vertex), as ``{index: {...}}``."""
+    walls = (row or {}).get("walls") or []
     if not walls:
         return {}
     from turku3d.coarse.stored_facades import match_prepared, prepare_walls
 
     prepared = prepare_walls([dict(coordinates=w["coordinates"], normal=None, metadata={},
-                                   base_height=w.get("base_height") or 0, rails=w["balconies"])
+                                   base_height=w.get("base_height") or 0, read=w)
                               for w in walls])
     result = {}
     for index, points in enumerate(np.asarray(vertices).reshape(-1, 4, 3)):
@@ -213,12 +218,15 @@ def described_balconies(vertices, row):
         width = float(np.linalg.norm(points[1, [0, 2]] - points[0, [0, 2]]))
         start, forward = uv[0, 0], uv[1, 0] >= uv[0, 0]
         rails = []
-        for u, y, w, h in source["rails"]:
+        for u, y, w, h in source["read"].get("balconies") or []:
             x = u - start if forward else start - (u + w)
             if x + w > 0 and x < width:
                 rails.append([x, y, w, h])
+        found = {k: source["read"][k] for k in WALL_LAYOUT if k in source["read"]}
         if rails:
-            result[index] = rails
+            found["rails"] = rails
+        if found:
+            result[index] = found
     return result
 
 
@@ -226,21 +234,24 @@ def described_balconies(vertices, row):
 DRAWN_PITCH_M = (1.5, 4.8)
 
 
-def describe(program, description, source_width, *, blank_walls=frozenset(), balconies=None,
-             frame_colour=None):
+def describe(program, description, source_width, *, blank_walls=frozenset(), walls=None,
+             frame_colour=None, lights=None):
     """Keep existing AI/kit results, adapting only the bay count to each real wall. A row's own
-    ``frame_colour`` (a reading's window frames) outranks the trim colour on the frames."""
+    ``frame_colour`` (a reading's window frames) outranks the trim colour on the frames. ``walls``
+    (``described_walls``) gives a wall the rhythm, ground storey and balcony rails its source read
+    on that very wall; ``lights`` draws each window as a group of that many lights."""
     from turkutex.facade_program import value
 
-    d = description
-    if not d.get("wall_visible", True):
+    if not description.get("wall_visible", True):
         return
-    pitch = source_width / max(1, d["window_columns"])
-    # Descriptions are a building-wide rhythm, not a licence to stretch a single
-    # source bay over an unrelated long wall or squeeze it into a roof sliver.
-    pitch = min(DRAWN_PITCH_M[1], max(DRAWN_PITCH_M[0], pitch))
-    features = d["features"]
+    features = description["features"]
     for index, w in enumerate(program["walls"]):
+        read = (walls or {}).get(index, {})
+        d = {**description, **{k: read[k] for k in WALL_LAYOUT if k in read}}
+        pitch = read.get("width_m", source_width) / max(1, d["window_columns"])
+        # Descriptions are a building-wide rhythm, not a licence to stretch a single
+        # source bay over an unrelated long wall or squeeze it into a roof sliver.
+        pitch = min(DRAWN_PITCH_M[1], max(DRAWN_PITCH_M[0], pitch))
         width, height = w["width_m"], w.get("layout_height_m", w["height_m"])
         has_windows = d["window_columns"] > 0
         located_blank = index in blank_walls
@@ -250,7 +261,8 @@ def describe(program, description, source_width, *, blank_walls=frozenset(), bal
         bay = width / max(count, 1)
         floors = program["storeys"]["value"]
         ground = height / floors if floors else height
-        if floors and floors > 1 and d["ground_floor"] == "shops":
+        # One floor grid per building: a wall's own shop storey keeps the building's split.
+        if floors and floors > 1 and description["ground_floor"] == "shops":
             ground = min(ground * 1.25, height * 0.6)
         upper = (height - ground) / (floors - 1) if floors and floors > 1 else ground
         v = lambda x: value(x, "existing description", 1)  # noqa: E731
@@ -268,6 +280,11 @@ def describe(program, description, source_width, *, blank_walls=frozenset(), bal
                 sill_fraction=v(0.21),
                 frame_colour=v(frame_colour or d["trim_colour"]),
             )
+            # A wall read with its own rhythm groups only what was read on it.
+            group = read.get("lights") if "window_columns" in read else lights
+            if group and group >= 2:
+                # A read pair or triple draws as one opening of that many lights (rows by height).
+                w["windows"]["divisions"] = v([int(group), 0])
         w["split"]["base_height_m"] = v(ground)
         w["base"].update(
             colour=v(d["wall_colour"]),
@@ -286,7 +303,7 @@ def describe(program, description, source_width, *, blank_walls=frozenset(), bal
         )
         # Existing generated balcony maps remain bound before this painter; a reading's
         # balcony walls (no maps) keep their rails.
-        rails = (balconies or {}).get(index, [])
+        rails = read.get("rails", [])
         w["balconies"] = v([[x + w.get("uv_offset", 0), y, bw, bh] for x, y, bw, bh in rails])
 
 
@@ -463,8 +480,12 @@ def resolve(building, vertices, eaves, *, layout_height=None):
     d = read_description(building.facade_key)
     if d and not d.get("wall_visible", True):
         d = None
+    from turku3d.facade_assets import description_row
+    from turku3d.facade_readings import SOURCE as READING
+
+    row = (description_row(building.facade_key) or {}) if d else {}
     observed = measured(building.facade_key)
-    family = building_material(attrs, record, observed, d)
+    family = building_material(attrs, record, observed, d, reading=row.get("source") == READING)
     from turku3d.facade_inference import material as normalize_material
 
     if family and normalize_material(attrs.get("material_class")) != family["value"]:
@@ -533,14 +554,11 @@ def resolve(building, vertices, eaves, *, layout_height=None):
             else "material palette",
         )
         wall["base"]["colour"] = dict(wall["wall"]["colour"])
-    from turku3d.facade_assets import description_row
-
     if d:
-        row = description_row(building.facade_key) or {}
         describe(program, d, row.get("width_m") or attrs["frontage_m"],
                  blank_walls=described_blank_walls(building.facade_key, vertices, d, observed),
-                 balconies=described_balconies(vertices, row),
-                 frame_colour=row.get("frame_colour"))
+                 walls=described_walls(vertices, row),
+                 frame_colour=row.get("frame_colour"), lights=row.get("lights"))
         program["description_source"] = row.get("source", "existing")
     program["facade_material"] = family
     head = reading_head(observed)

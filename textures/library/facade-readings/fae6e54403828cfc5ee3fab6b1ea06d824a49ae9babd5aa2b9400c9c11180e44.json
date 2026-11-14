@@ -3,7 +3,7 @@
  "description": {
   "facade_id": "reading-1032958218",
   "features": [],
-  "ground_floor": "doors",
+  "ground_floor": "shops",
   "ground_openings": 9,
   "material": "metal",
   "plinth": true,
@@ -27,5 +27,79 @@
   "tier": "observed"
  },
  "source": "w2-reading",
+ "walls": [
+  {
+   "base_height": 8.96,
+   "coordinates": [
+    [
+     23460023.504,
+     6705452.316
+    ],
+    [
+     23460049.174,
+     6705435.774
+    ]
+   ],
+   "ground_floor": "shops",
+   "width_m": 30.538,
+   "window_columns": 9,
+   "window_height": 0.4815,
+   "window_width": 0.5526
+  },
+  {
+   "base_height": 8.96,
+   "coordinates": [
+    [
+     23460062.259,
+     6705438.051
+    ],
+    [
+     23460083.459,
+     6705469.407
+    ]
+   ],
+   "ground_floor": "shops",
+   "width_m": 37.85,
+   "window_columns": 6,
+   "window_height": 0.4398,
+   "window_width": 0.9
+  },
+  {
+   "base_height": 8.96,
+   "coordinates": [
+    [
+     23460049.174,
+     6705435.774
+    ],
+    [
+     23460062.259,
+     6705438.051
+    ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 13.282,
+   "window_columns": 2,
+   "window_height": 0.85,
+   "window_width": 0.5573
+  },
+  {
+   "base_height": 8.96,
+   "coordinates": [
+    [
+     23460050.389,
+     6705491.911
+    ],
+    [
+     23460023.504,
+     6705452.316
+    ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 47.86,
+   "window_columns": 5,
+   "window_height": 0.4424,
+   "window_width": 0.9
+  }
+ ],
  "width_m": 37.85
 }

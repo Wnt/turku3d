@@ -49,7 +49,66 @@
      23461369.511,
      6704164.769
     ]
-   ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 52.259,
+   "window_columns": 15,
+   "window_height": 0.6867,
+   "window_width": 0.2727
+  },
+  {
+   "base_height": 20.9,
+   "coordinates": [
+    [
+     23461384.118,
+     6704182.431
+    ],
+    [
+     23461343.821,
+     6704215.705
+    ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 52.259,
+   "window_columns": 14,
+   "window_height": 0.6706,
+   "window_width": 0.2779
+  },
+  {
+   "base_height": 20.9,
+   "coordinates": [
+    [
+     23461369.511,
+     6704164.769
+    ],
+    [
+     23461384.118,
+     6704182.431
+    ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 22.92,
+   "window_columns": 6,
+   "window_height": 0.6628,
+   "window_width": 0.2487
+  },
+  {
+   "base_height": 20.9,
+   "coordinates": [
+    [
+     23461343.821,
+     6704215.705
+    ],
+    [
+     23461329.24,
+     6704198.075
+    ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 22.878,
+   "window_columns": 6,
+   "window_height": 0.6901,
+   "window_width": 0.2491
   }
  ],
  "width_m": 52.259

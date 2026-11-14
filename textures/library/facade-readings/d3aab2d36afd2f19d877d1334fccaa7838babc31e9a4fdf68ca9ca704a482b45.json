@@ -91,7 +91,12 @@
      23458377.397,
      6704289.71
     ]
-   ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 16.018,
+   "window_columns": 4,
+   "window_height": 0.4574,
+   "window_width": 0.5244
   },
   {
    "balconies": [
@@ -154,7 +159,11 @@
      23458385.846,
      6704277.127
     ]
-   ]
+   ],
+   "width_m": 15.124,
+   "window_columns": 4,
+   "window_height": 0.4589,
+   "window_width": 0.5554
   },
   {
    "balconies": [
@@ -217,7 +226,11 @@
      23458394.311,
      6704264.55
     ]
-   ]
+   ],
+   "width_m": 15.1,
+   "window_columns": 4,
+   "window_height": 0.4574,
+   "window_width": 0.5563
   },
   {
    "balconies": [
@@ -274,7 +287,66 @@
      23458402.742,
      6704252.023
     ]
-   ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 15.1,
+   "window_columns": 4,
+   "window_height": 0.4574,
+   "window_width": 0.5501
+  },
+  {
+   "base_height": 6.85,
+   "coordinates": [
+    [
+     23458402.742,
+     6704252.023
+    ],
+    [
+     23458413.379,
+     6704258.2
+    ]
+   ],
+   "ground_floor": "shops",
+   "width_m": 12.3,
+   "window_columns": 1,
+   "window_height": 0.3281,
+   "window_width": 0.2083
+  },
+  {
+   "base_height": 6.85,
+   "coordinates": [
+    [
+     23458413.379,
+     6704258.2
+    ],
+    [
+     23458405.343,
+     6704272.036
+    ]
+   ],
+   "ground_floor": "shops",
+   "width_m": 16.0,
+   "window_columns": 2,
+   "window_height": 0.4603,
+   "window_width": 0.3333
+  },
+  {
+   "base_height": 6.85,
+   "coordinates": [
+    [
+     23458404.478,
+     6704271.534
+    ],
+    [
+     23458396.894,
+     6704284.592
+    ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 15.101,
+   "window_columns": 4,
+   "window_height": 0.4531,
+   "window_width": 0.4238
   }
  ],
  "width_m": 16.018

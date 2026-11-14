@@ -31,6 +31,41 @@
  "source": "w2-reading",
  "walls": [
   {
+   "base_height": 13.91,
+   "coordinates": [
+    [
+     23461986.997,
+     6706607.519
+    ],
+    [
+     23461998.166,
+     6706603.591
+    ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 11.84,
+   "window_columns": 2,
+   "window_height": 0.2,
+   "window_width": 0.1146
+  },
+  {
+   "base_height": 13.91,
+   "coordinates": [
+    [
+     23462008.68,
+     6706633.6
+    ],
+    [
+     23461997.496,
+     6706637.519
+    ]
+   ],
+   "width_m": 11.851,
+   "window_columns": 2,
+   "window_height": 0.2,
+   "window_width": 0.1146
+  },
+  {
    "balconies": [
     [
      -0.01,
@@ -79,7 +114,12 @@
      23461986.441,
      6706611.987
     ]
-   ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 8.149,
+   "window_columns": 2,
+   "window_height": 0.4746,
+   "window_width": 0.4417
   },
   {
    "balconies": [
@@ -106,7 +146,66 @@
      23461991.595,
      6706626.711
     ]
-   ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 8.2,
+   "window_columns": 2,
+   "window_height": 0.3362,
+   "window_width": 0.2866
+  },
+  {
+   "base_height": 13.91,
+   "coordinates": [
+    [
+     23461993.461,
+     6706625.989
+    ],
+    [
+     23461991.025,
+     6706619.028
+    ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 7.375,
+   "window_columns": 2,
+   "window_height": 0.3793,
+   "window_width": 0.4746
+  },
+  {
+   "base_height": 13.91,
+   "coordinates": [
+    [
+     23461988.324,
+     6706611.311
+    ],
+    [
+     23461986.997,
+     6706607.519
+    ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 4.017,
+   "window_columns": 1,
+   "window_height": 0.4237,
+   "window_width": 0.4356
+  },
+  {
+   "base_height": 13.91,
+   "coordinates": [
+    [
+     23461997.496,
+     6706637.519
+    ],
+    [
+     23461996.213,
+     6706633.852
+    ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 3.885,
+   "window_columns": 1,
+   "window_height": 0.3446,
+   "window_width": 0.3475
   }
  ],
  "width_m": 11.84

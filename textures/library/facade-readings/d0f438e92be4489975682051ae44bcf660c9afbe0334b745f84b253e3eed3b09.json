@@ -51,7 +51,12 @@
      23459112.132,
      6704661.498
     ]
-   ]
+   ],
+   "ground_floor": "shops",
+   "width_m": 14.691,
+   "window_columns": 7,
+   "window_height": 0.4756,
+   "window_width": 0.405
   }
  ],
  "width_m": 14.691

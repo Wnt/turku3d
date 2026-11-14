@@ -6,7 +6,7 @@
    "pilasters",
    "ornament"
   ],
-  "ground_floor": "doors",
+  "ground_floor": "shops",
   "ground_openings": 4,
   "material": "plaster",
   "plinth": true,
@@ -30,5 +30,25 @@
   "tier": "reviewed"
  },
  "source": "w2-reading",
+ "walls": [
+  {
+   "base_height": 8.41,
+   "coordinates": [
+    [
+     23458520.853,
+     6704183.547
+    ],
+    [
+     23458529.712,
+     6704189.719
+    ]
+   ],
+   "ground_floor": "shops",
+   "width_m": 10.797,
+   "window_columns": 4,
+   "window_height": 0.5474,
+   "window_width": 0.4724
+  }
+ ],
  "width_m": 10.797
 }

@@ -6,7 +6,7 @@
    "balconies",
    "string_courses"
   ],
-  "ground_floor": "doors",
+  "ground_floor": "shops",
   "ground_openings": 12,
   "material": "wood",
   "plinth": true,
@@ -18,7 +18,7 @@
   "wall_visible": true,
   "window_columns": 11,
   "window_height": 0.487,
-  "window_width": 0.5211
+  "window_width": 0.5238
  },
  "engine": "stored",
  "provenance": {
@@ -30,6 +30,78 @@
  },
  "source": "w2-reading",
  "walls": [
+  {
+   "base_height": 9.07,
+   "coordinates": [
+    [
+     23458502.598,
+     6704149.951
+    ],
+    [
+     23458478.646,
+     6704133.792
+    ]
+   ],
+   "ground_floor": "shops",
+   "width_m": 28.893,
+   "window_columns": 11,
+   "window_height": 0.512,
+   "window_width": 0.5721
+  },
+  {
+   "base_height": 9.07,
+   "coordinates": [
+    [
+     23458483.969,
+     6704125.956
+    ],
+    [
+     23458490.519,
+     6704115.759
+    ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 12.119,
+   "window_columns": 5,
+   "window_height": 0.5048,
+   "window_width": 0.3805
+  },
+  {
+   "base_height": 9.07,
+   "coordinates": [
+    [
+     23458478.646,
+     6704133.792
+    ],
+    [
+     23458481.884,
+     6704128.979
+    ]
+   ],
+   "ground_floor": "shops",
+   "width_m": 5.801,
+   "window_columns": 2,
+   "window_height": 0.437,
+   "window_width": 0.4655
+  },
+  {
+   "base_height": 9.07,
+   "coordinates": [
+    [
+     23458490.519,
+     6704115.759
+    ],
+    [
+     23458502.225,
+     6704123.496
+    ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 14.032,
+   "window_columns": 5,
+   "window_height": 0.5758,
+   "window_width": 0.3385
+  },
   {
    "balconies": [
     [
@@ -49,7 +121,12 @@
      23458502.598,
      6704149.951
     ]
-   ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 16.112,
+   "window_columns": 6,
+   "window_height": 0.4034,
+   "window_width": 0.4096
   }
  ],
  "width_m": 28.893

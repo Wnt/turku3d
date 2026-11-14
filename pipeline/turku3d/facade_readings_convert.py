@@ -4,8 +4,9 @@ A reading (``turku-description/building/1``, a vision model's per-building recor
 colours, walls, storeys, bays, opening types, balconies and roof) becomes the facade-fast
 description row that ``facade_assets.description_row`` returns through ``turku3d.facade_readings``.
 The converter leaves out buildings proven already describes or reviews. A row carries, beside the
-description, the reading's balcony walls (``walls``: surveyed E/N segment and positioned rails),
-so the walls a reading saw balconies on keep them.
+description, the read walls (``walls``: surveyed E/N segment, positioned balcony rails, and the
+wall's own rhythm and ground storey where its reading states them, ``wall_layout``), so each wall
+keeps what was read on it; ``lights`` is the number of lights a grouped window draws.
 
 Nothing in the generator imports this module: changing it changes the rows only, so a new set of
 rows ships as a new version of the facade-readings migration step.
@@ -164,12 +165,24 @@ def main_window(walls, types):
     return max(votes, key=votes.get) if votes else None
 
 
+def group(t) -> int:
+    """How many lights a window type groups side by side (``multiple``: a pair, a triple)."""
+    return max(1, int((t.get("multiple") or {}).get("count") or 1))
+
+
+def group_width(t) -> float:
+    """A grouped window's whole width: its lights and the piers between them."""
+    n = group(t)
+    return n * float(t["w_m"]) + (n - 1) * float((t.get("multiple") or {}).get("gap_m") or 0)
+
+
 def window_size(walls, types):
-    """(w_m, h_m): the mean size of every window the storeys place, weighted by wall size, so a row
-    of wide and narrow windows draws its average, not its most frequent narrow light. Attic lights
-    count only when no full storey places a window."""
+    """(w_m, h_m, lights): the mean size of every window the storeys place, weighted by wall size,
+    so a row of wide and narrow windows draws its average, not its most frequent narrow light. A
+    grouped window (a pair, a triple) counts at its whole group's width, and ``lights`` is the mean
+    number of lights a placed window groups. Attic lights count only when no full storey places one."""
     for kinds in (("ground", "upper", "mezzanine"), ("attic",)):
-        total = wsum = hsum = 0.0
+        total = wsum = hsum = lsum = 0.0
         for w in walls:
             for st in expand(w.get("storeys")):
                 if st.get("kind") not in kinds:
@@ -178,11 +191,31 @@ def window_size(walls, types):
                     t = types[name]
                     if t.get("kind") == "window" and t.get("w_m") and t.get("h_m"):
                         total += weight(w)
-                        wsum += weight(w) * float(t["w_m"])
+                        wsum += weight(w) * group_width(t)
                         hsum += weight(w) * float(t["h_m"])
+                        lsum += weight(w) * group(t)
         if total:
-            return wsum / total, hsum / total
+            return wsum / total, hsum / total, lsum / total
     return None
+
+
+# Shop glazing a reader typed as windows (to avoid drawing door leaves on fixed shop glass): a wide,
+# tall pane reaching down to a low sill in the ground storey, unless its room is read as a dwelling or
+# an office (a villa's or an office's tall windows). Readings 2026-11-13: filmed or blinded shop windows
+# 2.2-4.9 m x 1.9 m on a 0.2 m sill; dwelling French windows are 0.9-1.85 m wide.
+SHOP_GLASS_W_M, SHOP_GLASS_H_M, SHOP_SILL_M = 2.0, 1.8, 0.6
+
+
+def shop_glass(t, sill) -> bool:
+    if t.get("kind") == "shopfront":
+        return True
+    if t.get("kind") != "window":
+        return False
+    interior = (t.get("glass") or {}).get("interior")
+    if interior == "shop":
+        return True
+    return (interior not in ("dwelling", "office") and sill is not None and float(sill) <= SHOP_SILL_M
+            and float(t.get("w_m") or 0) >= SHOP_GLASS_W_M and float(t.get("h_m") or 0) >= SHOP_GLASS_H_M)
 
 
 def ground_floor(wall, types, wood):
@@ -194,22 +227,83 @@ def ground_floor(wall, types, wood):
     # ground storey's (a wooden house's cellar door is no entrance in the ground storey).
     datum = float(wall.get("ground_floor_m", (wall.get("plinth") or {}).get("height_m", 0)) or 0)
     top = datum + float((ground or {}).get("height_m", 3.5))
-    names += [
-        o.get("type")
-        for o in wall.get("openings") or []
-        if o.get("type") in types and datum - 0.3 <= float(o.get("v_m", -99)) < top
-    ]
+    sill = (ground or {}).get("sill_m")
+    shops = any(shop_glass(types[n], sill) for n in names)
+    for o in wall.get("openings") or []:
+        if o.get("type") in types and datum - 0.3 <= float(o.get("v_m", -99)) < top:
+            names.append(o["type"])
+            shops = shops or shop_glass(types[o["type"]], float(o.get("v_m", 99)) - datum)
     kinds = [types[n].get("kind") for n in names]
     if not kinds:
         return ("windows" if wood else "doors"), None
     count = sum(k in ("window", "door", "shopfront", "garage", "gateway") for k in kinds)
-    if "shopfront" in kinds:
+    if shops:
         return "shops", count
     if any(k in ("door", "garage", "gateway") for k in kinds):
         return "doors", count
     if "window" in kinds:
         return "windows", count
     return "plain", 0
+
+
+def columns_of(wall, width, types) -> int:
+    """The read bay count of a wall: its bays, else the most windows one of its storeys places."""
+    columns = bay_count(wall, width)
+    storeys = expand(wall.get("storeys"))
+    if not columns and storeys:
+        columns = max(
+            (sum(types.get(n, {}).get("kind") == "window" for n in storey_openings(s, types))
+             for s in storeys), default=0)
+    return columns
+
+
+def fractions(width, columns, storeys, size):
+    """(window_width, window_height) as fractions of the bay and storey proven draws them in."""
+    # Proven draws the rhythm at a bounded pitch on every wall: size the read window against the
+    # bay it is drawn in, or a sparse reading (wide bays) would get slits.
+    from turku3d.facade_programs import DRAWN_PITCH_M
+
+    pitch = min(DRAWN_PITCH_M[1], max(DRAWN_PITCH_M[0], width / max(columns, 1)))
+    upper = next((s for s in storeys if s.get("kind") == "upper"), None) or next(
+        (s for s in storeys if s.get("kind") == "ground"), None)
+    window_width = min(0.9, max(0.1, size[0] / pitch)) if size else 0.45
+    window_height = (min(0.85, max(0.2, size[1] / float(upper["height_m"])))
+                     if size and upper and upper.get("height_m") else 0.5)
+    return window_width, window_height
+
+
+def lights(size) -> int:
+    return int(size[2] + 0.5) if size else 1
+
+
+# A wall's own rhythm counts only where the reader saw it: a wall read with some confidence and at
+# least a quarter of it in view (the building's reference rhythm covers the rest).
+MIN_WALL_VISIBLE = 0.25
+
+
+def wall_layout(wall, own, types, wood, size) -> dict:
+    """The rhythm and ground storey a read wall states itself (bays, its storeys' windows and
+    ground openings), as description fields a generated wall on this read wall draws instead of the
+    building's reference rhythm. Empty where the wall's own reading states no layout."""
+    if (not (own.get("bays") or own.get("storeys")) or conf(wall, 0.3) < MIN_CONF
+            or (wall.get("observed") or {}).get("visible_share", 0.5) < MIN_WALL_VISIBLE):
+        return {}
+    width = wall_width(wall)
+    columns = columns_of(wall, width, types)
+    if not columns or width < 1.4:
+        return {}
+    if columns > 60:
+        width, columns = width * 60 / columns, 60
+    size = window_size([wall], types) or size
+    window_width, window_height = fractions(width, columns, expand(wall.get("storeys")), size)
+    out = dict(window_columns=int(columns), width_m=round(width, 3), window_width=round(window_width, 4),
+               window_height=round(window_height, 4))
+    if lights(size) >= 2:
+        out["lights"] = lights(size)
+    ground, openings = ground_floor(wall, types, wood)
+    if openings is not None:
+        out["ground_floor"] = ground
+    return out
 
 
 def balcony_rects(wall):
@@ -293,11 +387,7 @@ def convert(doc: dict) -> tuple[dict | None, str]:
     if reference is not None:
         width = wall_width(reference)
         storeys = expand(reference.get("storeys"))
-        columns = bay_count(reference, width)
-        if not columns and storeys:
-            columns = max(
-                (sum(types.get(n, {}).get("kind") == "window" for n in storey_openings(s, types))
-                 for s in storeys), default=0)
+        columns = columns_of(reference, width, types)
     else:
         width, storeys, columns = NOMINAL_WIDTH_M, expand(defaults.get("storeys")), 0
     if not columns:
@@ -308,18 +398,10 @@ def convert(doc: dict) -> tuple[dict | None, str]:
         width, columns = width * 60 / columns, 60
     floors = sum(s.get("kind") in STOREYS for s in storeys) + sum(
         s.get("kind") == "attic" and bool(storey_openings(s, types)) for s in storeys)
-    # Proven draws the rhythm at a bounded pitch on every wall: size the read window against the
-    # bay it is drawn in, or a sparse reading (wide bays) would get slits.
-    from turku3d.facade_programs import DRAWN_PITCH_M
-
-    pitch = min(DRAWN_PITCH_M[1], max(DRAWN_PITCH_M[0], width / max(columns, 1)))
-    upper = next((s for s in storeys if s.get("kind") == "upper"), None) or next(
-        (s for s in storeys if s.get("kind") == "ground"), None)
     size = window_size(walls, types) or (
-        (float(window["w_m"]), float(window["h_m"])) if window.get("w_m") and window.get("h_m") else None)
-    window_width = min(0.9, max(0.1, size[0] / pitch)) if size else 0.45
-    window_height = (min(0.85, max(0.2, size[1] / float(upper["height_m"])))
-                     if size and upper and upper.get("height_m") else 0.5)
+        (group_width(window), float(window["h_m"]), group(window))
+        if window.get("w_m") and window.get("h_m") else None)
+    window_width, window_height = fractions(width, columns, storeys, size)
 
     if reference is not None:
         ground, openings = ground_floor(reference, types, wood)
@@ -377,12 +459,21 @@ def convert(doc: dict) -> tuple[dict | None, str]:
     problems = renderer().validate(description, description["facade_id"])
     if problems:
         return None, "; ".join(problems)
-    balcony_walls = [
-        dict(coordinates=[w["frame"]["p0"], w["frame"]["p1"]], base_height=w["frame"].get("base_h"),
-             balconies=rects)
-        for w in walls
-        if w.get("frame") and (rects := balcony_rects(w))
-    ]
+    # Read walls keep what was read on them: their balconies, and their own rhythm and ground storey
+    # where the wall's reading states them (a shop street front beside a side wall of doors).
+    raw = {w.get("id"): w for w in doc.get("walls", [])}
+    read_walls = []
+    for w, source in zip(walls, doc.get("walls", []), strict=True):
+        box = w.get("frame") or {}
+        if "p0" not in box or "p1" not in box:
+            continue
+        own = {**(raw.get(source.get("like")) or {}), **source}
+        entry = dict(coordinates=[box["p0"], box["p1"]], base_height=box.get("base_h"),
+                     **wall_layout(w, own, types, wood, size))
+        if rects := balcony_rects(w):
+            entry["balconies"] = rects
+        if len(entry) > 2:
+            read_walls.append(entry)
     reading = next(p for p in doc.get("provenance", []) if p.get("by") in READERS)
     result = dict(
         building_key=key,
@@ -395,8 +486,10 @@ def convert(doc: dict) -> tuple[dict | None, str]:
     )
     if frame and frame != description["trim_colour"]:
         result["frame_colour"] = frame
-    if balcony_walls:
-        result["walls"] = balcony_walls
+    if lights(size) >= 2:
+        result["lights"] = lights(size)
+    if read_walls:
+        result["walls"] = read_walls
     return result, "converted"
 
 

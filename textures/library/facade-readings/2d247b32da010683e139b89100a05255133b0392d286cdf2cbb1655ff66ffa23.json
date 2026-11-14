@@ -61,7 +61,12 @@
      23462850.599,
      6706786.106
     ]
-   ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 17.751,
+   "window_columns": 3,
+   "window_height": 0.5192,
+   "window_width": 0.2813
   },
   {
    "balconies": [
@@ -121,7 +126,12 @@
      23462854.972,
      6706780.575
     ]
-   ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 3.954,
+   "window_columns": 1,
+   "window_height": 0.2,
+   "window_width": 0.215
   },
   {
    "balconies": [
@@ -148,7 +158,30 @@
      23462852.205,
      6706783.399
     ]
-   ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 3.201,
+   "window_columns": 1,
+   "window_height": 0.2,
+   "window_width": 0.2655
+  },
+  {
+   "base_height": 29.89,
+   "coordinates": [
+    [
+     23462864.883,
+     6706765.836
+    ],
+    [
+     23462871.368,
+     6706770.412
+    ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 7.937,
+   "window_columns": 2,
+   "window_height": 0.4035,
+   "window_width": 0.2268
   }
  ],
  "width_m": 17.751

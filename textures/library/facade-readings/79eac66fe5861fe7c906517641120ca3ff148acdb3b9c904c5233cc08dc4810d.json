@@ -26,5 +26,79 @@
   "tier": "observed"
  },
  "source": "w2-reading",
+ "walls": [
+  {
+   "base_height": 29.6,
+   "coordinates": [
+    [
+     23461446.326,
+     6705197.401
+    ],
+    [
+     23461448.177,
+     6705189.135
+    ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 8.471,
+   "window_columns": 2,
+   "window_height": 0.3846,
+   "window_width": 0.3128
+  },
+  {
+   "base_height": 29.6,
+   "coordinates": [
+    [
+     23461454.767,
+     6705199.291
+    ],
+    [
+     23461446.326,
+     6705197.401
+    ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 8.65,
+   "window_columns": 2,
+   "window_height": 0.4324,
+   "window_width": 0.2428
+  },
+  {
+   "base_height": 29.6,
+   "coordinates": [
+    [
+     23461448.177,
+     6705189.135
+    ],
+    [
+     23461451.836,
+     6705189.955
+    ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 3.75,
+   "window_columns": 1,
+   "window_height": 0.3478,
+   "window_width": 0.16
+  },
+  {
+   "base_height": 29.6,
+   "coordinates": [
+    [
+     23461452.317,
+     6705187.808
+    ],
+    [
+     23461457.977,
+     6705189.075
+    ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 5.8,
+   "window_columns": 2,
+   "window_height": 0.2692,
+   "window_width": 0.2931
+  }
+ ],
  "width_m": 8.471
 }

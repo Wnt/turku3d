@@ -49,7 +49,12 @@
      23464002.382,
      6706070.698
     ]
-   ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 13.027,
+   "window_columns": 4,
+   "window_height": 0.6194,
+   "window_width": 0.4053
   },
   {
    "balconies": [
@@ -76,7 +81,30 @@
      23464008.552,
      6706074.463
     ]
-   ]
+   ],
+   "ground_floor": "doors",
+   "width_m": 7.228,
+   "window_columns": 2,
+   "window_height": 0.6613,
+   "window_width": 0.2352
+  },
+  {
+   "base_height": 14.03,
+   "coordinates": [
+    [
+     23464001.798,
+     6706085.585
+    ],
+    [
+     23463995.62,
+     6706081.833
+    ]
+   ],
+   "ground_floor": "windows",
+   "width_m": 7.228,
+   "window_columns": 2,
+   "window_height": 0.4946,
+   "window_width": 0.249
   }
  ],
  "width_m": 13.027
