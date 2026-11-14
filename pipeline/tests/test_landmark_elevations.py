@@ -99,12 +99,23 @@ def test_stone_zones_face_part_of_a_rendered_front_and_courtyard_walls_take_thei
     assert select(wall(0.4), [front, court]) is front
     assert select(wall(18.0), [front, court]) is court
     assert select(wall(0.4)[[1, 0, 3, 2]], [front, court]) is None
+    # A row with a plane band covers only the walls near its plane and across its width: the side of a bay
+    # or a tower top behind it takes the plain wall instead of a sliver of the row's openings.
+    banded = dict(front, plane_band_m=[-2.5, 2.0])
+    assert select(wall(1.5), [banded]) is banded and select(wall(-1.0), [banded]) is banded
+    assert select(wall(3.0), [banded]) is None and select(wall(-2.4), [banded]) is None
+    assert select(wall(0.4) + [12, 0, 0], [banded]) is None
+    # Rows without a band keep covering every wall facing their way (the nearest plane wins).
+    assert select(wall(3.0), [banded, dict(court, plane_band_m=[-2.5, 2.0])]) is None
+    assert select(wall(3.0), [front, court]) is front and select(wall(3.0), [banded, court]) is court
 
 
 def test_reviewed_jugendlinna_fronts_are_granite_below_and_in_their_bays():
     d = resolve(SimpleNamespace(key="b", facade_key="103295899S", base=0.0, attributes={}))
     fronts = [row for row in d["elevations"] if row.get("stone_zones")]
     assert len(fronts) == 2
+    # Every reviewed row covers only walls near its own plane (bay sides and tower tops take the plain wall).
+    assert all(row.get("plane_band_m") == [-2.5, 2.0] for row in d["elevations"])
     for row in fronts:
         ground = [z for z in row["stone_zones"] if z[2] == 0]
         assert ground and ground[0][1] >= row["width_m"] - 0.01

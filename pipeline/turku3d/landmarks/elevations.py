@@ -18,13 +18,26 @@ from .openings import panelled_door
 def select(vertices, elevations):
     """The elevation a wall piece samples: among the rows facing its way, the one whose plane is
     nearest. A building with a courtyard has inner walls facing like its street fronts; each takes
-    the row measured on its own plane, never a street front's openings."""
+    the row measured on its own plane, never a street front's openings.
+
+    A row with a ``plane_band_m`` [behind, ahead] covers only the walls whose plane lies in that band
+    around its own and that overlap its width; the side of a bay, a recess or a tower top elsewhere
+    would sample a sliver of its openings (a dark window column) and takes the plain wall instead."""
     direction = vertices[1, [0, 2]] - vertices[0, [0, 2]]
     direction /= np.linalg.norm(direction)
     normal = np.array([direction[1], -direction[0]])
     centre = vertices[:2, [0, 2]].mean(axis=0)
-    matches = [(abs(float((centre - row["origin_xz"]) @ row["normal_xz"])), row)
-               for row in elevations if float(normal @ row["normal_xz"]) > 0.9]
+    matches = []
+    for row in elevations:
+        if float(normal @ row["normal_xz"]) <= 0.9:
+            continue
+        plane = float((centre - row["origin_xz"]) @ row["normal_xz"])
+        band = row.get("plane_band_m")
+        if band is not None:
+            u = (vertices[:2, [0, 2]] - row["origin_xz"]) @ np.asarray(row["axis_xz"]) / row["width_m"]
+            if not band[0] <= plane <= band[1] or u.max() <= 0 or u.min() >= 1:
+                continue
+        matches.append((abs(plane), row))
     return min(matches, key=lambda pair: pair[0])[1] if matches else None
 
 

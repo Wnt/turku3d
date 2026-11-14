@@ -872,6 +872,10 @@
             52
           ]
         }
+      ],
+      "plane_band_m": [
+        -2.5,
+        2.0
       ]
     },
     {
@@ -1613,6 +1617,10 @@
             84
           ]
         }
+      ],
+      "plane_band_m": [
+        -2.5,
+        2.0
       ]
     },
     {
@@ -1710,6 +1718,10 @@
             170
           ]
         }
+      ],
+      "plane_band_m": [
+        -2.5,
+        2.0
       ]
     },
     {
@@ -1807,200 +1819,10 @@
             170
           ]
         }
-      ]
-    },
-    {
-      "origin_xz": [
-        129.47,
-        241.403
       ],
-      "axis_xz": [
-        -0.8775,
-        0.4795
-      ],
-      "normal_xz": [
-        0.4795,
-        0.8775
-      ],
-      "width_m": 26.06,
-      "height_m": 20.0,
-      "plinth_m": 0.6,
-      "bands": [
-        [
-          4.25,
-          0.2
-        ],
-        [
-          15.85,
-          0.45
-        ]
-      ],
-      "repeated_openings": [
-        {
-          "start_m": 1.6,
-          "spacing_m": 2.5,
-          "end_margin_m": 1.0,
-          "sill_m": 5.1,
-          "width_m": 1.15,
-          "height_m": 2.0,
-          "shape": "rect",
-          "columns": 2,
-          "rows": 3,
-          "trim_m": 0.1,
-          "frame_colour": [
-            205,
-            196,
-            170
-          ]
-        },
-        {
-          "start_m": 1.6,
-          "spacing_m": 2.5,
-          "end_margin_m": 1.0,
-          "sill_m": 8.1,
-          "width_m": 1.15,
-          "height_m": 2.0,
-          "shape": "rect",
-          "columns": 2,
-          "rows": 3,
-          "trim_m": 0.1,
-          "frame_colour": [
-            205,
-            196,
-            170
-          ]
-        },
-        {
-          "start_m": 1.6,
-          "spacing_m": 2.5,
-          "end_margin_m": 1.0,
-          "sill_m": 11.1,
-          "width_m": 1.15,
-          "height_m": 2.0,
-          "shape": "rect",
-          "columns": 2,
-          "rows": 3,
-          "trim_m": 0.1,
-          "frame_colour": [
-            205,
-            196,
-            170
-          ]
-        },
-        {
-          "start_m": 1.6,
-          "spacing_m": 2.5,
-          "end_margin_m": 1.0,
-          "sill_m": 14.0,
-          "width_m": 1.15,
-          "height_m": 1.5,
-          "shape": "rect",
-          "columns": 2,
-          "rows": 3,
-          "trim_m": 0.1,
-          "frame_colour": [
-            205,
-            196,
-            170
-          ]
-        }
-      ]
-    },
-    {
-      "origin_xz": [
-        135.01,
-        268.053
-      ],
-      "axis_xz": [
-        -0.5751,
-        -0.8181
-      ],
-      "normal_xz": [
-        -0.8181,
-        0.5751
-      ],
-      "width_m": 23.91,
-      "height_m": 20.0,
-      "plinth_m": 0.6,
-      "bands": [
-        [
-          4.25,
-          0.2
-        ],
-        [
-          15.85,
-          0.45
-        ]
-      ],
-      "repeated_openings": [
-        {
-          "start_m": 1.6,
-          "spacing_m": 2.5,
-          "end_margin_m": 1.0,
-          "sill_m": 5.1,
-          "width_m": 1.15,
-          "height_m": 2.0,
-          "shape": "rect",
-          "columns": 2,
-          "rows": 3,
-          "trim_m": 0.1,
-          "frame_colour": [
-            205,
-            196,
-            170
-          ]
-        },
-        {
-          "start_m": 1.6,
-          "spacing_m": 2.5,
-          "end_margin_m": 1.0,
-          "sill_m": 8.1,
-          "width_m": 1.15,
-          "height_m": 2.0,
-          "shape": "rect",
-          "columns": 2,
-          "rows": 3,
-          "trim_m": 0.1,
-          "frame_colour": [
-            205,
-            196,
-            170
-          ]
-        },
-        {
-          "start_m": 1.6,
-          "spacing_m": 2.5,
-          "end_margin_m": 1.0,
-          "sill_m": 11.1,
-          "width_m": 1.15,
-          "height_m": 2.0,
-          "shape": "rect",
-          "columns": 2,
-          "rows": 3,
-          "trim_m": 0.1,
-          "frame_colour": [
-            205,
-            196,
-            170
-          ]
-        },
-        {
-          "start_m": 1.6,
-          "spacing_m": 2.5,
-          "end_margin_m": 1.0,
-          "sill_m": 14.0,
-          "width_m": 1.15,
-          "height_m": 1.5,
-          "shape": "rect",
-          "columns": 2,
-          "rows": 3,
-          "trim_m": 0.1,
-          "frame_colour": [
-            205,
-            196,
-            170
-          ]
-        }
+      "plane_band_m": [
+        -2.5,
+        2.0
       ]
     }
   ]
