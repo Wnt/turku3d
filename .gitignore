@@ -53,3 +53,6 @@ screenshots/
 
 # Generated semantic-scene assets live in the immutable host content store.
 /game/public/scenes/shared/
+# Compiled scenes are generated data (the office scene is about 160 MB): never tracked.
+# Their history was removed on 2026-11-15; a fresh checkout copies them from the content store or the trunk worktree.
+/game/public/scenes/*.scene.json
